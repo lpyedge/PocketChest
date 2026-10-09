@@ -20,6 +20,7 @@
 		"format": "prettier --write .",
 		"format:check": "prettier --check .",
 		"test:e2e": "playwright test",
+		"screenshots": "node scripts/capture-screenshots.mjs",
 		"setup:local": "node scripts/setup-local.mjs",
 		"check:legacy": "node scripts/check-legacy.mjs",
 		"audit:high": "npm audit --audit-level=high"

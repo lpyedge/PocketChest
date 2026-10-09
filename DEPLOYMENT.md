@@ -1,97 +1,40 @@
-# PocketChest Deployment Guide
+# PocketChest — Deployment guide
 
-This guide walks you through deploying PocketChest, a secure file-sharing application that runs as a single Cloudflare Worker.
+[English](DEPLOYMENT.md) | [繁體中文](DEPLOYMENT.zh-Hant.md) | [日本語](DEPLOYMENT.ja.md) | [PocketChest](README.md)
 
-## Architecture Overview
+> Private, self-hosted sharing for files and text. One Cloudflare Worker, one R2 bucket, no database.
 
-- **One Worker** serves the API (`/api/*`) and the static frontend (built by Vite into `dist/` and uploaded as Workers Static Assets)
-- **R2** stores everything: file content and a small JSON manifest per chest (no database)
-- **Cron trigger** (hourly) deletes expired chests and abandoned uploads
-- **Authentication**: One owner, with three independent sign-in methods: password, authenticator app (TOTP) and passkey
+## 1. One-click deployment (recommended)
 
-There is no separate Cloudflare Pages project and no separate API domain.
+[![Deploy to Cloudflare](https://deploy.workers.cloudflare.com/button)](https://deploy.workers.cloudflare.com/?url=https://github.com/lpyedge/PocketChest)
 
-## Prerequisites
+1. Click the button, sign in to Cloudflare and let it connect to GitHub. It copies this repository into your account and sets up a Worker with an R2 bucket (`R2_STORAGE`), the rate-limit bindings and the hourly cron from `wrangler.jsonc`.
+2. The secrets form lists `JWT_SECRET`, `AUTH_ENCRYPTION_KEY` and `ADMIN_BOOTSTRAP_PASSWORD`, pre-filled with the placeholders from `.dev.vars.example`. **Replace each one with your own random value** (commands in [section 2](#2-manual-deployment)). A deployment that keeps a placeholder is refused: the API answers `SERVER_MISCONFIGURED`, and the owner cannot be created with a placeholder password.
+3. Check that **Build** is `npm run build` and **Deploy** is `npx wrangler deploy`, then deploy.
+4. Open `https://<your-worker>.<your-subdomain>.workers.dev/upload/`. While there is no owner and setup is enabled, the page asks for the setup password. Enter `ADMIN_BOOTSTRAP_PASSWORD` to create the owner; that password is the owner's password until you change it.
+5. **Close setup now.** Delete the `ADMIN_BOOTSTRAP_PASSWORD` secret (Worker → Settings → Variables and Secrets): without it setup cannot run. Then, in the repository the button created in your GitHub account, change `BOOTSTRAP_ENABLED` to `"false"` in `wrangler.jsonc` and commit, so the next build keeps it off. Changing it only in the dashboard is overwritten by the next build.
+6. Open **Security settings** and set a password of your own, then add an authenticator app or a passkey. Choose the final hostname and set `PASSKEY_RP_ID` **before** you register a passkey ([operations](docs/OPERATIONS.md#passkey-domain)).
 
-- [Cloudflare account](https://cloudflare.com/) (free tier works)
-- [Wrangler CLI](https://developers.cloudflare.com/workers/wrangler/) installed globally
+**A successful deployment is not an acceptance test.** Check PBKDF2 CPU use, R2 concurrency, Cron, rate limits and large files on your own Cloudflare plan, as listed in [section 6](#6-check-the-installation). Do not weaken the password hash to fit the Free plan.
+
+## 2. Manual deployment
+
+**You need** a Cloudflare account, Node.js 22.12 or newer (24 recommended), npm, and an empty R2 bucket. PocketChest is for new installations only; there is no migration from an older database version.
 
 ```bash
-npm install
+npm ci
 npx wrangler login
-```
-
-All commands below run from the repository root.
-
-## Deployment
-
-### 1. Create the R2 Bucket
-
-```bash
 npx wrangler r2 bucket create pocket-chest
+# A different bucket name? Change bucket_name in wrangler.jsonc to match.
 ```
 
-If you used a different bucket name, update the bucket name in `wrangler.jsonc`. Otherwise, no configuration changes are needed.
-
-```jsonc
-{
-  "r2_buckets": [
-    {
-      "bucket_name": "pocket-chest", // The name you used in the `wrangler r2 bucket create` command
-      "binding": "R2_STORAGE" // Just use `R2_STORAGE` regardless of bucket_name
-    }
-  ]
-}
-```
-
-### 2. Configure Custom Domain (Optional)
-
-**Using Routes in wrangler.jsonc**
-
-If you have a domain managed by Cloudflare, you can configure a custom domain route directly in your `wrangler.jsonc`:
-
-```jsonc
-{
-  "routes": [
-    {
-      "pattern": "share.yourdomain.com",
-      "custom_domain": true
-    }
-  ],
-  "workers_dev": false  // Optional: disable default *.workers.dev domain
-}
-```
-
-**Workers.dev Domain Control:**
-- By default, your Worker will be accessible at both your custom domain AND `your-worker-name.your-subdomain.workers.dev`
-- To disable the default workers.dev domain, set `"workers_dev": false` in your `wrangler.jsonc`
-- When `workers_dev` is false, your Worker will ONLY be accessible via your custom domain routes. This is recommended for production deployments where you want to use only your custom domain
-- **⚠️ China Access**: The default `*.workers.dev` domain is not accessible from China. If you need China accessibility, you must use a custom domain
-
-**Requirements:**
-- Your domain must be added to Cloudflare (as a zone)
-- **Do NOT configure DNS records beforehand** - Cloudflare will handle this automatically during deployment
-- **Important**: Use a subdomain (3-level domain like `share.yourdomain.com`) for automatic SSL certificates
-- Avoid deeper subdomains (4+ levels like `share.pc.yourdomain.com`) as they won't receive automatic SSL certificates due to Cloudflare limitations
-
-### 3. Configure Secrets and Variables
-
-**⚠️ IMPORTANT**: Never put secrets in the `wrangler.jsonc` vars section; use Cloudflare Worker Secrets ([docs](https://developers.cloudflare.com/workers/configuration/secrets/)).
-
-| Name | Kind | Purpose |
-|------|------|---------|
-| `JWT_SECRET` | Secret | Signs upload and download tokens. Changing it ends all tokens. |
-| `AUTH_ENCRYPTION_KEY` | Secret | 32-byte AES key, base64, that seals the authenticator seed. Lose it and the authenticator must be set up again. |
-| `ADMIN_BOOTSTRAP_PASSWORD` | Secret | Used once, to create the owner (at least 16 characters). Remove it after setup. |
-| `BOOTSTRAP_ENABLED` | Variable | `"true"` only while the first setup is pending; `"false"` otherwise (`wrangler.jsonc`). |
-| `PASSKEY_RP_ID` | Variable | Optional. The one hostname passkeys are bound to; see Passkey Domain. |
-
-Generate the random values with:
+Generate three **different** values and keep them somewhere private:
 
 ```bash
-openssl rand -base64 48    # JWT_SECRET
-openssl rand -base64 32    # AUTH_ENCRYPTION_KEY (must decode to exactly 32 bytes)
-openssl rand -base64 24    # ADMIN_BOOTSTRAP_PASSWORD
+openssl rand -base64 48   # JWT_SECRET
+openssl rand -base64 32   # AUTH_ENCRYPTION_KEY: must decode to exactly 32 bytes
+openssl rand -base64 24   # ADMIN_BOOTSTRAP_PASSWORD: at least 16 characters
+# no openssl: node -e "console.log(require('crypto').randomBytes(48).toString('base64'))"
 ```
 
 ```bash
@@ -100,161 +43,72 @@ npx wrangler secret put AUTH_ENCRYPTION_KEY
 npx wrangler secret put ADMIN_BOOTSTRAP_PASSWORD
 ```
 
-Set `"BOOTSTRAP_ENABLED": "true"` in `wrangler.jsonc` for the first deployment only.
-
-### 4. Deploy
+`BOOTSTRAP_ENABLED` is `"true"` in the repository, for a first installation. Build and deploy:
 
 ```bash
-npm run deploy
+npm run build
+npx wrangler deploy        # or: npm run deploy, which builds first
 ```
 
-This builds the frontend into `dist/` and deploys the Worker together with the static assets. The cleanup cron job is configured in `wrangler.jsonc` and deploys automatically.
-
-PocketChest will be available at `https://pocket-chest.your-subdomain.workers.dev` (or your custom domain if configured).
-
-## Post-Deployment Configuration
-
-### 1. First-time setup
-
-1. Open `https://<your-domain>/upload/`. While the owner does not exist and bootstrap is enabled, the page asks for the administrator password.
-2. Enter `ADMIN_BOOTSTRAP_PASSWORD`. The owner is created with that password, and you are signed in.
-3. Set `"BOOTSTRAP_ENABLED": "false"` in `wrangler.jsonc`, deploy again, and remove the secret:
-   ```bash
-   npx wrangler secret delete ADMIN_BOOTSTRAP_PASSWORD
-   ```
-   Bootstrap cannot run a second time, even with the secret present, so this step is about hygiene: the secret should not stay on the Worker.
-
-### 2. Set up the other sign-in methods
-
-Sign in, then open **Security settings** on the upload page:
-
-- **Password**: change it there (at least 16 characters). Changing it ends the other sessions.
-- **Authenticator app**: *Set up authenticator* shows an `otpauth://` link. Add it to an authenticator app and confirm with a code. A wrong code leaves the current setup unchanged.
-- **Passkeys**: *Add passkey* registers the device. A new passkey is not used for sign-in until you switch the passkey method on.
-
-Each change asks you to confirm with a method you hold. A method cannot be switched off if it is the last one that works.
-
-### 3. Test the deployment
-
-1. Sign in on `/upload/` and upload a file.
-2. Open the returned link on `/retrieve/`, and download the file.
-
-### 4. Lost access
-
-If every sign-in method is unavailable, follow [docs/RECOVERY.md](docs/RECOVERY.md). It is an offline command run by the deployer; the website has no recovery route.
-
-## Environment Variables Reference
-
-| Name | Kind | Required | Description |
-|------|------|----------|-------------|
-| `JWT_SECRET` | Secret | Yes | Signs upload and download tokens |
-| `AUTH_ENCRYPTION_KEY` | Secret | Yes, once an authenticator is set up | Base64 32-byte key that seals the authenticator seed |
-| `ADMIN_BOOTSTRAP_PASSWORD` | Secret | During first setup only | Creates the owner; remove afterwards |
-| `BOOTSTRAP_ENABLED` | Variable | Yes | `"true"` only during first setup |
-| `PASSKEY_RP_ID` | Variable | Recommended | The one hostname passkeys are bound to |
-| `AUTH_LIMITER`, `RETRIEVE_LIMITER`, `UPLOAD_LIMITER`, `PART_LIMITER`, `PART_TOTAL_LIMITER`, `DOWNLOAD_LIMITER` | Rate limiting bindings | Yes | Per-client request limits (`ratelimits` in `wrangler.jsonc`) |
-
-The frontend needs no configuration: it calls the API on the same origin.
-
-For local development, put these values in `.dev.vars` (see `.dev.vars.example`).
-
-## Monitoring and Maintenance
-
-### View Logs
-```bash
-# Worker logs
-npx wrangler tail
-
-# Inspect a chest manifest by retrieval code
-npx wrangler r2 object get pocket-chest/codes/ABC123 --pipe --remote
-```
-
-### Cleanup Job
-
-The Worker runs `0 * * * *` (hourly, `wrangler.jsonc`). Each run is bounded and the next run continues where it stopped. It:
-- Deletes chests whose expiry has passed, together with their files
-- Deletes upload sessions that were not completed within 48 hours, and aborts their unfinished multipart uploads
-- Finishes or rolls back uploads stuck in finalization for more than an hour
-- Removes owner sign-in sessions that have ended, expired challenges, and resets quiet sign-in failure counters (locked counters are never touched)
-- Removes stored file objects that no session refers to, after a 48-hour grace period
-
-Expiry is also enforced on every request, so an expired chest is unreachable even before the job removes it.
-
-### Operating the Cron Job
+Open `/upload/` and create the owner, then **close setup** before public use:
 
 ```bash
-# Follow the Worker's logs while the next run happens (or trigger one, see below)
-npx wrangler tail --format pretty
-
-# Local check of the scheduled handler, with the same entry point the platform calls
-npx wrangler dev --test-scheduled
-curl "http://localhost:8787/__scheduled?cron=0+*+*+*+*"
+npx wrangler secret delete ADMIN_BOOTSTRAP_PASSWORD
+# set BOOTSTRAP_ENABLED to "false" in wrangler.jsonc, then:
+npx wrangler deploy
 ```
 
-A run logs a `Cleanup summary` with counts. A run that finishes with errors logs `Cleanup finished with N error(s)` and is reported as failed; the remaining work is retried by the next run. Check after the first day that the counts are stable and the error line does not repeat.
+Never remove the setup marker in R2 to reopen setup. If setup was interrupted, use [offline recovery](docs/RECOVERY.md).
 
-### Watching the Storage
+## 3. Secrets and settings
 
-- `npx wrangler r2 bucket info pocket-chest` shows the stored size; compare it with what the uploads imply
-- Object key types, for orientation:
+| Name | Kind | Meaning |
+| --- | --- | --- |
+| `JWT_SECRET` | Worker secret | Signs upload and download tokens. At least 24 characters, random, never an example value. |
+| `AUTH_ENCRYPTION_KEY` | Worker secret | Base64 of exactly 32 random bytes; seals the authenticator seed. Keep a backup: without it the authenticator must be set up again. |
+| `ADMIN_BOOTSTRAP_PASSWORD` | One-time Worker secret | At least 16 characters. Creates the owner; **delete it afterwards**. |
+| `BOOTSTRAP_ENABLED` | `wrangler.jsonc` variable | `"true"` only for the first installation; `"false"` once the owner exists. |
+| `PASSKEY_RP_ID` | Optional variable | The one hostname passkeys are bound to. Set it before registering a passkey. |
+| `R2_STORAGE` | R2 binding | Files and all metadata, in one private bucket. |
+| `AUTH_LIMITER`, `RETRIEVE_LIMITER`, `UPLOAD_LIMITER`, `PART_LIMITER`, `PART_TOTAL_LIMITER`, `DOWNLOAD_LIMITER` | Rate-limit bindings | Per-client limits for sign-in, retrieval, uploads, upload parts and downloads. No extra database. |
 
-| Key | Content |
-|-----|---------|
-| `{sessionId}/{fileId}` | File content |
-| `codes/{CODE}` | Chest manifest (JSON): session, expiry and file list |
-| `expiry/{expiresAt}/{CODE}` | Empty marker; lets the cleanup job find due chests in time order |
-| `pending/{createdAt}/{sessionId}` | Empty marker for an upload that has not been completed yet |
-| `auth/owner.json` | Owner record: password hash, sealed authenticator seed, passkey public keys |
-| `auth/sessions/{sha256(sid)}` | Owner sign-in sessions (the cookie value itself is never stored) |
-| `auth/challenges/{sha256(challenge)}` | One-time passkey and authenticator-enrolment challenges |
-| `auth/throttle/{method}.json` | Sign-in failure counters for password and authenticator |
-| `auth/bootstrap-marker` | Records that first-time setup was claimed |
-| `maintenance/orphan-cursor.json` | Where the orphan scan continues |
+For local development, `npm run setup:local` writes `.dev.vars` with fresh random values. Never publish `.dev.vars`, and never use the example values anywhere real.
 
-### Passkey Domain
+## 4. Build and deploy settings
 
-Set `PASSKEY_RP_ID` to the one hostname the site is served on, for example `pocket.example.com`:
+With Workers Builds from GitHub, set **Build** to `npm run build` and **Deploy** to `npx wrangler deploy`. Do not use `npm run deploy` there: it builds again. The `dist/` folder is served as Workers Static Assets; the Worker itself handles `/api/*` only. A blank page or a 404 on `/upload/` means `dist/` was not built before deploying.
 
-```jsonc
-// wrangler.jsonc, "vars"
-"PASSKEY_RP_ID": "pocket.example.com"
-```
+## 5. First setup and daily use
 
-Passkeys are bound to that hostname. With the variable set, any request on another hostname (for example the `workers.dev` address next to a custom domain) is refused with `PASSKEY_DOMAIN_MISMATCH`. Set it before the first passkey is registered: a passkey made for one hostname does not work on another.
+- The setup password becomes the owner's password. Change it in **Security settings** (at least 16 characters).
+- Password, authenticator app and passkey can each sign in on their own. Keep at least two set up, so one lost device does not lock you out. If every method is lost, see [offline recovery](docs/RECOVERY.md).
+- Upload sessions end 24 hours after they start. Shares last 1, 3, 7 or 14 days, or are permanent; an hourly cleanup removes the expired ones.
 
-## Security Considerations
+## 6. Check the installation
 
-1. **JWT Secret**: Use a strong, unique secret for production
-2. **Sign-in methods**: Keep at least two sign-in methods set up, so one lost device does not lock you out
-3. **File Types**: The system accepts all file types - consider validation if needed
-4. **Rate Limiting**: Consider adding rate limiting for production use
-5. **Same origin**: The API sends no CORS headers, so other sites cannot call it from a browser
+- [ ] `/`, `/ja/`, `/en/`, `/upload/` and `/retrieve/` load.
+- [ ] The owner was created once, `ADMIN_BOOTSTRAP_PASSWORD` is deleted and `BOOTSTRAP_ENABLED` is `"false"` in the deployed configuration.
+- [ ] A text item and a small file upload, and download with the right content and file name.
+- [ ] Every sign-in method you use works, and a method you switched off no longer signs in.
+- [ ] Password sign-in runs within the CPU allowance of your Workers plan (measure it; see [known limits](docs/OPERATIONS.md#known-limits)).
+- [ ] The hourly Cron runs without errors, and rate limits answer `429` on the real Worker.
+- [ ] A large file (more than 20 MiB) uploads and downloads.
+- [ ] Passkeys work on the final hostname, after `PASSKEY_RP_ID` is set.
 
-## Troubleshooting
+The full list is in [REMOTE_ACCEPTANCE.md](docs/REMOTE_ACCEPTANCE.md). Logs, the cleanup job, stored keys, custom domains and known limits are in [docs/OPERATIONS.md](docs/OPERATIONS.md).
 
-### Common Issues
+## 7. Troubleshooting
 
-1. **Blank page or 404 for `/upload/`**: Make sure `npm run deploy` (not plain `wrangler deploy`) ran, so `dist/` was built
-2. **Storage Errors**: Ensure the R2 bucket exists and `bucket_name` in `wrangler.jsonc` matches it
-3. **Authenticator Issues**: Check that the device clock is synchronized; codes are time-based
+| Symptom | Likely cause |
+| --- | --- |
+| Every `/api/*` call answers `SERVER_MISCONFIGURED` | `JWT_SECRET` is missing, too short or still an example value. |
+| Setup answers `BOOTSTRAP_MISCONFIGURED` | `ADMIN_BOOTSTRAP_PASSWORD` is shorter than 16 characters or still an example value. |
+| Setup answers `BOOTSTRAP_DISABLED` | `BOOTSTRAP_ENABLED` is not `"true"`, or the secret is not set. |
+| Authenticator setup fails with `AUTH_NOT_CONFIGURED` | `AUTH_ENCRYPTION_KEY` is missing or not base64 of 32 bytes. |
+| Blank page or 404 on `/upload/` | `dist/` was not built before deploying (see section 4). |
+| Storage errors | The R2 bucket does not exist, or `bucket_name` in `wrangler.jsonc` does not match it. |
+| Passkey refused with `PASSKEY_DOMAIN_MISMATCH` | The request came from a hostname other than `PASSKEY_RP_ID`. |
 
-### Debug Commands
+## 8. Project origin and enhancements
 
-```bash
-# Test backend endpoints
-curl https://your-worker.workers.dev/api/chest -X POST
-```
-
-## Scaling Considerations
-
-- **R2**: First 10GB storage free, then $0.015/GB/month; 1M Class A and 10M Class B operations/month free (a chest uses a handful of each)
-- **Workers**: 100,000 requests/day free, then $0.50 per million; static asset requests are free and do not invoke the Worker
-
-For higher usage, consider Cloudflare's paid tiers.
-## Known limits (review v3, FIX-12)
-
-- **Workers plan**: password hashing uses PBKDF2 with 600,000 iterations. Node measures about 150 ms of wall time for it, which is not billed CPU time on Workers. Cloudflare lists 10 ms of CPU for the Free plan, so do not assume the Free plan works. Measure sign-in CPU on a real Worker (TASK-31, R11) before choosing a plan.
-- **Rate limits** are counted per Cloudflare location, so they are approximate across the world. The owner-level lockout in `auth/throttle.ts` is the real protection for sign-in. Its check, verify and record steps are separate requests, so a burst of simultaneous guesses can all be verified before the lock takes effect. Add a Cloudflare WAF rate-limiting rule on `/api/auth/*` if that matters for your deployment.
-- **Content-Security-Policy** is served as report-only (`public/_headers`). Watch the browser console on your own domain, then switch the header name to `Content-Security-Policy` once nothing is reported.
-- **Downloads** do not support `Range` requests, so an interrupted large download starts again from the beginning.
-- **Cleanup** scans owner sessions and passkey challenges in batches of 500 and remembers its position. A `⚠️ Cleanup backlog remains` line in the Worker logs on every run means the job cannot keep up.
+Forked from [Hzao/PocketChest](https://github.com/Hzao/PocketChest). This fork adds a single Worker + R2-only architecture, one-click deployment, owner-only uploads, independent password / TOTP / passkey sign-in, security settings, a localized interface, better share links, rate limiting and cleanup. It is an independent fork; no endorsement by the upstream author is implied.

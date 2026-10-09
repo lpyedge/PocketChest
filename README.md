@@ -1,147 +1,72 @@
 # PocketChest
 
-> Secure, temporary file sharing. Upload files or text, get a code, share anywhere.
+[English](README.md) | [繁體中文](README.zh-Hant.md) | [日本語](README.ja.md)
 
-PocketChest is a modern file sharing service that runs as a single Cloudflare Worker. Share files and text content securely with automatic expiration and no account required.
+> Private, self-hosted sharing for files and text. One Cloudflare Worker, one R2 bucket, no database.
 
-## 💡 What is a "Chest"?
+## 🚀 Deploy in minutes
 
-A **chest** is simply a collection of files and text that you upload together. Each chest gets a unique 6-character code (like `ABC123`) that you share with others to download everything inside it.
+[![Deploy to Cloudflare](https://deploy.workers.cloudflare.com/button)](https://deploy.workers.cloudflare.com/?url=https://github.com/lpyedge/PocketChest)
+
+**One-click deployment** · [Full deployment guide](DEPLOYMENT.md) · [Manual deployment](DEPLOYMENT.md#2-manual-deployment)
+
+The button clones this repository into your GitHub account, builds it with Workers Builds and creates the R2 bucket. You enter three secrets, create the owner once, then close setup. The guide walks through each step, including what to check afterwards: a successful button deployment is not a production acceptance test.
 
 ## ✨ Features
 
-- 📤 **File & Text Sharing** - Upload files or paste text content; uploads are limited to the signed-in owner
-- 📦 **Large File Support** - Handles files up to about 195GB (10,000 parts of 20MB) using multipart uploads to Cloudflare R2
-- 🔐 **Secure Codes** - 6-character retrieval codes for access
-- 🔗 **Ready-to-send Links** - After uploading, copy a direct link (`/retrieve/#ABC123`) or the page address plus code
-- ⏰ **Auto Expiry** - Files expire after 1, 3, 7, or 14 days (or permanent)
-- 🚀 **No Registration** - No accounts, just upload and share
-- 🔐 **Owner Sign-in, three methods** - Password, authenticator app (TOTP) and passkey; any one that is switched on is enough
-- 🌐 **Three languages** - 繁體中文, 日本語 and English, switchable without reloading
-- 📱 **Responsive** - Works on desktop and mobile
-- ⚡ **Fast** - Built on Cloudflare's global edge network
+- Password, authenticator app (TOTP) or passkey: each can sign in on its own; at least one stays on.
+- Owner-only uploads. Recipients use a retrieval code or a direct `#CODE` link, without signing in.
+- Text and large files (multipart), shares of 1, 3, 7 or 14 days or permanent, hourly cleanup.
+- Traditional Chinese, Japanese and English, including a static home page in each language.
+- One Worker, Workers Static Assets and R2. No D1, KV or separate web service.
 
-## 📺 Demo
+## 📦 How it works
 
-### Upload & Share (15 seconds)
-![Upload Demo](assets/pocket-chest-upload-demo.gif)
+1. Sign in at `/upload/` with any sign-in method that is on.
+2. Add files or text, choose how long the share lasts, and finish.
+3. Copy the direct link `/retrieve/#CODE`, or the retrieval page address and the code separately.
+4. Recipients retrieve the files without an account.
 
-### Retrieve Files (10 seconds)  
-![Retrieve Demo](assets/pocket-chest-retrieve-demo.gif)
+## 🖼️ Screenshots
 
-## 🏗️ Architecture
+| | |
+|:--:|:--:|
+| <img src="assets/screenshots/home-en.png" alt="Home" width="420"><br>Home | <img src="assets/screenshots/login-en.png" alt="Owner sign-in" width="420"><br>Owner sign-in |
+| <img src="assets/screenshots/upload-en.png" alt="Upload" width="420"><br>Upload | <img src="assets/screenshots/share-result-en.png" alt="Share result" width="420"><br>Share result |
+| <img src="assets/screenshots/retrieve-en.png" alt="Retrieve" width="420"><br>Retrieve | <img src="assets/screenshots/security-settings-en.png" alt="Security settings" width="420"><br>Security settings |
 
-One Cloudflare Worker serves everything from one domain:
+<img src="assets/screenshots/upload-en-mobile.png" alt="Upload (mobile)" width="200"> <img src="assets/screenshots/retrieve-en-mobile.png" alt="Retrieve (mobile)" width="200">
 
-| Path | Served by |
-|------|-----------|
-| `/` | Static home page (no JavaScript) |
-| `/upload/` | Upload app (React) |
-| `/retrieve/`, `/retrieve/#ABC123` | Retrieve app (React); the code in the `#` fragment is never sent to the server |
-| `/assets/*` | Hashed JS/CSS from the Vite build |
-| `/api/*` | Worker API; all data (files and chest manifests) lives in one R2 bucket |
+Captured from the current build by `npm run screenshots` (see [docs/SCREENSHOTS.md](docs/SCREENSHOTS.md)); the codes shown are throw-away test data.
 
-- **Frontend**: React 19 + Tailwind CSS, built with Vite into `dist/` and served as Workers Static Assets
-- **Backend**: TypeScript Worker + R2 Storage (no database), rate limiting bindings, hourly cron cleanup
-- **Deployment**: `npm run deploy` builds the frontend and deploys the Worker and its assets together
+## 🛡️ Security and current limits
 
-## 🚀 Quick Start
+- An upload session lasts 24 hours from its start; resuming after that is not supported.
+- Password hashing is CPU-heavy. Do not assume the Workers Free plan can run it; test your plan.
+- Cloudflare-side checks (R2 concurrency, Cron, rate limits, passkeys on your domain, large files) are still yours to run before relying on it.
+- CSP is report-only and downloads do not support `Range` resume. Details: [docs/OPERATIONS.md](docs/OPERATIONS.md#known-limits).
 
-For complete deployment instructions, see **[DEPLOYMENT.md](DEPLOYMENT.md)**. The API is documented in **[docs/API.md](docs/API.md)**.
-
-### Prerequisites
-- Cloudflare account
-- Node.js 22.12+ (`.nvmrc` pins 24)
-
-### Local Development
-
-```bash
-npm install
-cp .dev.vars.example .dev.vars   # local secrets
-
-# Option 1: build once and run everything on the Worker (http://localhost:8787)
-npm run preview
-
-# Option 2: hot reload — run the Worker and the Vite dev server side by side
-npm run dev:worker   # API on http://localhost:8787
-npm run dev          # frontend on http://localhost:5173, proxies /api to the Worker
-```
-
-### Checks
-
-The same sequence runs in CI (`.github/workflows/ci.yml`):
+## 🛠️ Development
 
 ```bash
 npm ci
-npm run typecheck
-npm run lint
-npm run format:check
-npm run check:legacy        # no retired protocol left in shipped code
-npm run test:unit           # web components, i18n
-npm run test:worker         # Worker runtime: auth, uploads, downloads, cleanup
-npm run test:contracts      # every documented route exists, retired ones answer 404
-npm run test:e2e            # Playwright, desktop and 375px mobile
-npm run build
-npx wrangler deploy --dry-run --outdir .wrangler/dry-run
-npm run audit:high
+npm run setup:local        # writes .dev.vars with fresh random secrets
+npm run preview            # build, then run the whole Worker on http://localhost:8787
 ```
 
-`npm test` runs the three Vitest groups. `test-results/report.json` is the machine-readable report written by `scripts/test-report.mjs`.
+The same checks run in CI:
 
-## 📁 Project Structure
-
-```
-PocketChest/
-├── src/
-│   ├── worker/                # Cloudflare Worker (API + cron cleanup)
-│   │   ├── index.ts           # Routes and handlers
-│   │   ├── storage.ts         # R2 key layout, chest manifests, cleanup
-│   │   ├── types.ts
-│   │   └── utils.ts
-│   └── web/                   # Vite frontend (static home pages and two apps)
-│       ├── index.html         # Static home page, zh-Hant (also /ja/ and /en/ as plain HTML)
-│       ├── upload/            # Upload app (index.html, main.tsx, UploadApp.tsx)
-│       ├── retrieve/          # Retrieve app (index.html, main.tsx, RetrieveApp.tsx)
-│       └── shared/            # Components, hooks, API client, i18n catalogue, styles
-├── public/                    # Copied into dist/ as-is (_headers, 404.html, favicon)
-├── test/                      # Vitest groups: web/ + i18n (unit), contracts/, the rest (worker); e2e/ (Playwright)
-├── scripts/                   # check-legacy.mjs, test-report.mjs, reset-owner-password.mjs (offline recovery)
-├── docs/                      # API.md, RECOVERY.md, DEPENDENCIES.md, TEST_REPORT.md, IMPLEMENTATION_STATUS.md
-├── .github/workflows/ci.yml   # The CI gate, in order
-├── wrangler.jsonc             # Worker, assets, R2 and cron configuration
-├── vite.config.ts
-└── DEPLOYMENT.md
+```bash
+npm run typecheck && npm run lint && npm run format:check
+npm run test:unit && npm run test:worker && npm run test:contracts
+npm run test:e2e           # Playwright, desktop and 375px
+npm run build && npx wrangler deploy --dry-run
 ```
 
-## 🔒 Security Features
+[Architecture](docs/ARCHITECTURE.md) · [API](docs/API.md) · [Operations](docs/OPERATIONS.md) · [Owner recovery](docs/RECOVERY.md) · [Cloudflare acceptance](docs/REMOTE_ACCEPTANCE.md)
 
-- **Owner-only uploads** - Upload sessions need a signed-in owner session and a CSRF token
-- **Three independent sign-in methods** - Password (PBKDF2-SHA256, 600,000 iterations), TOTP (seed sealed with AES-256-GCM) and passkeys (WebAuthn, public keys only); one method is always kept on
-- **Lockouts and rate limits** - Per-method owner lockout plus per-client rate limiting bindings
-- **Retrieval codes in the URL fragment** - `/retrieve/#CODE`; the code is never sent to the server
-- **Short-lived download grants** - Each file download is authorized with a 60-second, per-file cookie
-- **Auto Expiration** - Files automatically deleted after expiry
-- **Automated Cleanup** - Hourly cron job removes expired chests, abandoned uploads and ended sessions
-- **Recovery** - Offline command only, see [docs/RECOVERY.md](docs/RECOVERY.md)
+## 🔀 Project origin and enhancements
 
-## 🚢 Deployment
+Forked from [Hzao/PocketChest](https://github.com/Hzao/PocketChest). This fork adds a single Worker + R2-only architecture, one-click deployment, owner-only uploads, independent password / TOTP / passkey sign-in, security settings, a localized interface, better share links, rate limiting and cleanup. It is an independent fork; no endorsement by the upstream author is implied.
 
-See **[DEPLOYMENT.md](DEPLOYMENT.md)** for complete deployment instructions including:
-- Single Worker deployment (API + static frontend)
-- R2 storage setup and the three secrets
-- First-time setup and enabling the sign-in methods
-- Custom domain configuration and the passkey domain
-- Environment variables
-- Troubleshooting guide
-
-## 🤝 Contributing
-
-1. Fork the repository
-2. Create a feature branch
-3. Make your changes
-4. Test thoroughly
-5. Submit a pull request
-
-## 📄 License
-
-MIT License - see LICENSE file for details. Use at your own risk.
+Licensed under the repository's [LICENSE](LICENSE).

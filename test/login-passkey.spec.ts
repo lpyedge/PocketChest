@@ -130,6 +130,46 @@ describe('passkey sign-in', () => {
 		expect(typeof record?.lastUsedAt).toBe('number');
 	});
 
+	it('never lowers the counter when another sign-in commits a newer one first (FIX-07)', async () => {
+		const options = await loginOptions();
+		const older = await authenticator.assert(options, credentialId); // counter 1
+
+		// While this assertion is being stored, a concurrent sign-in commits counter 11 for the same key
+		let injected = false;
+		const racing = new Proxy(bucket(), {
+			get(target, property) {
+				if (property === 'put') {
+					return async (key: string, ...rest: unknown[]) => {
+						if (!injected && key === 'auth/owner.json') {
+							injected = true;
+							await mutateOwner(target, (owner) => ({
+								...owner,
+								methods: {
+									...owner.methods,
+									passkey: {
+										...owner.methods.passkey,
+										credentials: owner.methods.passkey.credentials.map((credential) => ({ ...credential, counter: 11 })),
+									},
+								},
+							}));
+						}
+						return (target.put as any).call(target, key, ...rest);
+					};
+				}
+				const value = (target as any)[property];
+				return typeof value === 'function' ? value.bind(target) : value;
+			},
+		}) as R2Bucket;
+
+		const response = await loginVerify(options.challenge, older, { ...env, R2_STORAGE: racing } as unknown as Env);
+
+		expect(injected).toBe(true);
+		expect(response.status).toBe(401);
+		expect(response.headers.get('Set-Cookie')).toBeNull();
+		await response.text();
+		expect((await passkeyRecord(credentialId))?.counter).toBe(11);
+	});
+
 	it('does not accept the same challenge twice', async () => {
 		const options = await loginOptions();
 		const assertion = await authenticator.assert(options, credentialId);

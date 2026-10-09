@@ -220,6 +220,13 @@ async function verifyAssertion(
 			if (!current || (purpose === 'login' && !isUsable(latest, 'passkey'))) {
 				throw new CredentialGoneError();
 			}
+			// The signature was checked against `stored`. If the key was replaced, or another sign-in moved the
+			// counter on in the meantime, this assertion is stale and must not overwrite the newer state.
+			// Authenticators that always report 0 (some synced passkeys) have no counter to compare.
+			const countsUp = newCounter !== 0 || current.counter !== 0;
+			if (current.publicKey !== stored.publicKey || (countsUp && newCounter <= current.counter)) {
+				throw new CredentialGoneError();
+			}
 			const credentials = latest.methods.passkey.credentials.map((credential) =>
 				credential.id === credentialId ? { ...credential, counter: newCounter, lastUsedAt: now } : credential,
 			);

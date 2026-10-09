@@ -3,12 +3,14 @@
  * password (stored only as a hash). Setup is claimed in this order:
  *   1. the marker is written with If-None-Match, so only one request can ever claim setup
  *   2. the owner record is created with If-None-Match
- * If step 2 fails, the marker stays: setup never reopens by itself (recovery goes through the CLI).
+ * If step 2 fails, the marker stays: setup never reopens by itself. The deployer finishes it offline with
+ * scripts/recover-bootstrap.mjs (docs/RECOVERY.md), which creates the first owner and leaves the marker alone.
+ * The password is hashed before step 1, so a failure there leaves nothing claimed.
  */
 import { ApiError } from '../errors';
 import { isPlaceholder } from '../config';
 import { constantTimeEqual } from './encoding';
-import { createOwnerOnce, OWNER_KEY } from './owner';
+import { buildFirstOwner, OWNER_KEY, storeFirstOwner } from './owner';
 
 export const BOOTSTRAP_MARKER_KEY = 'auth/bootstrap-marker';
 
@@ -42,6 +44,10 @@ export async function bootstrapOwner(env: BootstrapEnv, submitted: string): Prom
 		throw new ApiError(401, 'AUTH_INVALID_CREDENTIALS', 'Invalid credentials');
 	}
 
+	// The costly part (hashing the password) comes first. If it fails, for example for lack of CPU, nothing has been
+	// claimed yet, so setup can simply be tried again. Only the cheap writes are left once the marker exists.
+	const owner = await buildFirstOwner(configured);
+
 	const claimed = await env.R2_STORAGE.put(BOOTSTRAP_MARKER_KEY, new Date().toISOString(), {
 		onlyIf: new Headers({ 'If-None-Match': '*' }),
 	});
@@ -49,7 +55,7 @@ export async function bootstrapOwner(env: BootstrapEnv, submitted: string): Prom
 		throw new ApiError(409, 'BOOTSTRAP_CLOSED', 'Initial setup is already complete');
 	}
 
-	const created = await createOwnerOnce(env.R2_STORAGE, configured);
+	const created = await storeFirstOwner(env.R2_STORAGE, owner);
 	if (!created) {
 		throw new ApiError(409, 'BOOTSTRAP_CLOSED', 'Initial setup is already complete');
 	}

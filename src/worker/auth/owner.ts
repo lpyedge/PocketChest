@@ -163,8 +163,8 @@ export async function loadOwner(bucket: R2Bucket): Promise<{ owner: OwnerRecord;
 	return { owner: parseOwner(parsed), etag: object.etag };
 }
 
-/** Creates the first owner, with the password as the only enabled method. Returns false if one exists. */
-export async function createOwnerOnce(bucket: R2Bucket, password: string, now: number = Math.floor(Date.now() / 1000)): Promise<boolean> {
+/** The first owner record, with the password as the only enabled method. This is where the expensive hashing happens. */
+export async function buildFirstOwner(password: string, now: number = Math.floor(Date.now() / 1000)): Promise<OwnerRecord> {
 	const owner: OwnerRecord = {
 		schemaVersion: 1,
 		authVersion: 1,
@@ -176,11 +176,21 @@ export async function createOwnerOnce(bucket: R2Bucket, password: string, now: n
 		},
 	};
 	assertInvariant(owner);
+	return owner;
+}
+
+/** Stores a record built by buildFirstOwner, only if there is no owner yet. Returns false if one exists. */
+export async function storeFirstOwner(bucket: R2Bucket, owner: OwnerRecord): Promise<boolean> {
 	const stored = await bucket.put(OWNER_KEY, JSON.stringify(owner), {
 		httpMetadata: { contentType: 'application/json' },
 		onlyIf: new Headers({ 'If-None-Match': '*' }),
 	});
 	return stored !== null;
+}
+
+/** Creates the first owner, with the password as the only enabled method. Returns false if one exists. */
+export async function createOwnerOnce(bucket: R2Bucket, password: string, now: number = Math.floor(Date.now() / 1000)): Promise<boolean> {
+	return storeFirstOwner(bucket, await buildFirstOwner(password, now));
 }
 
 /**

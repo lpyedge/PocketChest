@@ -6,11 +6,9 @@
 //   printf '%s' "$NEW_PASSWORD" | node scripts/reset-owner-password.mjs --bucket pocket-chest --backup ./owner-backup.json --password-stdin
 //
 // The new password is read from a hidden prompt or from stdin, never from argv (so it stays out of shell history).
-import { execFileSync } from 'node:child_process';
-import { mkdtempSync, rmSync, writeFileSync, chmodSync, readFileSync } from 'node:fs';
-import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { chmodSync, writeFileSync } from 'node:fs';
 import { recoverPassword, OWNER_KEY, MIN_PASSWORD_LENGTH } from './recovery-core.mjs';
+import { readPassword, wranglerGet, wranglerPut } from './recovery-io.mjs';
 
 function parseArgs(argv) {
 	const args = { bucket: null, backup: null, passwordStdin: false, help: false };
@@ -30,81 +28,20 @@ const USAGE = `Usage: node scripts/reset-owner-password.mjs --bucket <r2-bucket>
 Resets the owner password from the command line. Needs wrangler to be logged in with access to the bucket.
 Before running, pause the public sign-in pages for the maintenance window (see docs/RECOVERY.md).`;
 
-// Reads the password. With a terminal, keystrokes are read without echo; with a pipe, the first line is taken.
-function readPassword(fromStdin) {
-	if (fromStdin || !process.stdin.isTTY) {
-		return new Promise((resolve, reject) => {
-			let data = '';
-			process.stdin.setEncoding('utf8');
-			process.stdin.on('data', (chunk) => (data += chunk));
-			process.stdin.on('end', () => resolve(data.split(/\r?\n/)[0]));
-			process.stdin.on('error', reject);
-		});
-	}
-	return new Promise((resolve, reject) => {
-		const stdin = process.stdin;
-		process.stdout.write('New owner password (input hidden): ');
-		stdin.setRawMode(true);
-		stdin.setEncoding('utf8');
-		stdin.resume();
-		let value = '';
-		const finish = () => {
-			stdin.setRawMode(false);
-			stdin.pause();
-			stdin.off('data', onData);
-		};
-		const onData = (chunk) => {
-			for (const char of chunk) {
-				if (char === '\r' || char === '\n') {
-					finish();
-					process.stdout.write('\n');
-					resolve(value);
-					return;
-				}
-				if (char === '\u0003') {
-					finish();
-					reject(new Error('Cancelled. Nothing was changed.'));
-					return;
-				}
-				if (char === '\u007f' || char === '\b') {
-					value = value.slice(0, -1);
-				} else {
-					value += char;
-				}
-			}
-		};
-		stdin.on('data', onData);
-	});
-}
-
 // Storage through wrangler, with the deployer's credentials. Wrangler has no conditional write, which is why
 // the core re-reads and compares before writing, and why the maintenance window must pause sign-in.
-function wranglerStorage(bucket, backupPath, tempDir) {
-	const key = `${bucket}/${OWNER_KEY}`;
+function wranglerStorage(bucket, backupPath) {
 	return {
 		async read() {
-			try {
-				const body = execFileSync('npx', ['wrangler', 'r2', 'object', 'get', key, '--remote', '--pipe'], {
-					encoding: 'utf8',
-					stdio: ['ignore', 'pipe', 'pipe'],
-				});
-				return { body, etag: null };
-			} catch (error) {
-				const message = String(error.stderr ?? error.message);
-				if (/not found|does not exist|10007|NoSuchKey/i.test(message)) return null;
-				throw new Error(`Could not read the owner record: ${message.split('\n')[0]}`);
-			}
+			const body = wranglerGet(bucket, OWNER_KEY);
+			return body === null ? null : { body, etag: null };
 		},
 		async backup(body) {
 			writeFileSync(backupPath, body, { mode: 0o600, flag: 'wx' });
 			chmodSync(backupPath, 0o600);
 		},
 		async write(body) {
-			const file = join(tempDir, 'owner.json');
-			writeFileSync(file, body, { mode: 0o600 });
-			execFileSync('npx', ['wrangler', 'r2', 'object', 'put', key, '--remote', '--file', file, '--content-type', 'application/json'], {
-				stdio: ['ignore', 'inherit', 'inherit'],
-			});
+			wranglerPut(bucket, OWNER_KEY, body);
 		},
 	};
 }
@@ -121,22 +58,17 @@ async function main() {
 		return;
 	}
 
-	const password = await readPassword(args.passwordStdin);
+	const password = await readPassword(args.passwordStdin, 'New owner password (input hidden): ');
 	if (password.length < MIN_PASSWORD_LENGTH) {
 		throw new Error(`The new password must be at least ${MIN_PASSWORD_LENGTH} characters. Nothing was changed.`);
 	}
 
-	const tempDir = mkdtempSync(join(tmpdir(), 'pocketchest-recovery-'));
-	try {
-		const result = await recoverPassword(wranglerStorage(args.bucket, args.backup, tempDir), password);
-		console.log(`Password reset and verified. Owner authVersion is now ${result.authVersion}.`);
-		console.log('Every existing owner session has ended. Sign in with the new password.');
-		console.log(
-			`Backup of the previous owner record: ${args.backup} (contains the old password hash; keep it private and delete it when done).`,
-		);
-	} finally {
-		rmSync(tempDir, { recursive: true, force: true });
-	}
+	const result = await recoverPassword(wranglerStorage(args.bucket, args.backup), password);
+	console.log(`Password reset and verified. Owner authVersion is now ${result.authVersion}.`);
+	console.log('Every existing owner session has ended. Sign in with the new password.');
+	console.log(
+		`Backup of the previous owner record: ${args.backup} (contains the old password hash; keep it private and delete it when done).`,
+	);
 }
 
 main().catch((error) => {

@@ -113,3 +113,68 @@ export async function recoverPassword(storage, password) {
 	}
 	return { authVersion: stored.authVersion };
 }
+
+// The first owner record, in the shape the Worker writes on first setup (auth/owner.ts, buildFirstOwner)
+export function buildFirstOwner(passwordHash, now = Math.floor(Date.now() / 1000)) {
+	return {
+		schemaVersion: 1,
+		authVersion: 1,
+		createdAt: now,
+		methods: {
+			password: { enabled: true, hash: passwordHash },
+			totp: { enabled: false, encryptedSecret: null, lastAcceptedStep: null },
+			passkey: { enabled: false, credentials: [] },
+		},
+	};
+}
+
+/**
+ * Finishes a first setup that was interrupted after it claimed the setup marker but before the owner record was
+ * written: creates the first owner from a password the deployer supplies. `storage` supplies hasMarker() -> boolean,
+ * readOwner() -> { body } | null and writeOwner(body).
+ *
+ * It runs only in that state. Without the marker, setup was never claimed and /upload/ still offers it; with an
+ * owner present, the password tool (reset-owner-password.mjs) is the right one. The marker is never touched, and
+ * nothing here is reachable over HTTP. Storage without conditional writes (wrangler) can only check that the owner is
+ * still absent just before writing, so the caller must pause the sign-in entrances for the maintenance window.
+ */
+export async function recoverBootstrap(storage, password, now = Math.floor(Date.now() / 1000)) {
+	if (typeof password !== 'string' || password.length < MIN_PASSWORD_LENGTH) {
+		throw new Error(`The owner password must be at least ${MIN_PASSWORD_LENGTH} characters`);
+	}
+	if (!(await storage.hasMarker())) {
+		throw new Error('Setup was not interrupted: no setup marker exists, so first setup is still open at /upload/. Nothing was changed');
+	}
+	if (await storage.readOwner()) {
+		throw new Error(
+			'An owner already exists, so setup is not interrupted. To change the password use reset-owner-password.mjs. Nothing was changed',
+		);
+	}
+
+	// The slow part first; the record is checked again right before it is written
+	const record = buildFirstOwner(await hashNewPassword(password), now);
+	if (await storage.readOwner()) {
+		throw new Error('An owner appeared while the password was being hashed; nothing was written');
+	}
+	await storage.writeOwner(JSON.stringify(record));
+
+	const stored = await storage.readOwner();
+	let parsed;
+	try {
+		parsed = stored ? JSON.parse(stored.body) : null;
+	} catch {
+		parsed = null;
+	}
+	if (
+		!parsed ||
+		parsed.schemaVersion !== 1 ||
+		parsed.authVersion !== 1 ||
+		!parsed.methods?.password?.enabled ||
+		!(await passwordMatches(password, parsed.methods.password.hash))
+	) {
+		throw new Error(
+			'The owner record could not be verified after writing (read back failed or does not match); check auth/owner.json before anything else',
+		);
+	}
+	return { authVersion: parsed.authVersion };
+}

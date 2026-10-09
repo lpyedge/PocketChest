@@ -157,7 +157,16 @@ describe('upload limits and quotas', () => {
 			bucket(),
 			sessionId,
 			'one-byte',
-			[{ fileId: crypto.randomUUID(), filename: 'one.txt', size: 6 * 1024 ** 3, mimeType: 'text/plain', isText: false, fileExtension: 'txt' }],
+			[
+				{
+					fileId: crypto.randomUUID(),
+					filename: 'one.txt',
+					size: 6 * 1024 ** 3,
+					mimeType: 'text/plain',
+					isText: false,
+					fileExtension: 'txt',
+				},
+			],
 			now,
 		);
 

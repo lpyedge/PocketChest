@@ -213,7 +213,13 @@ export async function finalizeChest(bucket: R2Bucket, sessionId: string, plan: F
 		return code;
 	}
 
-	await transitionSession(bucket, sessionId, 'OPEN', { candidateCode: null, completionFingerprint: null, finalizeStartedAt: null });
+	await transitionSession(bucket, sessionId, 'OPEN', {
+		candidateCode: null,
+		completionFingerprint: null,
+		finalizeStartedAt: null,
+		validityDays: null,
+		expiresAt: null,
+	});
 	if (startedAt !== null) await bucket.delete(finalizingIndexKey(startedAt, sessionId));
 	return null;
 }
@@ -265,6 +271,8 @@ const UUID_PATTERN = /^[0-9a-f-]{36}$/;
 
 export interface CleanupResult {
 	expiredChests: number;
+	// Chests whose manifest or index disagreed with the session; kept and repaired instead of deleted
+	repairedExpiry: number;
 	abandonedSessions: number;
 	rolledBackFinalizations: number;
 	orphanClaims: number;
@@ -341,6 +349,7 @@ async function removeSession(bucket: R2Bucket, sessionId: string, multipartUploa
 export async function cleanupExpired(bucket: R2Bucket, now: number): Promise<CleanupResult> {
 	const result: CleanupResult = {
 		expiredChests: 0,
+		repairedExpiry: 0,
 		abandonedSessions: 0,
 		rolledBackFinalizations: 0,
 		orphanClaims: 0,
@@ -364,7 +373,21 @@ export async function cleanupExpired(bucket: R2Bucket, now: number): Promise<Cle
 			const session = manifest ? await getSessionRecord(bucket, manifest.sessionId).catch(() => null) : null;
 			const owns = session?.record.status === 'COMPLETED' && session.record.retrievalCode === code;
 
-			if (manifest && owns) {
+			const indexTimestamp = Number(indexKey.split('/')[1]);
+			if (manifest && owns && (session.record.expiresAt !== indexTimestamp || manifest.expiresAt !== indexTimestamp)) {
+				// The session decides. Nothing is deleted on a disagreement: bring manifest and index in line,
+				// and let a later run delete the chest if it really is due.
+				const truth = session.record.expiresAt;
+				if (manifest.expiresAt !== truth) {
+					await bucket.put(codeKey(code), JSON.stringify({ ...manifest, expiresAt: truth }), {
+						httpMetadata: { contentType: 'application/json' },
+					});
+				}
+				if (truth !== null) await bucket.put(expiryKey(truth, code), '');
+				if (truth !== indexTimestamp) await deleteKeys(bucket, [indexKey]);
+				result.repairedExpiry++;
+				result.errors.push(`Expiry of chest ${code} disagreed between index, manifest and session; repaired`);
+			} else if (manifest && owns) {
 				result.deletedObjects += await removeSession(bucket, manifest.sessionId, session.record.multipartUploads);
 				await deleteKeys(bucket, [codeKey(code), indexKey]);
 				result.expiredChests++;
@@ -410,7 +433,7 @@ export async function cleanupExpired(bucket: R2Bucket, now: number): Promise<Cle
 					bucket,
 					sessionId,
 					'OPEN',
-					{ candidateCode: null, completionFingerprint: null, finalizeStartedAt: null },
+					{ candidateCode: null, completionFingerprint: null, finalizeStartedAt: null, validityDays: null, expiresAt: null },
 					now,
 				);
 				result.rolledBackFinalizations++;

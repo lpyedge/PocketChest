@@ -747,7 +747,6 @@ async function handleCompleteUpload(request: Request, env: Env, sessionId: strin
 
 	const bucket = env.R2_STORAGE;
 	const fingerprint = completionFingerprint(fileIds, validityDays);
-	const expiresAt = calculateExpiry(validityDays);
 
 	// Other requests may move the session while we look at it, so re-read and try a few times
 	for (let attempt = 0; attempt < 3; attempt++) {
@@ -767,12 +766,20 @@ async function handleCompleteUpload(request: Request, env: Env, sessionId: strin
 			if (record.status === 'FINALIZING') {
 				// An earlier attempt is unfinished, or a concurrent request is finishing it: resume with the same input
 				assertSameCompletion(record, fingerprint);
+				if (record.validityDays === null) {
+					// No stored plan (should not happen); never invent a new expiry, let the cleanup job roll it back
+					throw new ApiError(409, 'CONFLICT', 'Session state changed, try again');
+				}
 				finalizing = record;
 			} else {
 				// Index first: if we fail before the session moves, the cleanup job just removes this entry
 				const startedAt = getCurrentTimestamp();
 				await bucket.put(finalizingIndexKey(startedAt, sessionId), '');
-				finalizing = await beginFinalize(bucket, sessionId, fingerprint, startedAt);
+				// The expiry is decided here, once, and stored with the state change
+				finalizing = await beginFinalize(bucket, sessionId, fingerprint, startedAt, {
+					validityDays,
+					expiresAt: calculateExpiry(validityDays),
+				});
 			}
 		} catch (error) {
 			if (error instanceof SessionError && error.code === 'INVALID_TRANSITION') {
@@ -787,16 +794,29 @@ async function handleCompleteUpload(request: Request, env: Env, sessionId: strin
 		const registered = new Map(finalizing.files.map((file) => [file.fileId, file]));
 		const files = fileIds.map((fileId) => registered.get(fileId));
 		if (files.some((file) => file === undefined)) {
-			await transitionSession(bucket, sessionId, 'OPEN', { completionFingerprint: null, candidateCode: null });
+			await transitionSession(bucket, sessionId, 'OPEN', {
+				completionFingerprint: null,
+				candidateCode: null,
+				validityDays: null,
+				expiresAt: null,
+			});
 			throw new ApiError(400, 'FILE_NOT_IN_SESSION', 'Some files do not belong to this session');
 		}
 
 		if (files.every((file) => (file as ChestFile).size === 0)) {
 			// Nothing to share: undo the completion and refuse it
-			await transitionSession(bucket, sessionId, 'OPEN', { completionFingerprint: null, candidateCode: null, finalizeStartedAt: null });
+			await transitionSession(bucket, sessionId, 'OPEN', {
+				completionFingerprint: null,
+				candidateCode: null,
+				finalizeStartedAt: null,
+				validityDays: null,
+				expiresAt: null,
+			});
 			throw new ApiError(400, 'EMPTY_CHEST', 'Nothing to share: all files are empty');
 		}
 
+		// Always the value fixed when completion started, also on a retry
+		const expiresAt = finalizing.expiresAt;
 		const code = await finalizeChest(bucket, sessionId, {
 			createdAt: payload.iat,
 			files: files as ChestFile[],

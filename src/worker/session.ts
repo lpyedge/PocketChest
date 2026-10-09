@@ -435,8 +435,11 @@ export function beginFinalize(
 	sessionId: string,
 	fingerprint: string,
 	now: number = Math.floor(Date.now() / 1000),
+	plan?: { validityDays: number; expiresAt: number | null },
 ): Promise<SessionRecord> {
-	// `now` is also recorded as the start of the completion, see finalizing/ index
+	// `now` is also recorded as the start of the completion, see finalizing/ index.
+	// `plan` is the expiry decided for this completion; it is stored in the same write that enters FINALIZING,
+	// so every retry reads this one value instead of computing a new one.
 	return updateSession(
 		bucket,
 		sessionId,
@@ -454,6 +457,7 @@ export function beginFinalize(
 				completionFingerprint: fingerprint,
 				finalizeStartedAt: at,
 				candidateCode: null,
+				...(plan ? { validityDays: plan.validityDays, expiresAt: plan.expiresAt } : {}),
 			};
 		},
 		now,

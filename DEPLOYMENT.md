@@ -1,12 +1,15 @@
 # PocketChest Deployment Guide
 
-This guide walks you through deploying PocketChest, a secure file-sharing application built with Next.js and Cloudflare Workers.
+This guide walks you through deploying PocketChest, a secure file-sharing application that runs as a single Cloudflare Worker.
 
 ## Architecture Overview
 
-- **Frontend**: Next.js 14 app deployed on Cloudflare Pages
-- **Backend**: Cloudflare Worker with D1 database and R2 storage
+- **One Worker** serves the API (`/api/*`) and the static frontend (built by Vite into `dist/` and uploaded as Workers Static Assets)
+- **D1** stores chest metadata, **R2** stores file content
+- **Cron trigger** (hourly) deletes expired chests
 - **Authentication**: Optional TOTP (Time-based One-Time Password)
+
+There is no separate Cloudflare Pages project and no separate API domain.
 
 ## Prerequisites
 
@@ -14,33 +17,23 @@ This guide walks you through deploying PocketChest, a secure file-sharing applic
 - [Wrangler CLI](https://developers.cloudflare.com/workers/wrangler/) installed globally
 
 ```bash
-npm install -g wrangler
-wrangler login
+npm install
+npx wrangler login
 ```
 
-## Backend Deployment (Cloudflare Worker)
+All commands below run from the repository root.
 
-### 1. Set Up Configuration Files
+## Deployment
 
-#### Copy Template Files
-
-```bash
-# Copy configuration templates
-cd pocket-chest-backend
-cp wrangler.jsonc.template wrangler.jsonc
-
-cd ../pocket-chest-frontend
-cp .env.local.template .env.local
-```
+### 1. Create Cloudflare Resources
 
 #### Create D1 Database
 
 ```bash
-cd ../pocket-chest-backend
-wrangler d1 create pocket-chest
+npx wrangler d1 create pocket-chest
 ```
 
-Save the database ID from the output. Update `pocket-chest-backend/wrangler.jsonc`:
+Save the database ID from the output. Update `wrangler.jsonc`:
 
 ```jsonc
 {
@@ -57,10 +50,10 @@ Save the database ID from the output. Update `pocket-chest-backend/wrangler.json
 #### Create R2 Bucket
 
 ```bash
-wrangler r2 bucket create pocket-chest
+npx wrangler r2 bucket create pocket-chest
 ```
 
-If you used a different bucket name, update the bucket name in `pocket-chest-backend/wrangler.jsonc`. Otherwise, no configuration changes are needed.
+If you used a different bucket name, update the bucket name in `wrangler.jsonc`. Otherwise, no configuration changes are needed.
 
 ```jsonc
 {
@@ -76,9 +69,10 @@ If you used a different bucket name, update the bucket name in `pocket-chest-bac
 ### 2. Initialize Database Schema
 
 ```bash
-# From pocket-chest-backend directory
-wrangler d1 execute pocket-chest --file=src/schema.sql --remote
+npx wrangler d1 execute pocket-chest --file=schema.sql --remote
 ```
+
+> Tip: to stop git from picking up your real database ID, run `git update-index --assume-unchanged wrangler.jsonc`.
 
 ### 3. Configure Custom Domain (Optional)
 
@@ -90,7 +84,7 @@ If you have a domain managed by Cloudflare, you can configure a custom domain ro
 {
   "routes": [
     {
-      "pattern": "api-pc.yourdomain.com",
+      "pattern": "share.yourdomain.com",
       "custom_domain": true
     }
   ],
@@ -107,8 +101,8 @@ If you have a domain managed by Cloudflare, you can configure a custom domain ro
 **Requirements:**
 - Your domain must be added to Cloudflare (as a zone)
 - **Do NOT configure DNS records beforehand** - Cloudflare will handle this automatically during deployment
-- **Important**: Use a subdomain (3-level domain like `api.yourdomain.com`) for automatic SSL certificates
-- Avoid deeper subdomains (4+ levels like `api.pc.yourdomain.com`) as they won't receive automatic SSL certificates due to Cloudflare limitations
+- **Important**: Use a subdomain (3-level domain like `share.yourdomain.com`) for automatic SSL certificates
+- Avoid deeper subdomains (4+ levels like `share.pc.yourdomain.com`) as they won't receive automatic SSL certificates due to Cloudflare limitations
 
 ### 4. Configure Secrets
 
@@ -119,16 +113,14 @@ If you have a domain managed by Cloudflare, you can configure a custom domain ro
 Use the provided script to generate secure secrets:
 
 ```bash
-cd pocket-chest-backend/scripts
-
 # Generate JWT + single TOTP user
-node generate-secrets.js [key-name]
+node scripts/generate-secrets.js [key-name]
 
 # Generate JWT + multiple TOTP users
-node generate-secrets.js admin user1 user2 user3
+node scripts/generate-secrets.js admin user1 user2 user3
 
 # Generate only TOTP keys (for adding users later)
-node generate-secrets.js --totp-only newuser1 newuser2
+node scripts/generate-secrets.js --totp-only newuser1 newuser2
 ```
 
 **Script Features:**
@@ -139,7 +131,7 @@ node generate-secrets.js --totp-only newuser1 newuser2
 **Multiple Users Supported**: The TOTP system supports unlimited users with different TOTP secrets. Format: `key1:secret1,key2:secret2,key3:secret3`. Any user with a valid TOTP token can access the system.
 
 #### Configure Secrets and Variables
-**1. Configure TOTP Setting in `pocket-chest-backend/wrangler.jsonc`:**
+**1. Configure TOTP Setting in `wrangler.jsonc`:**
 
 ```jsonc
 {
@@ -152,14 +144,12 @@ node generate-secrets.js --totp-only newuser1 newuser2
 **2. Set Cloudflare Worker Secrets:**
 
 ```bash
-# From pocket-chest-backend directory
-
 # Set JWT secret (REQUIRED)
-wrangler secret put JWT_SECRET
+npx wrangler secret put JWT_SECRET
 # Paste the JWT secret from the generator when prompted
 
 # Set TOTP secrets (ONLY if REQUIRE_TOTP is "true")
-wrangler secret put TOTP_SECRETS
+npx wrangler secret put TOTP_SECRETS
 # Paste the TOTP secrets from the generator when prompted
 ```
 
@@ -173,7 +163,7 @@ The script will output setup URLs and secret keys for each generated TOTP user. 
 **Example: Adding to 1Password:**
 
 Create a *One-Time Password* field, then enter the output string (like `otpauth://totp/PocketChest%3Axxxx?secret=xxxxxxxxxxxxxxxxxxx&issuer=PocketChest&algorithm=SHA1&digits=6&period=30`) into that field.
-Fill in the frontend domain to enable autofill.
+Fill in your PocketChest domain to enable autofill.
 ![1Password-TOTP](assets/1Password-TOTP.png)
 
 
@@ -186,95 +176,42 @@ Fill in the frontend domain to enable autofill.
 - Secrets are encrypted and stored securely by Cloudflare
 - Never commit secrets to version control
 - You should generate and use unique secrets
-- Remove any secrets from `pocket-chest-backend/wrangler.jsonc` vars section
+- Remove any secrets from the `wrangler.jsonc` vars section
 
-### 5. Deploy Backend
-
-```bash
-# From pocket-chest-backend directory
-# Install dependencies
-npm install
-
-# Deploy the Worker
-wrangler deploy
-
-# Cron job for cleanup is configured in wrangler.jsonc and deploys automatically
-```
-
-Your backend will be available at: `https://your-worker-name.your-subdomain.workers.dev` (or your custom domain if configured)
-
-## Frontend Deployment (Cloudflare Pages)
-
-### 1. Environment Variable Setup
-
-Update your `pocket-chest-frontend/.env.local` file (copied from template):
+### 5. Deploy
 
 ```bash
-# Backend API URL (use your Worker URL from above)
-NEXT_PUBLIC_API_URL=https://your-worker-name.your-subdomain.workers.dev
+npm run deploy
 ```
 
-**Note**: The `.env.local` file was created from the template in Step 1. Simply update the `NEXT_PUBLIC_API_URL` with your actual Worker URL.
+This builds the frontend into `dist/` and deploys the Worker together with the static assets. The cleanup cron job is configured in `wrangler.jsonc` and deploys automatically.
 
-### 2. Build and Deploy Options
+PocketChest will be available at `https://pocket-chest.your-subdomain.workers.dev` (or your custom domain if configured).
 
-#### Option A: Direct Deployment via Wrangler
-
-```bash
-cd pocket-chest-frontend
-
-# Install dependencies
-npm install
-
-# Build the application (uses environment variables from .env.local)
-npm run build
-
-# Deploy to Cloudflare Pages
-# Replace `your-unique-project-name` with a unique name of your choice (e.g., `my-pocketchest`, `john-fileshare`, etc.)
-# Project names are global across all Cloudflare users, so choose something distinctive
-npx wrangler pages deploy out --project-name your-unique-project-name
-```
-
-#### Option B: Git Integration
-Refer to this [doc](https://developers.cloudflare.com/pages/configuration/git-integration/) to learn more.
+> Upgrading from the old two-part deployment (Pages frontend + `pocket-chest-backend` Worker)? The Worker is now named `pocket-chest`, so deploying creates a new Worker. Reuse your existing D1 database ID and R2 bucket, set the secrets again on the new Worker, move your custom domain to it, then delete the old Pages project and old Worker.
 
 ## Post-Deployment Configuration
-### 1. Frontend Custom Domain
 
-To set up a custom domain for your frontend:
+### 1. Test Deployment
 
-1. Go to [Cloudflare Dashboard](https://dash.cloudflare.com/) → **Pages** → **Your Project**
-2. Navigate to **Custom domains** tab
-3. Click **"Set up a custom domain"**
-4. Enter your domain (e.g., `pocket-chest.yourdomain.com`)
-5. Follow the DNS configuration instructions provided by Cloudflare
-6. Wait for SSL certificate provisioning (usually takes a few minutes)
-
-**Requirements:**
-- Your domain must be managed by Cloudflare (added as a zone)
-
-### 2. Test Deployment
-
-1. Visit your frontend URL
+1. Visit your PocketChest URL
 2. Try uploading files (with TOTP if enabled)
 3. Test retrieval with the generated code
 4. Verify files download correctly
 
-### 3. Adding TOTP Keys Later
+### 2. Adding TOTP Keys Later
 
 ⚠️ **Important**: Cloudflare Worker secrets are encrypted and hidden - you cannot view existing secret values. When adding new users, you have two options:
 
 **Option 1: Replace All Keys (Recommended)**
 1. Generate new keys for ALL users (existing + new):
    ```bash
-   cd pocket-chest-backend/scripts
-   node generate-secrets.js --totp-only admin user1 user2 newuser
+   node scripts/generate-secrets.js --totp-only admin user1 user2 newuser
    ```
 2. Update all users' authenticator apps with the new secrets
 3. Set the new combined secret:
    ```bash
-   cd pocket-chest-backend
-   wrangler secret put TOTP_SECRETS
+   npx wrangler secret put TOTP_SECRETS
    # Enter the complete new secret string when prompted
    ```
 
@@ -287,17 +224,15 @@ To set up a custom domain for your frontend:
 
 ## Environment Variables Reference
 
-### Backend (Cloudflare Worker Secrets)
 | Variable | Required | Description |
 |----------|----------|-------------|
-| `JWT_SECRET` | Yes | Long random string for JWT signing |
-| `REQUIRE_TOTP` | Yes | Set to "true" to enable TOTP auth |
-| `TOTP_SECRETS` | If TOTP enabled | Comma-separated base32 TOTP secrets |
+| `JWT_SECRET` | Yes | Long random string for JWT signing (secret) |
+| `REQUIRE_TOTP` | Yes | Set to "true" to enable TOTP auth (`vars` in `wrangler.jsonc`) |
+| `TOTP_SECRETS` | If TOTP enabled | Comma-separated `name:base32secret` pairs (secret) |
 
-### Frontend (Environment Variables)
-| Variable | Required | Description |
-|----------|----------|-------------|
-| `NEXT_PUBLIC_API_URL` | Yes | Backend Worker URL |
+The frontend needs no configuration: it calls the API on the same origin.
+
+For local development, put these values in `.dev.vars` (see `.dev.vars.example`).
 
 **Note**: TOTP configuration is automatically fetched from the backend via `/api/config` endpoint.
 
@@ -305,18 +240,18 @@ To set up a custom domain for your frontend:
 
 ### View Logs
 ```bash
-# Backend logs
-wrangler tail
+# Worker logs
+npx wrangler tail
 
 # Check D1 database
-wrangler d1 execute pocket-chest --command "SELECT COUNT(*) FROM sessions;" --remote
+npx wrangler d1 execute pocket-chest --command "SELECT COUNT(*) FROM sessions;" --remote
 ```
 
 ### Cleanup Job
 
-The backend includes an automated cleanup job that runs hourly to:
+The Worker includes an automated cleanup job that runs hourly to:
 - Delete expired sessions and files
-- Clean up incomplete uploads older than 24 hours
+- Clean up incomplete uploads older than 48 hours
 - Remove associated R2 storage objects
 
 ## Security Considerations
@@ -325,14 +260,14 @@ The backend includes an automated cleanup job that runs hourly to:
 2. **TOTP**: Enable TOTP for sensitive deployments
 3. **File Types**: The system accepts all file types - consider validation if needed
 4. **Rate Limiting**: Consider adding rate limiting for production use
-5. **Domain Restrictions**: Update CORS settings for production domains
+5. **Same origin**: The API sends no CORS headers, so other sites cannot call it from a browser
 
 ## Troubleshooting
 
 ### Common Issues
 
-1. **CORS Errors**: Check `Access-Control-Allow-Origin` in backend
-2. **Database Errors**: Verify D1 database is properly bound in `wrangler.toml`
+1. **Blank page or 404 for `/upload/`**: Make sure `npm run deploy` (not plain `wrangler deploy`) ran, so `dist/` was built
+2. **Database Errors**: Verify D1 database is properly bound in `wrangler.jsonc`
 3. **Storage Errors**: Ensure R2 bucket exists and is properly bound
 4. **TOTP Issues**: Verify secrets are properly formatted and time is synchronized
 
@@ -347,7 +282,6 @@ curl https://your-worker.workers.dev/api/chest -X POST
 
 - **D1**: Supports up to 100,000 reads/day and 50,000 writes/day on free tier
 - **R2**: First 10GB storage free, then $0.015/GB/month
-- **Workers**: 100,000 requests/day free, then $0.50 per million
-- **Pages**: Unlimited static requests, 20,000 functions invocations/month free
+- **Workers**: 100,000 requests/day free, then $0.50 per million; static asset requests are free and do not invoke the Worker
 
 For higher usage, consider Cloudflare's paid tiers.

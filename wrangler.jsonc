@@ -1,0 +1,49 @@
+/**
+ * PocketChest — one Worker serving both the API (/api/*) and the static frontend (dist/).
+ *
+ * Before deploying, replace <your-database-id> with your D1 database ID.
+ * Keep real IDs out of git: git update-index --assume-unchanged wrangler.jsonc
+ */
+{
+	"$schema": "node_modules/wrangler/config-schema.json",
+	"name": "pocket-chest",
+	"main": "src/worker/index.ts",
+	"compatibility_date": "2025-08-13",
+	"observability": {
+		"enabled": true,
+	},
+	"assets": {
+		"directory": "./dist",
+		"binding": "ASSETS",
+		"html_handling": "auto-trailing-slash",
+		"not_found_handling": "404-page",
+		"run_worker_first": ["/api/*"],
+	},
+	"d1_databases": [
+		{
+			"binding": "DB",
+			"database_name": "pocket-chest",
+			"database_id": "<your-database-id>",
+		},
+	],
+	"r2_buckets": [
+		{
+			"bucket_name": "pocket-chest",
+			"binding": "R2_STORAGE",
+		},
+	],
+	"vars": {
+		"REQUIRE_TOTP": "true",
+	},
+	// Uncomment and configure for custom domain:
+	// "routes": [
+	// 	{
+	// 		"pattern": "share.yourdomain.com",
+	// 		"custom_domain": true
+	// 	}
+	// ],
+	"workers_dev": true,
+	"triggers": {
+		"crons": ["0 * * * *"],
+	},
+}

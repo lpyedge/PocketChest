@@ -1,0 +1,3 @@
+JWT_SECRET=local-dev-secret-change-me
+REQUIRE_TOTP=false
+# TOTP_SECRETS=name:BASE32SECRET

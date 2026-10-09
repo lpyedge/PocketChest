@@ -2,7 +2,7 @@
 
 > Secure, temporary file sharing. Upload files or text, get a code, share anywhere.
 
-PocketChest is a modern file sharing service built with Cloudflare Workers and Pages. Share files and text content securely with automatic expiration and no account required.
+PocketChest is a modern file sharing service that runs as a single Cloudflare Worker. Share files and text content securely with automatic expiration and no account required.
 
 ## 💡 What is a "Chest"?
 
@@ -13,6 +13,7 @@ A **chest** is simply a collection of files and text that you upload together. E
 - 📤 **File & Text Sharing** - Upload files or paste text content (optionally restrict uploads to trusted users with TOTP authentication)
 - 📦 **Large File Support** - Handles files up to 200GB using multipart uploads to Cloudflare R2
 - 🔐 **Secure Codes** - 6-character retrieval codes for access
+- 🔗 **Ready-to-send Links** - After uploading, copy a direct link (`/retrieve/#ABC123`) or the page address plus code
 - ⏰ **Auto Expiry** - Files expire after 1, 3, 7, or 15 days (or permanent)
 - 🚀 **No Registration** - No accounts, just upload and share
 - 🔐 **Optional TOTP Auth** - Restrict access with authenticator apps  
@@ -29,110 +30,71 @@ A **chest** is simply a collection of files and text that you upload together. E
 
 ## 🏗️ Architecture
 
-- **Backend**: Cloudflare Workers + D1 Database + R2 Storage
-- **Frontend**: Next.js 14 + Tailwind CSS (deployed on Cloudflare Pages)
-- **Language**: TypeScript
+One Cloudflare Worker serves everything from one domain:
+
+| Path | Served by |
+|------|-----------|
+| `/` | Static home page (no JavaScript) |
+| `/upload/` | Upload app (React) |
+| `/retrieve/`, `/retrieve/#ABC123` | Retrieve app (React); the code in the `#` fragment is never sent to the server |
+| `/assets/*` | Hashed JS/CSS from the Vite build |
+| `/api/*` | Worker API, backed by D1 (metadata) and R2 (file content) |
+
+- **Frontend**: React 18 + Tailwind CSS, built with Vite into `dist/` and served as Workers Static Assets
+- **Backend**: TypeScript Worker + D1 Database + R2 Storage, hourly cron cleanup
+- **Deployment**: `npm run deploy` builds the frontend and deploys the Worker and its assets together
 
 ## 🚀 Quick Start
 
-For complete deployment instructions, see **[DEPLOYMENT.md](DEPLOYMENT.md)**
+For complete deployment instructions, see **[DEPLOYMENT.md](DEPLOYMENT.md)**. The API is documented in **[docs/API.md](docs/API.md)**.
 
 ### Prerequisites
-- Cloudflare account with a domain
-- Wrangler CLI
+- Cloudflare account
+- Node.js 20+
 
 ### Local Development
 
-**First, copy the template files:**
 ```bash
-# Copy configuration templates
-cp pocket-chest-backend/wrangler.jsonc.template pocket-chest-backend/wrangler.jsonc
-cp pocket-chest-frontend/.env.local.template pocket-chest-frontend/.env.local
+npm install
+cp .dev.vars.example .dev.vars                                   # local secrets
+npx wrangler d1 execute pocket-chest --local --file=schema.sql   # local database
+
+# Option 1: build once and run everything on the Worker (http://localhost:8787)
+npm run preview
+
+# Option 2: hot reload — run the Worker and the Vite dev server side by side
+npm run dev:worker   # API on http://localhost:8787
+npm run dev          # frontend on http://localhost:5173, proxies /api to the Worker
 ```
 
-**Backend:**
-```bash
-cd pocket-chest-backend
-npm install
-npm run dev  # http://localhost:8787
-```
+### Checks
 
-**Frontend:**
 ```bash
-cd pocket-chest-frontend
-npm install
-npm run dev  # http://localhost:3000
+npm run typecheck && npm run lint && npm test && npm run build
 ```
 
 ## 📁 Project Structure
 
 ```
-PocketChest-OpenSource/
-├── assets/                        # Demo assets
-│   ├── pocket-chest-upload-demo.gif
-│   └── pocket-chest-retrieve-demo.gif
-│
-├── pocket-chest-backend/          # Cloudflare Workers API
-│   ├── src/
-│   │   ├── index.ts              # Main worker entry point
-│   │   ├── schema.sql            # Database schema
-│   │   ├── types.ts              # TypeScript types
-│   │   └── utils.ts              # Utility functions
-│   ├── test/                     # Test suite
-│   │   ├── auth.spec.ts          # Authentication tests
-│   │   ├── chest-creation.spec.ts # Chest creation tests
-│   │   ├── file-upload.spec.ts   # File upload tests
-│   │   ├── multipart-upload.spec.ts # Large file upload tests
-│   │   ├── retrieval.spec.ts     # File retrieval tests
-│   │   ├── utils/                # Test utilities
-│   │   │   ├── test-factories.ts
-│   │   │   ├── test-helpers.ts
-│   │   │   └── test-setup.ts
-│   │   └── ...                   # Additional test files
-│   ├── scripts/                  # Utility scripts
-│   │   ├── generate-secrets.js   # Secret generation
-│   │   └── test-ci.sh           # CI test script
-│   ├── wrangler.jsonc           # Cloudflare configuration
-│   ├── wrangler.jsonc.template  # Configuration template
-│   ├── package.json             # Dependencies
-│   ├── tsconfig.json            # TypeScript config
-│   ├── vitest.config.mts        # Test configuration
-│   └── eslint.config.js         # Linting configuration
-│
-├── pocket-chest-frontend/         # Next.js frontend
-│   ├── src/
-│   │   ├── app/                  # App Router pages
-│   │   │   ├── page.tsx         # Home page
-│   │   │   ├── layout.tsx       # Root layout
-│   │   │   ├── globals.css      # Global styles
-│   │   │   ├── share/           # Upload/share page
-│   │   │   │   └── page.tsx
-│   │   │   └── retrieve/        # File retrieval page
-│   │   │       └── page.tsx
-│   │   ├── components/           # React components
-│   │   │   ├── FileUpload.tsx   # File upload component
-│   │   │   ├── TextInput.tsx    # Text input component
-│   │   │   ├── UploadProgress.tsx # Upload progress display
-│   │   │   ├── RetrieveClient.tsx # File retrieval interface
-│   │   │   ├── TOTPModal.tsx    # TOTP authentication modal
-│   │   │   └── ExpirySelector.tsx # Expiration time selector
-│   │   ├── hooks/               # Custom React hooks
-│   │   │   └── usePocketChest.ts # Main API hook
-│   │   └── lib/                 # API client & types
-│   │       ├── api.ts           # API client functions
-│   │       └── types.ts         # TypeScript types
-│   ├── public/                  # Static assets
-│   │   └── favicon.png
-│   ├── package.json             # Dependencies
-│   ├── next.config.js           # Next.js configuration
-│   ├── tailwind.config.js       # Tailwind CSS config
-│   ├── postcss.config.js        # PostCSS config
-│   ├── tsconfig.json            # TypeScript config
-│   └── _headers                 # Cloudflare Pages headers
-│
-├── DEPLOYMENT.md                  # Deployment guide
-├── LICENSE                        # MIT license
-└── README.md                      # This file
+PocketChest/
+├── src/
+│   ├── worker/                # Cloudflare Worker (API + cron cleanup)
+│   │   ├── index.ts
+│   │   ├── types.ts
+│   │   └── utils.ts
+│   └── web/                   # Vite frontend (three HTML entry points)
+│       ├── index.html         # Static home page
+│       ├── upload/            # Upload app (index.html, main.tsx, UploadApp.tsx)
+│       ├── retrieve/          # Retrieve app (index.html, main.tsx, RetrieveApp.tsx)
+│       └── shared/            # Components, hooks, API client, styles
+├── public/                    # Copied into dist/ as-is (_headers, _redirects, 404.html, favicon)
+├── test/                      # Worker tests (Vitest + @cloudflare/vitest-pool-workers)
+├── scripts/                   # generate-secrets.js, test-ci.sh
+├── docs/API.md                # API reference
+├── schema.sql                 # D1 schema
+├── wrangler.jsonc             # Worker, assets, D1, R2 and cron configuration
+├── vite.config.ts
+└── DEPLOYMENT.md
 ```
 
 ## 🔒 Security Features
@@ -146,7 +108,7 @@ PocketChest-OpenSource/
 ## 🚢 Deployment
 
 See **[DEPLOYMENT.md](DEPLOYMENT.md)** for complete deployment instructions including:
-- Cloudflare Workers setup
+- Single Worker deployment (API + static frontend)
 - D1 database configuration
 - R2 storage setup
 - TOTP authentication setup

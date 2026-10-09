@@ -1,0 +1,10 @@
+node_modules/
+dist/
+coverage/
+*.lock
+*.log
+.wrangler/
+wrangler.toml
+worker-configuration.d.ts
+package-lock.json
+*.md

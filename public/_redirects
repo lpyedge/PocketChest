@@ -1,0 +1,3 @@
+# Old Next.js page paths
+/share /upload/ 301
+/share/ /upload/ 301

@@ -1,0 +1,20 @@
+{
+	"compilerOptions": {
+		"target": "es2020",
+		"lib": ["dom", "dom.iterable", "es2020"],
+		"jsx": "react-jsx",
+		"module": "esnext",
+		"moduleResolution": "bundler",
+		"resolveJsonModule": true,
+		"isolatedModules": true,
+		"strict": true,
+		"noEmit": true,
+		"skipLibCheck": true,
+		"forceConsistentCasingInFileNames": true,
+		"types": ["vite/client"],
+		"paths": {
+			"@/*": ["./src/web/shared/*"]
+		}
+	},
+	"include": ["src/web/**/*.ts", "src/web/**/*.tsx"]
+}

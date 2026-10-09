@@ -1,8 +1,0 @@
-node_modules/
-dist/
-coverage/
-*.lock
-*.log
-.wrangler/
-wrangler.toml
-*.md 

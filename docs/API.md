@@ -57,13 +57,13 @@
 | 2 | GET | `/api/auth/methods` | 公開 | [已實作] | 回三種方式的啟用旗標與 `setupRequired`。 |
 | 3 | POST | `/api/auth/bootstrap` | 公開，需 Bootstrap 條件 | [TODO-TASK-12] | 僅首次初始化。 |
 | 4 | POST | `/api/auth/login/password` | 公開 | [已實作] | 成功發出 Owner Cookie。 |
-| 5 | POST | `/api/auth/login/totp` | 公開 | [TODO-TASK-15] | 同上。 |
+| 5 | POST | `/api/auth/login/totp` | 公開 | [已實作] | 同上。 |
 | 6 | POST | `/api/auth/passkey/login/options` | 公開 | [TODO-TASK-18] | 一次性 Challenge。 |
 | 7 | POST | `/api/auth/passkey/login/verify` | 公開 | [TODO-TASK-18] | 成功發出 Owner Cookie。 |
 | 8 | GET | `/api/auth/session` | Cookie | [TODO-TASK-13] | 回 `{authenticated, csrfToken?}`。 |
 | 9 | POST | `/api/auth/logout` | Cookie + CSRF | [TODO-TASK-13] | 撤銷 Session。 |
 | 10 | POST | `/api/auth/reauth/password` | Cookie + CSRF | [已實作] | 更新 `reauthenticatedAt`。 |
-| 11 | POST | `/api/auth/reauth/totp` | Cookie + CSRF | [TODO-TASK-15] | 同上。 |
+| 11 | POST | `/api/auth/reauth/totp` | Cookie + CSRF | [已實作] | 同上。 |
 | 12 | POST | `/api/auth/reauth/passkey/options` `…/verify` | Cookie + CSRF | [TODO-TASK-18] | 同上。 |
 
 ### Owner 安全設定

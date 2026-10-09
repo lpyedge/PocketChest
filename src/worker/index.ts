@@ -1,6 +1,6 @@
 import { assertSameOrigin, clearedSessionCookie, csrfTokenFor, requireOwner } from './auth/sessions';
 import { bootstrapOwner } from './auth/bootstrap';
-import { authMethods, loginWithPassword, reauthWithPassword } from './auth/login';
+import { authMethods, loginWithPassword, loginWithTotp, reauthWithPassword, reauthWithTotp } from './auth/login';
 import { ApiError } from './errors';
 import {
 	abandonSession,
@@ -171,6 +171,14 @@ async function routeApi(request: Request, env: Env, path: string): Promise<Respo
 
 		if (path === '/api/auth/reauth/password' && method === 'POST') {
 			return await handlePasswordReauth(request, env);
+		}
+
+		if (path === '/api/auth/login/totp' && method === 'POST') {
+			return await handleTotpLogin(request, env);
+		}
+
+		if (path === '/api/auth/reauth/totp' && method === 'POST') {
+			return await handleTotpReauth(request, env);
 		}
 
 		if (path === '/api/upload-sessions' && method === 'POST') {
@@ -362,6 +370,28 @@ async function handlePasswordReauth(request: Request, env: Env): Promise<Respons
 		throw new ApiError(401, 'AUTH_INVALID_CREDENTIALS', 'Invalid credentials');
 	}
 	await reauthWithPassword(env, session, password, getCurrentTimestamp());
+	return json({ reauthenticated: true }, 200, { 'Cache-Control': 'no-store' });
+}
+
+// Reads the six-digit code; anything malformed gets the same answer as a wrong code
+async function readTotpCode(request: Request): Promise<string> {
+	const { code } = await readJson<{ code?: unknown }>(request).catch(() => ({ code: undefined }));
+	return typeof code === 'string' ? code : '';
+}
+
+// POST /api/auth/login/totp - Starts an owner session with an authenticator code, no password needed
+async function handleTotpLogin(request: Request, env: Env): Promise<Response> {
+	assertSameOrigin(request);
+	const code = await readTotpCode(request);
+	const issued = await loginWithTotp(env, code, getCurrentTimestamp());
+	return json({ authenticated: true, csrfToken: issued.csrfToken }, 200, { 'Set-Cookie': issued.cookie });
+}
+
+// POST /api/auth/reauth/totp - Re-enters an authenticator code inside a signed-in session
+async function handleTotpReauth(request: Request, env: Env): Promise<Response> {
+	const session = await requireOwner(request, env.R2_STORAGE, env.JWT_SECRET, { mutating: true });
+	const code = await readTotpCode(request);
+	await reauthWithTotp(env, session, code, getCurrentTimestamp());
 	return json({ reauthenticated: true }, 200, { 'Cache-Control': 'no-store' });
 }
 

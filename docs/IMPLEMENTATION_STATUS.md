@@ -19,7 +19,7 @@
 | TASK-12 | Owner 原子資料與首次初始化 | PASS | 見 Git log |
 | TASK-13 | Owner Cookie Session、CSRF | PASS | 見 Git log（sessions.ts、owner-session.spec.ts 14 項） |
 | TASK-14 | Password 獨立登入與上傳 Session 授權 | PASS | 見 Git log（login.ts、login-password.spec.ts、upload-session-creation.spec.ts）；舊 /api/chest、/api/config、TOTP 已刪除 |
-| TASK-15 | TOTP 獨立登入、重放防護 | TODO | |
+| TASK-15 | TOTP 獨立登入、重放防護 | PASS | 見 Git log（totp.ts、login-totp.spec.ts 18 項）|
 | TASK-16 | Rate Limiting、密碼／TOTP 錯誤冷卻 | TODO | |
 | TASK-17 | Passkey 註冊 | TODO | |
 | TASK-18 | Passkey 登入 | TODO | |

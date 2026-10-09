@@ -4,8 +4,9 @@
  */
 import { ApiError } from '../errors';
 import { BOOTSTRAP_MARKER_KEY } from './bootstrap';
-import { isUsable, loadOwner, Method, OwnerRecord } from './owner';
+import { isUsable, loadOwner, mutateOwner, Method, OwnerConflictError, OwnerRecord } from './owner';
 import { verifyPassword } from './password';
+import { matchTotpStep, openSeed } from './totp';
 import { issueOwnerSession, LoadedSession, markReauthenticated } from './sessions';
 
 export interface AuthEnv {
@@ -13,6 +14,7 @@ export interface AuthEnv {
 	JWT_SECRET: string;
 	BOOTSTRAP_ENABLED?: string;
 	ADMIN_BOOTSTRAP_PASSWORD?: string;
+	AUTH_ENCRYPTION_KEY?: string;
 }
 
 export interface MethodsStatus {
@@ -68,5 +70,62 @@ export async function loginWithPassword(
 // Re-confirms the owner's password inside an existing session, opening the reauth window
 export async function reauthWithPassword(env: AuthEnv, session: LoadedSession, password: string, now: number): Promise<void> {
 	await checkPassword(env, password);
+	await markReauthenticated(env.R2_STORAGE, session.sid, now);
+}
+
+// Raised inside the owner update when the code cannot be accepted any more
+class TotpRejectedError extends Error {}
+
+/**
+ * Checks a TOTP code and records its time step, so the same step is never accepted twice. The
+ * step is recorded with an owner CAS, so two requests carrying the same code cannot both succeed.
+ */
+async function consumeTotpCode(env: AuthEnv, code: string, now: number): Promise<OwnerRecord> {
+	const loaded = await loadOwner(env.R2_STORAGE);
+	if (!loaded) {
+		throw new ApiError(401, 'AUTH_INVALID_CREDENTIALS', 'Invalid credentials');
+	}
+	const sealed = loaded.owner.methods.totp.encryptedSecret;
+	if (!isUsable(loaded.owner, 'totp') || sealed === null) {
+		throw new ApiError(403, 'AUTH_METHOD_DISABLED', 'Authenticator sign-in is not enabled');
+	}
+	const seed = await openSeed(sealed, env.AUTH_ENCRYPTION_KEY);
+	const step = await matchTotpStep(seed, code, now);
+	if (step === null) {
+		throw new ApiError(401, 'AUTH_INVALID_CREDENTIALS', 'Invalid credentials');
+	}
+
+	try {
+		return await mutateOwner(env.R2_STORAGE, (latest) => {
+			const totp = latest.methods.totp;
+			// The seed or the method may have changed since it was read; the code is then not accepted
+			if (!isUsable(latest, 'totp') || totp.encryptedSecret?.ct !== sealed.ct) {
+				throw new TotpRejectedError();
+			}
+			if (totp.lastAcceptedStep !== null && step <= totp.lastAcceptedStep) {
+				throw new TotpRejectedError();
+			}
+			return { ...latest, methods: { ...latest.methods, totp: { ...totp, lastAcceptedStep: step } } };
+		});
+	} catch (error) {
+		if (error instanceof TotpRejectedError) {
+			throw new ApiError(401, 'AUTH_INVALID_CREDENTIALS', 'Invalid credentials');
+		}
+		if (error instanceof OwnerConflictError) {
+			throw new ApiError(409, 'CONFLICT', 'Sign-in is busy, try again');
+		}
+		throw error;
+	}
+}
+
+// Signs the owner in with an authenticator code alone; the password is not needed
+export async function loginWithTotp(env: AuthEnv, code: string, now: number): Promise<{ sid: string; csrfToken: string; cookie: string }> {
+	const owner = await consumeTotpCode(env, code, now);
+	return issueOwnerSession(env.R2_STORAGE, env.JWT_SECRET, owner.authVersion, now);
+}
+
+// Re-confirms the owner with an authenticator code inside an existing session
+export async function reauthWithTotp(env: AuthEnv, session: LoadedSession, code: string, now: number): Promise<void> {
+	await consumeTotpCode(env, code, now);
 	await markReauthenticated(env.R2_STORAGE, session.sid, now);
 }

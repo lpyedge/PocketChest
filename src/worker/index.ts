@@ -728,30 +728,47 @@ async function readBoundedFormData(request: Request, maxBytes: number): Promise<
 	if (request.body === null) {
 		throw new ApiError(400, 'INVALID_REQUEST', 'Request body is required');
 	}
+	// Read by hand instead of piping through a TransformStream: an error inside a pipe leaves a rejected pipe
+	// promise that nothing awaits, which the runtime reports as an unhandled rejection
+	const reader = request.body.getReader();
 	let received = 0;
 	let exceeded = false;
-	const counter = new TransformStream<Uint8Array, Uint8Array>({
-		transform(chunk, controller) {
-			received += chunk.byteLength;
-			if (received > maxBytes) {
-				exceeded = true;
-				controller.error(new Error('Request body is larger than the limit'));
+	const limited = new ReadableStream<Uint8Array>({
+		async pull(controller) {
+			const { done, value } = await reader.read();
+			if (done) {
+				controller.close();
 				return;
 			}
-			controller.enqueue(chunk);
+			received += value.byteLength;
+			if (received > maxBytes) {
+				// End the body here instead of erroring it: an errored stream leaves a rejection nothing awaits.
+				// The cut-off body is refused below, whether or not it still parses.
+				exceeded = true;
+				await reader.cancel().catch(() => undefined);
+				controller.close();
+				return;
+			}
+			controller.enqueue(value);
 		},
+		cancel: (reason) => reader.cancel(reason),
 	});
-	const bounded = new Response(request.body.pipeThrough(counter), {
+	const bounded = new Response(limited, {
 		headers: { 'Content-Type': request.headers.get('Content-Type') ?? '' },
 	});
+	let formData: FormData | null = null;
 	try {
-		return await bounded.formData();
+		formData = await bounded.formData();
 	} catch {
-		if (exceeded) {
-			throw new ApiError(413, 'PAYLOAD_TOO_LARGE', 'Request body is larger than the limit');
-		}
+		// Handled below: a body that was cut off at the limit fails to parse, and that is a 413, not a 400
+	}
+	if (exceeded) {
+		throw new ApiError(413, 'PAYLOAD_TOO_LARGE', 'Request body is larger than the limit');
+	}
+	if (!formData) {
 		throw new ApiError(400, 'INVALID_REQUEST', 'Invalid multipart body');
 	}
+	return formData;
 }
 
 /**

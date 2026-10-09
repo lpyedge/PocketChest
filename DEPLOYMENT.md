@@ -82,7 +82,7 @@ If you have a domain managed by Cloudflare, you can configure a custom domain ro
 |------|------|---------|
 | `JWT_SECRET` | Secret | Signs upload and download tokens. Changing it ends all tokens. |
 | `AUTH_ENCRYPTION_KEY` | Secret | 32-byte AES key, base64, that seals the authenticator seed. Lose it and the authenticator must be set up again. |
-| `ADMIN_BOOTSTRAP_PASSWORD` | Secret | Used once, to create the owner. Remove it after setup. |
+| `ADMIN_BOOTSTRAP_PASSWORD` | Secret | Used once, to create the owner (at least 16 characters). Remove it after setup. |
 | `BOOTSTRAP_ENABLED` | Variable | `"true"` only while the first setup is pending; `"false"` otherwise (`wrangler.jsonc`). |
 | `PASSKEY_RP_ID` | Variable | Optional. The one hostname passkeys are bound to; see Passkey Domain. |
 
@@ -152,7 +152,7 @@ If every sign-in method is unavailable, follow [docs/RECOVERY.md](docs/RECOVERY.
 | `ADMIN_BOOTSTRAP_PASSWORD` | Secret | During first setup only | Creates the owner; remove afterwards |
 | `BOOTSTRAP_ENABLED` | Variable | Yes | `"true"` only during first setup |
 | `PASSKEY_RP_ID` | Variable | Recommended | The one hostname passkeys are bound to |
-| `AUTH_LIMITER`, `RETRIEVE_LIMITER`, `UPLOAD_LIMITER` | Rate limiting bindings | Yes | Per-client request limits (`ratelimits` in `wrangler.jsonc`) |
+| `AUTH_LIMITER`, `RETRIEVE_LIMITER`, `UPLOAD_LIMITER`, `PART_LIMITER` | Rate limiting bindings | Yes | Per-client request limits (`ratelimits` in `wrangler.jsonc`) |
 
 The frontend needs no configuration: it calls the API on the same origin.
 

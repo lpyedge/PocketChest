@@ -6,6 +6,7 @@ interface __BaseEnv_Env {
 	AUTH_LIMITER: RateLimit;
 	RETRIEVE_LIMITER: RateLimit;
 	UPLOAD_LIMITER: RateLimit;
+	PART_LIMITER: RateLimit;
 	ASSETS: Fetcher;
 	BOOTSTRAP_ENABLED: "false";
 	JWT_SECRET: string;

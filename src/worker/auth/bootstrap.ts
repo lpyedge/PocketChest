@@ -17,12 +17,18 @@ export interface BootstrapEnv {
 	ADMIN_BOOTSTRAP_PASSWORD?: string;
 }
 
+const MIN_BOOTSTRAP_PASSWORD_LENGTH = 16;
+
 export async function bootstrapOwner(env: BootstrapEnv, submitted: string): Promise<void> {
 	const configured = env.ADMIN_BOOTSTRAP_PASSWORD;
 	if (env.BOOTSTRAP_ENABLED !== 'true' || !configured) {
 		throw new ApiError(403, 'BOOTSTRAP_DISABLED', 'Initial setup is not enabled on this deployment');
 	}
 
+	if (configured.length < MIN_BOOTSTRAP_PASSWORD_LENGTH) {
+		// The setup secret is the only thing between the internet and the owner account while setup is open
+		throw new ApiError(500, 'BOOTSTRAP_MISCONFIGURED', 'The setup password configured on this deployment is too short');
+	}
 	if (await env.R2_STORAGE.head(OWNER_KEY)) {
 		throw new ApiError(409, 'BOOTSTRAP_CLOSED', 'Initial setup is already complete');
 	}

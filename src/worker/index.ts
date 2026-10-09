@@ -294,6 +294,7 @@ async function routeApi(request: Request, env: Env, path: string): Promise<Respo
 // POST /api/auth/bootstrap - Initial owner setup (one time)
 async function handleBootstrap(request: Request, env: Env): Promise<Response> {
 	assertSameOrigin(request);
+	await enforceRateLimit(env.AUTH_LIMITER, request, 'bootstrap');
 	const { password } = await readJson<{ password?: unknown }>(request);
 	if (typeof password !== 'string' || password.length === 0 || password.length > 1024) {
 		throw new ApiError(400, 'INVALID_REQUEST', 'Password is required');
@@ -1119,6 +1120,7 @@ async function withActiveMultipart<T>(
 // PUT /api/upload-sessions/:sessionId/multipart/:fileId/parts/:partNumber - Upload part
 async function handleUploadPart(request: Request, env: Env, sessionId: string, fileId: string, partNumber: number): Promise<Response> {
 	const payload = await authorizeMultipart(request, env, sessionId, fileId);
+	await enforceRateLimit(env.PART_LIMITER, request, `part:${fileId}`);
 
 	if (!(partNumber >= 1 && partNumber <= LIMITS.maxPartsPerUpload)) {
 		throw new ApiError(400, 'INVALID_REQUEST', 'Invalid part number');

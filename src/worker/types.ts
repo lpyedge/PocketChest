@@ -124,6 +124,7 @@ export interface Env {
 	AUTH_LIMITER?: RateLimitBinding;
 	RETRIEVE_LIMITER?: RateLimitBinding;
 	UPLOAD_LIMITER?: RateLimitBinding;
+	PART_LIMITER?: RateLimitBinding;
 	// Initial setup (see auth/bootstrap.ts). BOOTSTRAP_ENABLED is a plain var; the password is a secret.
 	BOOTSTRAP_ENABLED?: string;
 	ADMIN_BOOTSTRAP_PASSWORD?: string;

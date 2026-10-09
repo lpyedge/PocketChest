@@ -28,11 +28,11 @@
 | `INVALID_SESSION` | 400 | 上傳 Session ID 與 Token 不符 |
 | `AUTH_REQUIRED` | 401 | 缺少認證 |
 | `AUTH_INVALID` | 401 | 認證失敗（Token／Cookie 無效或過期） |
-| `AUTH_INVALID_CREDENTIALS` | 401 | Password／TOTP／Passkey 驗證失敗 `[TODO-TASK-14]` |
+| `AUTH_INVALID_CREDENTIALS` | 401 | Password／TOTP／Passkey 驗證失敗 `[Password 已實作]` |
 | `TOKEN_MISMATCH` | 403 | Token 與 Session／檔案不屬於同一組 |
 | `CSRF_REJECTED` | 403 | Origin 或 CSRF Header 不符 `[TODO-TASK-13]` |
-| `REAUTH_REQUIRED` | 403 | 需近期重新驗證（5 分鐘）`[TODO-TASK-14]` |
-| `AUTH_METHOD_DISABLED` | 403 | 該登入方式已停用 `[TODO-TASK-14]` |
+| `REAUTH_REQUIRED` | 403 | 需近期重新驗證（5 分鐘）`[判斷已實作，TASK-19/20 的敏感操作使用]` |
+| `AUTH_METHOD_DISABLED` | 403 | 該登入方式已停用 `[已實作]` |
 | `AUTH_METHOD_NOT_CONFIGURED` | 409 | 方式未設定卻要求啟用 `[TODO-TASK-19]` |
 | `LAST_AUTH_METHOD` | 409 | 不可停用最後一種可用方式 `[TODO-TASK-19]` |
 | `CONFLICT` | 409 | R2 CAS 衝突，請重新讀取後再試 `[TODO-TASK-04]` |
@@ -53,16 +53,16 @@
 
 | # | Method | Path | 權限 | 狀態 | 說明 |
 |---|---|---|---|---|---|
-| 1 | GET | `/api/config` | 公開 | [已實作，舊] | 回 `{requireTOTP}`。TASK-28 移除。 |
-| 2 | GET | `/api/auth/methods` | 公開 | [TODO-TASK-14] | 回三種方式的啟用旗標與 `setupRequired`。 |
+| 1 | GET | `/api/config` | 公開 | [已移除] | 由 #2 取代；TOTP 開關不再存在。 |
+| 2 | GET | `/api/auth/methods` | 公開 | [已實作] | 回三種方式的啟用旗標與 `setupRequired`。 |
 | 3 | POST | `/api/auth/bootstrap` | 公開，需 Bootstrap 條件 | [TODO-TASK-12] | 僅首次初始化。 |
-| 4 | POST | `/api/auth/login/password` | 公開 | [TODO-TASK-14] | 成功發出 Owner Cookie。 |
+| 4 | POST | `/api/auth/login/password` | 公開 | [已實作] | 成功發出 Owner Cookie。 |
 | 5 | POST | `/api/auth/login/totp` | 公開 | [TODO-TASK-15] | 同上。 |
 | 6 | POST | `/api/auth/passkey/login/options` | 公開 | [TODO-TASK-18] | 一次性 Challenge。 |
 | 7 | POST | `/api/auth/passkey/login/verify` | 公開 | [TODO-TASK-18] | 成功發出 Owner Cookie。 |
 | 8 | GET | `/api/auth/session` | Cookie | [TODO-TASK-13] | 回 `{authenticated, csrfToken?}`。 |
 | 9 | POST | `/api/auth/logout` | Cookie + CSRF | [TODO-TASK-13] | 撤銷 Session。 |
-| 10 | POST | `/api/auth/reauth/password` | Cookie + CSRF | [TODO-TASK-14] | 更新 `reauthenticatedAt`。 |
+| 10 | POST | `/api/auth/reauth/password` | Cookie + CSRF | [已實作] | 更新 `reauthenticatedAt`。 |
 | 11 | POST | `/api/auth/reauth/totp` | Cookie + CSRF | [TODO-TASK-15] | 同上。 |
 | 12 | POST | `/api/auth/reauth/passkey/options` `…/verify` | Cookie + CSRF | [TODO-TASK-18] | 同上。 |
 
@@ -83,14 +83,14 @@
 
 | # | Method | Path | 權限 | 狀態 | 說明 |
 |---|---|---|---|---|---|
-| 21 | POST | `/api/chest` | 舊 | [已實作，舊] | TASK-28 移除，由 #22 取代。 |
-| 22 | POST | `/api/upload-sessions` | Owner Cookie + CSRF | [TODO-TASK-14] | 回 `{sessionId, uploadToken, expiresIn}`。 |
-| 23 | POST | `/api/upload-sessions/{id}/files` | Upload Token | [TODO-TASK-05] | 目前實作路徑為 `/api/chest/{id}/upload`。 |
-| 24 | POST | `/api/upload-sessions/{id}/multipart/create` | Upload Token | [TODO-TASK-07] | 目前：`/api/chest/{id}/multipart/create`。 |
-| 25 | PUT | `/api/upload-sessions/{id}/multipart/{fileId}/parts/{n}` | Multipart Token | [TODO-TASK-07] | 目前：`…/part/{n}`。 |
-| 26 | POST | `/api/upload-sessions/{id}/multipart/{fileId}/complete` | Multipart Token | [TODO-TASK-07] | |
-| 27 | POST | `/api/upload-sessions/{id}/multipart/{fileId}/abort` | Multipart Token | [TODO-TASK-07] | 新增。 |
-| 28 | POST | `/api/upload-sessions/{id}/complete` | Upload Token | [TODO-TASK-06] | 目前：`/api/chest/{id}/complete`。 |
+| 21 | POST | `/api/chest` | 舊 | [已移除] | 由 #22 取代。 |
+| 22 | POST | `/api/upload-sessions` | Owner Cookie + CSRF | [已實作] | 回 `{sessionId, uploadToken, expiresIn}`。 |
+| 23 | POST | `/api/upload-sessions/{id}/files` | Upload Token | [已實作] | |
+| 24 | POST | `/api/upload-sessions/{id}/multipart/create` | Upload Token | [已實作] | |
+| 25 | PUT | `/api/upload-sessions/{id}/multipart/{fileId}/parts/{n}` | Multipart Token | [已實作] | |
+| 26 | POST | `/api/upload-sessions/{id}/multipart/{fileId}/complete` | Multipart Token | [已實作] | |
+| 27 | POST | `/api/upload-sessions/{id}/multipart/{fileId}/abort` | Multipart Token | [已實作] | |
+| 28 | POST | `/api/upload-sessions/{id}/complete` | Upload Token | [已實作] | |
 
 ### 取件與下載
 
@@ -103,23 +103,7 @@
 
 ## 成功與失敗樣本
 
-### GET /api/config（舊，待刪除）
-
-```http
-200 OK
-{"requireTOTP": true}
-```
-
-### POST /api/chest（舊，待刪除）
-
-```http
-200 OK
-{"sessionId":"<uuid>","uploadToken":"<jwt>","expiresIn":86400}
-```
-
-失敗：`401 {"error":"TOTP token required","code":"TOTP_REQUIRED"}`
-
-### POST /api/chest/{id}/complete（目前實作）
+### POST /api/upload-sessions/{id}/complete
 
 ```http
 200 OK
@@ -128,7 +112,7 @@
 
 失敗：`404 {"error":"Session not found or already completed","code":"SESSION_NOT_FOUND"}`
 
-### GET /api/auth/methods（目標，TASK-14）
+### GET /api/auth/methods
 
 ```http
 200 OK
@@ -139,7 +123,7 @@ Cache-Control: no-store
 
 不得回傳 `passwordHash`、`encryptedSecret`、`credentials`、`seed`。
 
-### POST /api/auth/login/password（目標，TASK-14）
+### POST /api/auth/login/password
 
 ```http
 200 OK
@@ -189,4 +173,4 @@ Content-Type: application/octet-stream
 ## 驗收對照（AC-00-1、AC-00-2）
 
 - AC-00-1：每條新 API 均有 Method／Path／權限／錯誤碼與樣本（上表與本節）。
-- AC-00-2：新協定沒有 `?code=`、`?token=`、`/api/retrieve/{code}` 的相容要求，這三者已移除。上表仍標記 `舊` 的項目（`/api/chest`、`/api/config`）依賴 TOTP 舊認證，待 G3 的新登入體系完成後於 TASK-28 刪除，不新增別名。
+- AC-00-2：新協定沒有 `?code=`、`?token=`、`/api/retrieve/{code}` 的相容要求，這三者已移除。舊的 `/api/chest`、`/api/config` 與 TOTP 舊認證已於 TASK-14 刪除，不保留別名。

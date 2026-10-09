@@ -15,7 +15,7 @@ function rawUploadId(token: string): string {
 }
 
 async function startMultipart(sessionId: string, uploadToken: string, size = TEXT.length) {
-	const response = await testFetch(`http://example.com/api/chest/${sessionId}/multipart/create`, {
+	const response = await testFetch(`http://example.com/api/upload-sessions/${sessionId}/multipart/create`, {
 		method: 'POST',
 		headers: { Authorization: `Bearer ${uploadToken}`, 'Content-Type': 'application/json' },
 		body: JSON.stringify({ filename: 'big.txt', mimeType: 'text/plain', fileSize: size }),
@@ -25,7 +25,7 @@ async function startMultipart(sessionId: string, uploadToken: string, size = TEX
 }
 
 async function sendPart(sessionId: string, fileId: string, token: string, partNumber = 1) {
-	return testFetch(`http://example.com/api/chest/${sessionId}/multipart/${fileId}/part/${partNumber}`, {
+	return testFetch(`http://example.com/api/upload-sessions/${sessionId}/multipart/${fileId}/parts/${partNumber}`, {
 		method: 'PUT',
 		headers: { Authorization: `Bearer ${token}` },
 		body: new TextEncoder().encode(TEXT),
@@ -33,7 +33,7 @@ async function sendPart(sessionId: string, fileId: string, token: string, partNu
 }
 
 async function completeMultipart(sessionId: string, fileId: string, token: string, parts: { partNumber: number; etag: string }[]) {
-	return testFetch(`http://example.com/api/chest/${sessionId}/multipart/${fileId}/complete`, {
+	return testFetch(`http://example.com/api/upload-sessions/${sessionId}/multipart/${fileId}/complete`, {
 		method: 'POST',
 		headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
 		body: JSON.stringify({ parts }),
@@ -41,7 +41,7 @@ async function completeMultipart(sessionId: string, fileId: string, token: strin
 }
 
 async function abortMultipart(sessionId: string, fileId: string, token: string) {
-	return testFetch(`http://example.com/api/chest/${sessionId}/multipart/${fileId}/abort`, {
+	return testFetch(`http://example.com/api/upload-sessions/${sessionId}/multipart/${fileId}/abort`, {
 		method: 'POST',
 		headers: { Authorization: `Bearer ${token}` },
 	});
@@ -62,13 +62,13 @@ describe('multipart state and abort', () => {
 		// Complete the session through a regular upload
 		const formData = new FormData();
 		formData.append('textItems', JSON.stringify({ content: 'other', filename: 'o.txt' }));
-		const upload = await testFetch(`http://example.com/api/chest/${sessionId}/upload`, {
+		const upload = await testFetch(`http://example.com/api/upload-sessions/${sessionId}/files`, {
 			method: 'POST',
 			headers: { Authorization: `Bearer ${uploadToken}` },
 			body: formData,
 		});
 		const otherId = ((await upload.json()) as any).uploadedFiles[0].fileId;
-		await testFetch(`http://example.com/api/chest/${sessionId}/complete`, {
+		await testFetch(`http://example.com/api/upload-sessions/${sessionId}/complete`, {
 			method: 'POST',
 			headers: { Authorization: `Bearer ${uploadToken}`, 'Content-Type': 'application/json' },
 			body: JSON.stringify({ fileIds: [otherId], validityDays: 7 }),
@@ -123,13 +123,13 @@ describe('multipart state and abort', () => {
 
 		const formData = new FormData();
 		formData.append('textItems', JSON.stringify({ content: 'other', filename: 'o.txt' }));
-		const upload = await testFetch(`http://example.com/api/chest/${sessionId}/upload`, {
+		const upload = await testFetch(`http://example.com/api/upload-sessions/${sessionId}/files`, {
 			method: 'POST',
 			headers: { Authorization: `Bearer ${uploadToken}` },
 			body: formData,
 		});
 		const otherId = ((await upload.json()) as any).uploadedFiles[0].fileId;
-		const completion = await testFetch(`http://example.com/api/chest/${sessionId}/complete`, {
+		const completion = await testFetch(`http://example.com/api/upload-sessions/${sessionId}/complete`, {
 			method: 'POST',
 			headers: { Authorization: `Bearer ${uploadToken}`, 'Content-Type': 'application/json' },
 			body: JSON.stringify({ fileIds: [otherId], validityDays: 7 }),
@@ -194,7 +194,7 @@ describe('multipart state and abort', () => {
 		]);
 		const badNumber = await completeMultipart(sessionId, fileId, uploadId, [{ partNumber: 0, etag }]);
 		const emptyEtag = await completeMultipart(sessionId, fileId, uploadId, [{ partNumber: 1, etag: '' }]);
-		const notArray = await testFetch(`http://example.com/api/chest/${sessionId}/multipart/${fileId}/complete`, {
+		const notArray = await testFetch(`http://example.com/api/upload-sessions/${sessionId}/multipart/${fileId}/complete`, {
 			method: 'POST',
 			headers: { Authorization: `Bearer ${uploadId}`, 'Content-Type': 'application/json' },
 			body: JSON.stringify({ parts: 'nope' }),

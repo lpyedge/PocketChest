@@ -13,34 +13,6 @@ export function usePocketChest() {
 
 	const api = new PocketChestAPI();
 
-	const upload = useCallback(
-		async (files: File[], textItems: TextItem[], validityDays: ValidityDays = 7, totpToken?: string) => {
-			setIsUploading(true);
-			setError(null);
-
-			try {
-				const { sessionId, uploadToken } = await api.createChest(totpToken);
-
-				const { uploadedFiles } = await api.uploadContent(sessionId, uploadToken, files, textItems);
-
-				const fileIds = uploadedFiles.map((f) => f.fileId);
-				const result = await api.completeUpload(sessionId, uploadToken, fileIds, validityDays);
-
-				return {
-					...result,
-					uploadedFiles,
-				};
-			} catch (err) {
-				const message = err instanceof Error ? err.message : 'Upload failed';
-				setError(message);
-				throw new Error(message, { cause: err });
-			} finally {
-				setIsUploading(false);
-			}
-		},
-		[api],
-	);
-
 	const retrieve = useCallback(
 		async (retrievalCode: string, signal?: AbortSignal) => {
 			setIsRetrieving(true);
@@ -196,7 +168,6 @@ export function usePocketChest() {
 	);
 
 	return {
-		upload,
 		uploadWithSession,
 		retryUpload,
 		cancelUpload,

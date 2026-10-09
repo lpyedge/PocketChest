@@ -35,30 +35,31 @@ function bindXhrAbort(xhr: XMLHttpRequest, signal: AbortSignal | undefined, reje
 export class PocketChestAPI {
 	constructor(private baseUrl: string = API_BASE_URL) {}
 
-	async getConfig(): Promise<{ requireTOTP: boolean }> {
-		const response = await fetch(`${this.baseUrl}/api/config`);
+	// Whether the owner is signed in, and the CSRF token that the signed-in session must echo on changes
+	async getOwnerStatus(): Promise<{ authenticated: boolean; csrfToken?: string }> {
+		const response = await fetch(`${this.baseUrl}/api/auth/session`);
 
 		if (!response.ok) {
-			throw new Error('Failed to fetch server config');
+			throw new Error('Failed to check sign-in');
 		}
 
 		return response.json();
 	}
 
-	async createChest(totpToken?: string): Promise<CreateChestResponse> {
-		const body = totpToken ? { totpToken } : {};
-
-		const response = await fetch(`${this.baseUrl}/api/chest`, {
+	// Starts an upload session; only the signed-in owner can do this
+	async createUploadSession(csrfToken: string): Promise<CreateChestResponse> {
+		const response = await fetch(`${this.baseUrl}/api/upload-sessions`, {
 			method: 'POST',
 			headers: {
 				'Content-Type': 'application/json',
+				'X-PocketChest-CSRF': csrfToken,
 			},
-			body: JSON.stringify(body),
+			body: JSON.stringify({}),
 		});
 
 		if (!response.ok) {
 			const error = (await response.json().catch(() => ({}))) as { error?: string };
-			throw new Error(error.error || 'Failed to create chest');
+			throw new Error(error.error || 'Failed to start upload');
 		}
 
 		return response.json();
@@ -299,14 +300,14 @@ export class PocketChestAPI {
 				});
 
 				bindXhrAbort(xhr, signal, reject);
-				xhr.open('POST', `${this.baseUrl}/api/chest/${sessionId}/upload`);
+				xhr.open('POST', `${this.baseUrl}/api/upload-sessions/${sessionId}/files`);
 				xhr.setRequestHeader('Authorization', `Bearer ${uploadToken}`);
 				xhr.send(formData);
 			});
 		}
 
 		// Fallback to fetch if no progress tracking needed
-		const response = await fetch(`${this.baseUrl}/api/chest/${sessionId}/upload`, {
+		const response = await fetch(`${this.baseUrl}/api/upload-sessions/${sessionId}/files`, {
 			method: 'POST',
 			headers: {
 				Authorization: `Bearer ${uploadToken}`,
@@ -324,7 +325,7 @@ export class PocketChestAPI {
 
 	// Abandons an upload session on the server: its uploads stop and unfinished multipart uploads are aborted
 	async cancelSession(sessionId: string, uploadToken: string): Promise<void> {
-		const response = await fetch(`${this.baseUrl}/api/chest/${sessionId}/cancel`, {
+		const response = await fetch(`${this.baseUrl}/api/upload-sessions/${sessionId}/cancel`, {
 			method: 'POST',
 			headers: {
 				Authorization: `Bearer ${uploadToken}`,
@@ -342,7 +343,7 @@ export class PocketChestAPI {
 		fileIds: string[],
 		validityDays: ValidityDays = 7,
 	): Promise<CompleteUploadResponse> {
-		const response = await fetch(`${this.baseUrl}/api/chest/${sessionId}/complete`, {
+		const response = await fetch(`${this.baseUrl}/api/upload-sessions/${sessionId}/complete`, {
 			method: 'POST',
 			headers: {
 				Authorization: `Bearer ${uploadToken}`,
@@ -431,7 +432,7 @@ export class PocketChestAPI {
 		mimeType: string,
 		fileSize: number,
 	): Promise<CreateMultipartUploadResponse> {
-		const response = await fetch(`${this.baseUrl}/api/chest/${sessionId}/multipart/create`, {
+		const response = await fetch(`${this.baseUrl}/api/upload-sessions/${sessionId}/multipart/create`, {
 			method: 'POST',
 			headers: {
 				Authorization: `Bearer ${uploadToken}`,
@@ -489,7 +490,7 @@ export class PocketChestAPI {
 				});
 
 				bindXhrAbort(xhr, signal, reject);
-				xhr.open('PUT', `${this.baseUrl}/api/chest/${sessionId}/multipart/${fileId}/part/${partNumber}`);
+				xhr.open('PUT', `${this.baseUrl}/api/upload-sessions/${sessionId}/multipart/${fileId}/parts/${partNumber}`);
 				xhr.setRequestHeader('Authorization', `Bearer ${multipartToken}`);
 				xhr.setRequestHeader('Content-Type', 'application/octet-stream');
 				xhr.send(data);
@@ -497,7 +498,7 @@ export class PocketChestAPI {
 		}
 
 		// Fallback to fetch if no progress tracking needed
-		const response = await fetch(`${this.baseUrl}/api/chest/${sessionId}/multipart/${fileId}/part/${partNumber}`, {
+		const response = await fetch(`${this.baseUrl}/api/upload-sessions/${sessionId}/multipart/${fileId}/parts/${partNumber}`, {
 			method: 'PUT',
 			headers: {
 				Authorization: `Bearer ${multipartToken}`,
@@ -520,7 +521,7 @@ export class PocketChestAPI {
 		fileId: string,
 		parts: UploadPart[],
 	): Promise<{ fileId: string; filename: string }> {
-		const response = await fetch(`${this.baseUrl}/api/chest/${sessionId}/multipart/${fileId}/complete`, {
+		const response = await fetch(`${this.baseUrl}/api/upload-sessions/${sessionId}/multipart/${fileId}/complete`, {
 			method: 'POST',
 			headers: {
 				Authorization: `Bearer ${multipartToken}`,

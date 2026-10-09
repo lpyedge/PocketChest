@@ -1,12 +1,27 @@
 import { test, expect, APIRequestContext } from '@playwright/test';
 
+// The dev server is started with this as its bootstrap secret, so it is also the owner's password
+const ORIGIN = 'http://localhost:8788';
+const OWNER_PASSWORD = 'e2e-bootstrap-password-0123456789';
+
+// Signs in as the owner and returns the headers that owner-only endpoints need
+async function ownerHeaders(request: APIRequestContext): Promise<Record<string, string>> {
+	// Claims the owner on a fresh bucket; later runs get 409 because the owner already exists
+	await request.post('/api/auth/bootstrap', { headers: { Origin: ORIGIN }, data: { password: OWNER_PASSWORD } });
+	const login = await request.post('/api/auth/login/password', { headers: { Origin: ORIGIN }, data: { password: OWNER_PASSWORD } });
+	expect(login.status()).toBe(200);
+	const cookie = (login.headers()['set-cookie'] ?? '').split(';')[0];
+	const { csrfToken } = (await login.json()) as { csrfToken: string };
+	return { Origin: ORIGIN, Cookie: cookie, 'X-PocketChest-CSRF': csrfToken };
+}
+
 // Creates a completed chest through the API, the same way the upload page does
 async function createChest(
 	request: APIRequestContext,
 	texts: { content: string; filename: string }[],
 	file?: { name: string; body: string },
 ) {
-	const session = await (await request.post('/api/chest', { data: {} })).json();
+	const session = await (await request.post('/api/upload-sessions', { headers: await ownerHeaders(request), data: {} })).json();
 	const headers = { Authorization: `Bearer ${session.uploadToken}` };
 	const multipart: Record<string, unknown> = {};
 	if (file) {
@@ -16,10 +31,12 @@ async function createChest(
 	if (texts.length > 0) {
 		multipart.textItems = JSON.stringify(texts[0]);
 	}
-	const uploaded = await (await request.post(`/api/chest/${session.sessionId}/upload`, { headers, multipart: multipart as any })).json();
+	const uploaded = await (
+		await request.post(`/api/upload-sessions/${session.sessionId}/files`, { headers, multipart: multipart as any })
+	).json();
 	const fileIds = uploaded.uploadedFiles.map((f: { fileId: string }) => f.fileId);
 	const completed = await (
-		await request.post(`/api/chest/${session.sessionId}/complete`, { headers, data: { fileIds, validityDays: 7 } })
+		await request.post(`/api/upload-sessions/${session.sessionId}/complete`, { headers, data: { fileIds, validityDays: 7 } })
 	).json();
 	return {
 		code: completed.retrievalCode as string,

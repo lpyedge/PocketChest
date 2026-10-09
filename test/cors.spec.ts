@@ -12,7 +12,7 @@ describe('Same-origin API', () => {
 	});
 
 	it('should not answer CORS preflight requests', async () => {
-		const response = await testFetch('http://example.com/api/chest', {
+		const response = await testFetch('http://example.com/api/upload-sessions', {
 			method: 'OPTIONS',
 			headers: {
 				Origin: 'https://evil.example',
@@ -25,9 +25,9 @@ describe('Same-origin API', () => {
 	});
 
 	it.each([
-		['POST', 'http://example.com/api/chest'],
+		['POST', 'http://example.com/api/upload-sessions'],
 		['GET', 'http://example.com/api/nonexistent'],
-		['GET', 'http://example.com/api/config'],
+		['GET', 'http://example.com/api/auth/methods'],
 		['GET', 'http://example.com/api/download/fake-file-id'],
 	])('should not include CORS headers on %s %s', async (method, url) => {
 		const response = await testFetch(url, {

@@ -13,7 +13,7 @@ function rawUploadId(token: string): string {
 }
 
 async function cancel(sessionId: string, token: string) {
-	return testFetch(`http://example.com/api/chest/${sessionId}/cancel`, {
+	return testFetch(`http://example.com/api/upload-sessions/${sessionId}/cancel`, {
 		method: 'POST',
 		headers: { Authorization: `Bearer ${token}` },
 	});
@@ -32,7 +32,7 @@ describe('cancelling an upload session', () => {
 
 		const formData = new FormData();
 		formData.append('textItems', JSON.stringify({ content: 'late', filename: 'late.txt' }));
-		const upload = await testFetch(`http://example.com/api/chest/${sessionId}/upload`, {
+		const upload = await testFetch(`http://example.com/api/upload-sessions/${sessionId}/files`, {
 			method: 'POST',
 			headers: { Authorization: `Bearer ${uploadToken}` },
 			body: formData,
@@ -44,7 +44,7 @@ describe('cancelling an upload session', () => {
 
 	it('aborts the unfinished multipart uploads of the session', async () => {
 		const { sessionId, uploadToken } = await createTestSession();
-		const create = await testFetch(`http://example.com/api/chest/${sessionId}/multipart/create`, {
+		const create = await testFetch(`http://example.com/api/upload-sessions/${sessionId}/multipart/create`, {
 			method: 'POST',
 			headers: { Authorization: `Bearer ${uploadToken}`, 'Content-Type': 'application/json' },
 			body: JSON.stringify({ filename: 'cancel.bin', mimeType: 'application/octet-stream', fileSize: 10 }),
@@ -58,7 +58,7 @@ describe('cancelling an upload session', () => {
 				.resumeMultipartUpload(`${sessionId}/${fileId}`, rawUploadId(uploadId))
 				.uploadPart(1, new Uint8Array([1])),
 		).rejects.toThrow();
-		const part = await testFetch(`http://example.com/api/chest/${sessionId}/multipart/${fileId}/part/1`, {
+		const part = await testFetch(`http://example.com/api/upload-sessions/${sessionId}/multipart/${fileId}/parts/1`, {
 			method: 'PUT',
 			headers: { Authorization: `Bearer ${uploadId}` },
 			body: new Uint8Array([1]),
@@ -86,7 +86,7 @@ describe('cancelling an upload session', () => {
 		const { sessionId, uploadToken } = await createTestSession();
 		const formData = new FormData();
 		formData.append('textItems', JSON.stringify({ content: 'drop', filename: 'drop.txt' }));
-		await testFetch(`http://example.com/api/chest/${sessionId}/upload`, {
+		await testFetch(`http://example.com/api/upload-sessions/${sessionId}/files`, {
 			method: 'POST',
 			headers: { Authorization: `Bearer ${uploadToken}` },
 			body: formData,

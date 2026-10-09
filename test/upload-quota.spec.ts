@@ -15,7 +15,7 @@ function formWith(parts: { files?: File[]; texts?: { content: string; filename?:
 }
 
 async function upload(sessionId: string, uploadToken: string, body: FormData | string, headers: Record<string, string> = {}) {
-	return testFetch(`http://example.com/api/chest/${sessionId}/upload`, {
+	return testFetch(`http://example.com/api/upload-sessions/${sessionId}/files`, {
 		method: 'POST',
 		headers: { Authorization: `Bearer ${uploadToken}`, ...headers },
 		body,
@@ -105,7 +105,7 @@ describe('upload limits and quotas', () => {
 	it('refuses to complete a session whose files are all empty', async () => {
 		const { sessionId, uploadToken } = await createTestSession();
 		const uploaded = (await (await upload(sessionId, uploadToken, formWith({ files: [new File([], 'empty.txt')] }))).json()) as any;
-		const response = await testFetch(`http://example.com/api/chest/${sessionId}/complete`, {
+		const response = await testFetch(`http://example.com/api/upload-sessions/${sessionId}/complete`, {
 			method: 'POST',
 			headers: { Authorization: `Bearer ${uploadToken}`, 'Content-Type': 'application/json' },
 			body: JSON.stringify({ fileIds: [uploaded.uploadedFiles[0].fileId], validityDays: 7 }),
@@ -120,7 +120,7 @@ describe('upload limits and quotas', () => {
 		const uploaded = (await (
 			await upload(sessionId, uploadToken, formWith({ files: [new File([], 'empty.txt'), new File(['x'], 'x.txt')] }))
 		).json()) as any;
-		const response = await testFetch(`http://example.com/api/chest/${sessionId}/complete`, {
+		const response = await testFetch(`http://example.com/api/upload-sessions/${sessionId}/complete`, {
 			method: 'POST',
 			headers: { Authorization: `Bearer ${uploadToken}`, 'Content-Type': 'application/json' },
 			body: JSON.stringify({ fileIds: uploaded.uploadedFiles.map((f: any) => f.fileId), validityDays: 7 }),
@@ -131,14 +131,14 @@ describe('upload limits and quotas', () => {
 
 	it('rejects a part larger than the part limit before reading it', async () => {
 		const { sessionId, uploadToken } = await createTestSession();
-		const start = await testFetch(`http://example.com/api/chest/${sessionId}/multipart/create`, {
+		const start = await testFetch(`http://example.com/api/upload-sessions/${sessionId}/multipart/create`, {
 			method: 'POST',
 			headers: { Authorization: `Bearer ${uploadToken}`, 'Content-Type': 'application/json' },
 			body: JSON.stringify({ filename: 'big.bin', mimeType: 'application/octet-stream', fileSize: 1000 }),
 		});
 		const { fileId, uploadId } = (await start.json()) as any;
 
-		const response = await testFetch(`http://example.com/api/chest/${sessionId}/multipart/${fileId}/part/1`, {
+		const response = await testFetch(`http://example.com/api/upload-sessions/${sessionId}/multipart/${fileId}/parts/1`, {
 			method: 'PUT',
 			headers: { Authorization: `Bearer ${uploadId}`, 'Content-Length': String(LIMITS.maxPartBytes + 1) },
 			body: 'x',
@@ -161,7 +161,7 @@ describe('upload limits and quotas', () => {
 			now,
 		);
 
-		const response = await testFetch(`http://example.com/api/chest/${sessionId}/multipart/create`, {
+		const response = await testFetch(`http://example.com/api/upload-sessions/${sessionId}/multipart/create`, {
 			method: 'POST',
 			headers: { Authorization: `Bearer ${uploadToken}`, 'Content-Type': 'application/json' },
 			body: JSON.stringify({ filename: 'huge.bin', mimeType: 'application/octet-stream', fileSize: LIMITS.maxSessionBytes }),

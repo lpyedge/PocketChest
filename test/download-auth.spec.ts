@@ -18,7 +18,7 @@ async function createChest(texts: { content: string; filename: string }[], valid
 	const formData = new FormData();
 	for (const text of texts) formData.append('textItems', JSON.stringify(text));
 	const upload = (await (
-		await testFetch(`http://example.com/api/chest/${sessionId}/upload`, {
+		await testFetch(`http://example.com/api/upload-sessions/${sessionId}/files`, {
 			method: 'POST',
 			headers: { Authorization: `Bearer ${uploadToken}` },
 			body: formData,
@@ -26,7 +26,7 @@ async function createChest(texts: { content: string; filename: string }[], valid
 	).json()) as any;
 	const fileIds = upload.uploadedFiles.map((f: any) => f.fileId);
 	const completed = (await (
-		await testFetch(`http://example.com/api/chest/${sessionId}/complete`, {
+		await testFetch(`http://example.com/api/upload-sessions/${sessionId}/complete`, {
 			method: 'POST',
 			headers: { Authorization: `Bearer ${uploadToken}`, 'Content-Type': 'application/json' },
 			body: JSON.stringify({ fileIds, validityDays }),

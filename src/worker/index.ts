@@ -1,5 +1,6 @@
-import { clearedSessionCookie, csrfTokenFor, requireOwner } from './auth/sessions';
+import { assertSameOrigin, clearedSessionCookie, csrfTokenFor, requireOwner } from './auth/sessions';
 import { bootstrapOwner } from './auth/bootstrap';
+import { authMethods, loginWithPassword, reauthWithPassword } from './auth/login';
 import { ApiError } from './errors';
 import {
 	abandonSession,
@@ -18,7 +19,6 @@ import {
 import { LIMITS, utf8ByteLength } from './limits';
 import {
 	Env,
-	CreateChestRequest,
 	CreateChestResponse,
 	UploadFileResponse,
 	CompleteUploadRequest,
@@ -48,7 +48,6 @@ import {
 	isValidRetrievalCode,
 	calculateExpiry,
 	getCurrentTimestamp,
-	verifyAnyTOTP,
 	isValidValidityDays,
 	contentDisposition,
 } from './utils';
@@ -162,39 +161,47 @@ async function routeApi(request: Request, env: Env, path: string): Promise<Respo
 			return await handleLogout(request, env);
 		}
 
-		if (path === '/api/config' && method === 'GET') {
-			return handleGetConfig(env);
+		if (path === '/api/auth/methods' && method === 'GET') {
+			return await handleAuthMethods(env);
 		}
 
-		if (path === '/api/chest' && method === 'POST') {
-			return await handleCreateChest(request, env);
+		if (path === '/api/auth/login/password' && method === 'POST') {
+			return await handlePasswordLogin(request, env);
 		}
 
-		if (path.match(/^\/api\/chest\/[^\/]+\/upload$/) && method === 'POST') {
+		if (path === '/api/auth/reauth/password' && method === 'POST') {
+			return await handlePasswordReauth(request, env);
+		}
+
+		if (path === '/api/upload-sessions' && method === 'POST') {
+			return await handleCreateUploadSession(request, env);
+		}
+
+		if (path.match(/^\/api\/upload-sessions\/[^\/]+\/files$/) && method === 'POST') {
 			return await handleUploadFiles(request, env, segments[3]);
 		}
 
-		if (path.match(/^\/api\/chest\/[^\/]+\/multipart\/create$/) && method === 'POST') {
+		if (path.match(/^\/api\/upload-sessions\/[^\/]+\/multipart\/create$/) && method === 'POST') {
 			return await handleCreateMultipartUpload(request, env, segments[3]);
 		}
 
-		if (path.match(/^\/api\/chest\/[^\/]+\/multipart\/[^\/]+\/part\/[^\/]+$/) && method === 'PUT') {
+		if (path.match(/^\/api\/upload-sessions\/[^\/]+\/multipart\/[^\/]+\/parts\/[^\/]+$/) && method === 'PUT') {
 			return await handleUploadPart(request, env, segments[3], segments[5], parseInt(segments[7]));
 		}
 
-		if (path.match(/^\/api\/chest\/[^\/]+\/multipart\/[^\/]+\/abort$/) && method === 'POST') {
+		if (path.match(/^\/api\/upload-sessions\/[^\/]+\/multipart\/[^\/]+\/abort$/) && method === 'POST') {
 			return await handleAbortMultipartUpload(request, env, segments[3], segments[5]);
 		}
 
-		if (path.match(/^\/api\/chest\/[^\/]+\/multipart\/[^\/]+\/complete$/) && method === 'POST') {
+		if (path.match(/^\/api\/upload-sessions\/[^\/]+\/multipart\/[^\/]+\/complete$/) && method === 'POST') {
 			return await handleCompleteMultipartUpload(request, env, segments[3], segments[5]);
 		}
 
-		if (path.match(/^\/api\/chest\/[^\/]+\/cancel$/) && method === 'POST') {
+		if (path.match(/^\/api\/upload-sessions\/[^\/]+\/cancel$/) && method === 'POST') {
 			return await handleCancelUpload(request, env, segments[3]);
 		}
 
-		if (path.match(/^\/api\/chest\/[^\/]+\/complete$/) && method === 'POST') {
+		if (path.match(/^\/api\/upload-sessions\/[^\/]+\/complete$/) && method === 'POST') {
 			return await handleCompleteUpload(request, env, segments[3]);
 		}
 
@@ -225,6 +232,7 @@ async function routeApi(request: Request, env: Env, path: string): Promise<Respo
 
 // POST /api/auth/bootstrap - Initial owner setup (one time)
 async function handleBootstrap(request: Request, env: Env): Promise<Response> {
+	assertSameOrigin(request);
 	const { password } = await readJson<{ password?: unknown }>(request);
 	if (typeof password !== 'string' || password.length === 0 || password.length > 1024) {
 		throw new ApiError(400, 'INVALID_REQUEST', 'Password is required');
@@ -330,28 +338,36 @@ async function authorizeMultipart(request: Request, env: Env, sessionId: string,
 
 // --- Handlers ---
 
-// GET /api/config - Get server configuration
-function handleGetConfig(env: Env): Response {
-	return json({ requireTOTP: env.REQUIRE_TOTP === 'true' });
+// GET /api/auth/methods - Which sign-in methods are usable, and whether first-time setup is open
+async function handleAuthMethods(env: Env): Promise<Response> {
+	return json(await authMethods(env), 200, { 'Cache-Control': 'no-store' });
 }
 
-// POST /api/chest - Create new chest
-async function handleCreateChest(request: Request, env: Env): Promise<Response> {
-	if (env.REQUIRE_TOTP === 'true') {
-		const requestBody = await readJson<CreateChestRequest>(request);
-
-		if (!requestBody.totpToken) {
-			throw new ApiError(401, 'TOTP_REQUIRED', 'TOTP token required');
-		}
-
-		if (!env.TOTP_SECRETS) {
-			throw new ApiError(500, 'TOTP_NOT_CONFIGURED', 'TOTP not configured on server');
-		}
-
-		if (!(await verifyAnyTOTP(requestBody.totpToken, env.TOTP_SECRETS))) {
-			throw new ApiError(401, 'TOTP_INVALID', 'Invalid TOTP token');
-		}
+// POST /api/auth/login/password - Starts an owner session when the password is correct
+async function handlePasswordLogin(request: Request, env: Env): Promise<Response> {
+	assertSameOrigin(request);
+	const { password } = await readJson<{ password?: unknown }>(request);
+	if (typeof password !== 'string' || password.length === 0 || password.length > 1024) {
+		throw new ApiError(401, 'AUTH_INVALID_CREDENTIALS', 'Invalid credentials');
 	}
+	const issued = await loginWithPassword(env, password, getCurrentTimestamp());
+	return json({ authenticated: true, csrfToken: issued.csrfToken }, 200, { 'Set-Cookie': issued.cookie });
+}
+
+// POST /api/auth/reauth/password - Re-enters the password inside a signed-in session
+async function handlePasswordReauth(request: Request, env: Env): Promise<Response> {
+	const session = await requireOwner(request, env.R2_STORAGE, env.JWT_SECRET, { mutating: true });
+	const { password } = await readJson<{ password?: unknown }>(request);
+	if (typeof password !== 'string' || password.length === 0 || password.length > 1024) {
+		throw new ApiError(401, 'AUTH_INVALID_CREDENTIALS', 'Invalid credentials');
+	}
+	await reauthWithPassword(env, session, password, getCurrentTimestamp());
+	return json({ reauthenticated: true }, 200, { 'Cache-Control': 'no-store' });
+}
+
+// POST /api/upload-sessions - Owner starts an upload session and receives its upload token
+async function handleCreateUploadSession(request: Request, env: Env): Promise<Response> {
+	await requireOwner(request, env.R2_STORAGE, env.JWT_SECRET, { mutating: true });
 
 	const sessionId = generateUUID();
 	const createdAt = getCurrentTimestamp();
@@ -363,10 +379,10 @@ async function handleCreateChest(request: Request, env: Env): Promise<Response> 
 		uploadToken,
 		expiresIn: 86400, // 24 hours
 	};
-	return json(response);
+	return json(response, 200, { 'Cache-Control': 'no-store' });
 }
 
-// POST /api/chest/:sessionId/upload - Upload files
+// POST /api/upload-sessions/:sessionId/files - Upload files
 async function handleUploadFiles(request: Request, env: Env, sessionId: string): Promise<Response> {
 	await authorizeUpload(request, env, sessionId);
 
@@ -479,8 +495,8 @@ function checkFilename(filename: string): void {
 	}
 }
 
-// POST /api/chest/:sessionId/complete - Complete upload and generate retrieval code
-// POST /api/chest/:sessionId/cancel - Abandon an upload session; its unfinished multipart uploads are aborted
+// POST /api/upload-sessions/:sessionId/complete - Complete upload and generate retrieval code
+// POST /api/upload-sessions/:sessionId/cancel - Abandon an upload session; its unfinished multipart uploads are aborted
 async function handleCancelUpload(request: Request, env: Env, sessionId: string): Promise<Response> {
 	const token = await authorizeUploadToken(request, env, sessionId);
 	// Read the uploads before abandoning: abandoning marks them closed, and they still have to be aborted in R2
@@ -719,7 +735,7 @@ async function handleDownloadFile(request: Request, env: Env, fileId: string): P
 	});
 }
 
-// POST /api/chest/:sessionId/multipart/create - Create multipart upload
+// POST /api/upload-sessions/:sessionId/multipart/create - Create multipart upload
 async function handleCreateMultipartUpload(request: Request, env: Env, sessionId: string): Promise<Response> {
 	await authorizeUpload(request, env, sessionId);
 	const { filename, mimeType, fileSize } = await readJson<CreateMultipartUploadRequest>(request);
@@ -812,7 +828,7 @@ async function withActiveMultipart<T>(
 	}
 }
 
-// PUT /api/chest/:sessionId/multipart/:fileId/part/:partNumber - Upload part
+// PUT /api/upload-sessions/:sessionId/multipart/:fileId/parts/:partNumber - Upload part
 async function handleUploadPart(request: Request, env: Env, sessionId: string, fileId: string, partNumber: number): Promise<Response> {
 	const payload = await authorizeMultipart(request, env, sessionId, fileId);
 
@@ -865,7 +881,7 @@ function validateParts(parts: unknown): { partNumber: number; etag: string }[] {
 		.sort((a, b) => a.partNumber - b.partNumber);
 }
 
-// POST /api/chest/:sessionId/multipart/:fileId/complete - Complete multipart upload
+// POST /api/upload-sessions/:sessionId/multipart/:fileId/complete - Complete multipart upload
 async function handleCompleteMultipartUpload(request: Request, env: Env, sessionId: string, fileId: string): Promise<Response> {
 	const payload = await authorizeMultipart(request, env, sessionId, fileId);
 	const { parts } = await readJson<CompleteMultipartUploadRequest>(request);
@@ -905,7 +921,7 @@ async function handleCompleteMultipartUpload(request: Request, env: Env, session
 	return json(response);
 }
 
-// POST /api/chest/:sessionId/multipart/:fileId/abort - Abort an unfinished multipart upload
+// POST /api/upload-sessions/:sessionId/multipart/:fileId/abort - Abort an unfinished multipart upload
 async function handleAbortMultipartUpload(request: Request, env: Env, sessionId: string, fileId: string): Promise<Response> {
 	const payload = await authorizeMultipart(request, env, sessionId, fileId);
 

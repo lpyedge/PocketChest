@@ -2,7 +2,6 @@ import { useState, useEffect } from 'react';
 import { FileUpload } from '@/components/FileUpload';
 import { TextInput } from '@/components/TextInput';
 import { ExpirySelector } from '@/components/ExpirySelector';
-import { TOTPModal } from '@/components/TOTPModal';
 import { UploadProgress } from '@/components/UploadProgress';
 import { ShareResult } from '@/components/ShareResult';
 import { usePocketChest } from '@/hooks/usePocketChest';
@@ -14,91 +13,32 @@ export default function UploadApp() {
 	const [textItems, setTextItems] = useState<TextItem[]>([]);
 	const [validityDays, setValidityDays] = useState<ValidityDays>(7);
 	const [uploadResult, setUploadResult] = useState<string | null>(null);
-
-	// Authentication state
-	const [isAuthenticated, setIsAuthenticated] = useState(false);
-	const [isAuthenticating, setIsAuthenticating] = useState(false);
-	const [showTOTPModal, setShowTOTPModal] = useState(false);
-	const [totpError, setTotpError] = useState<string>('');
 	const [sessionData, setSessionData] = useState<{ sessionId: string; uploadToken: string } | null>(null);
-	// Kept in memory only, so that a new session can be opened without asking again
-	const [totpToken, setTotpToken] = useState('');
 
-	// Config state
-	const [configLoaded, setConfigLoaded] = useState(false);
-	const [requireTOTP, setRequireTOTP] = useState(false);
+	// Owner sign-in: the CSRF token of the signed-in session, or null when nobody is signed in
+	const [csrfToken, setCsrfToken] = useState<string | null>(null);
+	const [authChecked, setAuthChecked] = useState(false);
+	const [startError, setStartError] = useState<string | null>(null);
 
 	const { uploadWithSession, retryUpload, cancelUpload, isUploading, uploadProgress, uploadStatus, fileProgress, error, clearError } =
 		usePocketChest();
 	const api = new PocketChestAPI();
 
-	// Fetch config and initialize session
+	// Check the owner session once on load
 	useEffect(() => {
-		const initializeApp = async () => {
-			try {
-				// First, fetch server configuration
-				const config = await api.getConfig();
-				setRequireTOTP(config.requireTOTP);
-				setConfigLoaded(true);
-
-				// Then initialize session based on config
-				if (config.requireTOTP) {
-					setShowTOTPModal(true);
-				} else {
-					// No TOTP required, create session immediately
-					setIsAuthenticating(true);
-					const session = await api.createChest();
-					setSessionData({ sessionId: session.sessionId, uploadToken: session.uploadToken });
-					setIsAuthenticated(true);
-				}
-			} catch (error) {
-				console.error('Failed to initialize app:', error);
-				// Show error state or fallback
-			} finally {
-				setIsAuthenticating(false);
-			}
-		};
-
-		initializeApp();
+		api
+			.getOwnerStatus()
+			.then((status) => setCsrfToken(status.authenticated ? (status.csrfToken ?? null) : null))
+			.catch(() => setCsrfToken(null))
+			.finally(() => setAuthChecked(true));
 	}, []);
 
-	const handleTOTPSubmit = async (code: string) => {
-		setTotpError('');
-		setIsAuthenticating(true);
-
-		try {
-			const session = await api.createChest(code);
-			setTotpToken(code);
-			setSessionData({ sessionId: session.sessionId, uploadToken: session.uploadToken });
-			setIsAuthenticated(true);
-			setShowTOTPModal(false);
-		} catch (error) {
-			const message = error instanceof Error ? error.message : 'Authentication failed';
-			setTotpError(message);
-			throw error; // Re-throw to let modal handle UI state
-		} finally {
-			setIsAuthenticating(false);
-		}
-	};
-
-	const handleTOTPClose = () => {
-		// Don't allow closing if TOTP is required - they need to authenticate
-		if (requireTOTP && !isAuthenticated) {
-			return;
-		}
-		setShowTOTPModal(false);
-		setTotpError('');
-	};
-
 	// Every upload runs in its own session: a session is closed by completing it, cancelling it or a failed attempt
-	const startSession = async (): Promise<{ sessionId: string; uploadToken: string } | null> => {
-		if (requireTOTP && !totpToken) {
-			// Ask for the code again; the upload continues from the modal's submit
-			setIsAuthenticated(false);
-			setShowTOTPModal(true);
-			return null;
+	const startSession = async (): Promise<{ sessionId: string; uploadToken: string }> => {
+		if (!csrfToken) {
+			throw new Error('Sign in as the owner to upload');
 		}
-		const session = await api.createChest(requireTOTP ? totpToken : undefined);
+		const session = await api.createUploadSession(csrfToken);
 		const started = { sessionId: session.sessionId, uploadToken: session.uploadToken };
 		setSessionData(started);
 		return started;
@@ -124,9 +64,16 @@ export default function UploadApp() {
 		}
 		setSessionData(null);
 
+		setStartError(null);
+		let session: { sessionId: string; uploadToken: string };
 		try {
-			const session = await startSession();
-			if (!session) return;
+			session = await startSession();
+		} catch (error) {
+			setStartError(error instanceof Error ? error.message : 'Could not start the upload');
+			return;
+		}
+
+		try {
 			const result = retry
 				? await retryUpload(session.sessionId, session.uploadToken, files, textItems, validityDays)
 				: await uploadWithSession(session.sessionId, session.uploadToken, files, textItems, validityDays);
@@ -149,8 +96,8 @@ export default function UploadApp() {
 		setUploadResult(null);
 	};
 
-	// Show loading state until config is loaded and authentication is complete
-	if (!configLoaded || (requireTOTP && !isAuthenticated) || isAuthenticating) {
+	// Until the sign-in check finishes, and whenever nobody is signed in, the page cannot start an upload
+	if (!authChecked || !csrfToken) {
 		return (
 			<main className="min-h-screen bg-gray-50 py-8">
 				<div className="max-w-2xl mx-auto px-4">
@@ -164,29 +111,12 @@ export default function UploadApp() {
 
 					<div className="bg-white rounded-lg shadow-md p-8">
 						<div className="text-center">
-							<div className="text-8xl mb-6">{!configLoaded ? '🎯' : requireTOTP ? '🔐' : '⏳'}</div>
-							<h2 className="text-2xl font-bold text-gray-900 mb-4">
-								{!configLoaded ? 'Opening the Chest...' : requireTOTP ? 'Authentication Required' : 'Preparing Session'}
-							</h2>
-							<p className="text-gray-600 mb-6">
-								{!configLoaded
-									? 'Checking what treasures await inside! 🗝️✨'
-									: requireTOTP
-										? 'Please authenticate with your TOTP code to proceed'
-										: 'Setting up your upload session...'}
-							</p>
-							{isAuthenticating && (
-								<div className="flex items-center justify-center gap-2">
-									<div className="animate-spin text-xl">⏳</div>
-									<span>Authenticating...</span>
-								</div>
-							)}
+							<div className="text-8xl mb-6">{authChecked ? '🔐' : '🎯'}</div>
+							<h2 className="text-2xl font-bold text-gray-900 mb-4">{authChecked ? 'Sign-in Required' : 'Checking Sign-in...'}</h2>
+							<p className="text-gray-600">{authChecked ? 'Only the owner can upload. Sign in to continue.' : 'One moment, please.'}</p>
 						</div>
 					</div>
 				</div>
-
-				{/* TOTP Modal */}
-				<TOTPModal isOpen={showTOTPModal} onClose={handleTOTPClose} onSubmit={handleTOTPSubmit} error={totpError} allowCancel={false} />
 			</main>
 		);
 	}
@@ -241,6 +171,17 @@ export default function UploadApp() {
 					<h1 className="text-4xl font-bold text-gray-900 mt-4 mb-2">📤 Share Files & Text</h1>
 					<p className="text-xl text-gray-600">Upload files or text to get a shareable code</p>
 				</div>
+
+				{startError && (
+					<div className="mb-6 p-4 bg-red-50 border border-red-200 rounded-lg">
+						<div className="flex justify-between items-center">
+							<p className="text-red-700">{startError}</p>
+							<button onClick={() => setStartError(null)} className="text-red-500 hover:text-red-700">
+								✕
+							</button>
+						</div>
+					</div>
+				)}
 
 				{error && (
 					<div className="mb-6 p-4 bg-red-50 border border-red-200 rounded-lg">

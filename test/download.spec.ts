@@ -21,7 +21,7 @@ describe('GET /api/download/:fileId - Download File', () => {
 		formData.append('textItems', JSON.stringify({ content: 'Text download content', filename: 'text-download.txt' }));
 
 		const uploadData = (await (
-			await testFetch(`http://example.com/api/chest/${session.sessionId}/upload`, {
+			await testFetch(`http://example.com/api/upload-sessions/${session.sessionId}/files`, {
 				method: 'POST',
 				headers: { Authorization: `Bearer ${uploadToken}` },
 				body: formData,
@@ -32,7 +32,7 @@ describe('GET /api/download/:fileId - Download File', () => {
 		textFileId = uploadData.uploadedFiles.find((f: any) => f.isText).fileId;
 
 		const completeData = (await (
-			await testFetch(`http://example.com/api/chest/${session.sessionId}/complete`, {
+			await testFetch(`http://example.com/api/upload-sessions/${session.sessionId}/complete`, {
 				method: 'POST',
 				headers: { Authorization: `Bearer ${uploadToken}`, 'Content-Type': 'application/json' },
 				body: JSON.stringify({ fileIds, validityDays: 7 }),
@@ -95,14 +95,14 @@ describe('GET /api/download/:fileId - Download File', () => {
 		const formData = new FormData();
 		formData.append('files', new File(['x'], 'bad "name" 報告.txt', { type: 'text/plain' }));
 		const uploaded = (await (
-			await testFetch(`http://example.com/api/chest/${session.sessionId}/upload`, {
+			await testFetch(`http://example.com/api/upload-sessions/${session.sessionId}/files`, {
 				method: 'POST',
 				headers: { Authorization: `Bearer ${session.uploadToken}` },
 				body: formData,
 			})
 		).json()) as any;
 		const completed = (await (
-			await testFetch(`http://example.com/api/chest/${session.sessionId}/complete`, {
+			await testFetch(`http://example.com/api/upload-sessions/${session.sessionId}/complete`, {
 				method: 'POST',
 				headers: { Authorization: `Bearer ${session.uploadToken}`, 'Content-Type': 'application/json' },
 				body: JSON.stringify({ fileIds: [uploaded.uploadedFiles[0].fileId], validityDays: 7 }),

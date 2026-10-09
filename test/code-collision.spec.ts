@@ -13,13 +13,13 @@ async function completeChest(): Promise<Response> {
 	const { sessionId, uploadToken } = await createTestSession();
 	const formData = new FormData();
 	formData.append('textItems', JSON.stringify({ content: 'x', filename: 'x.txt' }));
-	const upload = await testFetch(`http://example.com/api/chest/${sessionId}/upload`, {
+	const upload = await testFetch(`http://example.com/api/upload-sessions/${sessionId}/files`, {
 		method: 'POST',
 		headers: { Authorization: `Bearer ${uploadToken}` },
 		body: formData,
 	});
 	const { uploadedFiles } = (await upload.json()) as any;
-	return testFetch(`http://example.com/api/chest/${sessionId}/complete`, {
+	return testFetch(`http://example.com/api/upload-sessions/${sessionId}/complete`, {
 		method: 'POST',
 		headers: { Authorization: `Bearer ${uploadToken}`, 'Content-Type': 'application/json' },
 		body: JSON.stringify({ fileIds: [uploadedFiles[0].fileId], validityDays: 7 }),

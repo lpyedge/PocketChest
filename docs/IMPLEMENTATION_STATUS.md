@@ -18,7 +18,7 @@
 | TASK-11 | 下載授權 Cookie 與串流 | PASS | 見 Git log |
 | TASK-12 | Owner 原子資料與首次初始化 | PASS | 見 Git log |
 | TASK-13 | Owner Cookie Session、CSRF | PASS | 見 Git log（sessions.ts、owner-session.spec.ts 14 項） |
-| TASK-14 | Password 獨立登入 | TODO | |
+| TASK-14 | Password 獨立登入與上傳 Session 授權 | PASS | 見 Git log（login.ts、login-password.spec.ts、upload-session-creation.spec.ts）；舊 /api/chest、/api/config、TOTP 已刪除 |
 | TASK-15 | TOTP 獨立登入、重放防護 | TODO | |
 | TASK-16 | Rate Limiting、密碼／TOTP 錯誤冷卻 | TODO | |
 | TASK-17 | Passkey 註冊 | TODO | |
@@ -66,7 +66,7 @@
 - `src/worker/`：`index.ts`（路由與 handler）、`storage.ts`（R2 key 與清理）、`types.ts`、`utils.ts`（JWT、TOTP、取件碼）。
 - `src/web/`：`index.html`（首頁）、`upload/`、`retrieve/`、`shared/{components,hooks,lib}`。
 - `test/`：14 個 spec 檔與 `utils/`。
-- `scripts/`：`generate-secrets.js`、`test-ci.sh`。
+- `scripts/`：`test-ci.sh`。
 
 ### 依賴版本（基準）
 

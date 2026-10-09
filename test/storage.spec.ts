@@ -15,7 +15,7 @@ async function listKeys(prefix?: string): Promise<string[]> {
 async function uploadText(sessionId: string, uploadToken: string, content: string): Promise<string> {
 	const formData = new FormData();
 	formData.append('textItems', JSON.stringify({ content, filename: `${content}.txt` }));
-	const response = await testFetch(`http://example.com/api/chest/${sessionId}/upload`, {
+	const response = await testFetch(`http://example.com/api/upload-sessions/${sessionId}/files`, {
 		method: 'POST',
 		headers: { Authorization: `Bearer ${uploadToken}` },
 		body: formData,
@@ -25,7 +25,7 @@ async function uploadText(sessionId: string, uploadToken: string, content: strin
 }
 
 function complete(sessionId: string, uploadToken: string, fileIds: string[], validityDays: number) {
-	return testFetch(`http://example.com/api/chest/${sessionId}/complete`, {
+	return testFetch(`http://example.com/api/upload-sessions/${sessionId}/complete`, {
 		method: 'POST',
 		headers: { Authorization: `Bearer ${uploadToken}`, 'Content-Type': 'application/json' },
 		body: JSON.stringify({ fileIds, validityDays }),
@@ -75,7 +75,7 @@ describe('R2 storage lifecycle', () => {
 		const { sessionId, uploadToken } = await createTestSession();
 		const formData = new FormData();
 		formData.append('textItems', JSON.stringify({ content: 'once', filename: 'once.txt' }));
-		const upload = await testFetch(`http://example.com/api/chest/${sessionId}/upload`, {
+		const upload = await testFetch(`http://example.com/api/upload-sessions/${sessionId}/files`, {
 			method: 'POST',
 			headers: { Authorization: `Bearer ${uploadToken}` },
 			body: formData,
@@ -85,9 +85,9 @@ describe('R2 storage lifecycle', () => {
 		const body = JSON.stringify({ fileIds: [fileId], validityDays: 7 });
 		const headers = { Authorization: `Bearer ${uploadToken}`, 'Content-Type': 'application/json' };
 		const first = (await (
-			await testFetch(`http://example.com/api/chest/${sessionId}/complete`, { method: 'POST', headers, body })
+			await testFetch(`http://example.com/api/upload-sessions/${sessionId}/complete`, { method: 'POST', headers, body })
 		).json()) as any;
-		const second = await testFetch(`http://example.com/api/chest/${sessionId}/complete`, { method: 'POST', headers, body });
+		const second = await testFetch(`http://example.com/api/upload-sessions/${sessionId}/complete`, { method: 'POST', headers, body });
 
 		expect(second.status).toBe(200);
 		expect(((await second.json()) as any).retrievalCode).toBe(first.retrievalCode);
@@ -153,7 +153,7 @@ describe('R2 storage lifecycle', () => {
 
 			const result = await cleanupExpired(env.R2_STORAGE, getCurrentTimestamp() + ABANDONED_SESSION_SECONDS + 60);
 			expect(result).toMatchObject({ abandonedSessions: 1, deletedObjects: 1, errors: [] });
-			expect((await listKeys()).filter((key) => !key.startsWith('maintenance/'))).toEqual([]);
+			expect((await listKeys()).filter((key) => !key.startsWith('maintenance/') && !key.startsWith('auth/'))).toEqual([]);
 		});
 
 		it('runs from the cron trigger without touching live chests', async () => {

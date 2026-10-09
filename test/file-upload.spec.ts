@@ -1,7 +1,7 @@
 import { describe, it, expect, beforeAll, beforeEach } from 'vitest';
 import { resetStorage, setupTestEnvironment, createTestSession, testFetch } from './utils/test-setup';
 
-describe('POST /api/chest/:sessionId/upload - Upload Files', () => {
+describe('POST /api/upload-sessions/:sessionId/upload - Upload Files', () => {
 	let sessionId: string;
 	let uploadToken: string;
 
@@ -21,7 +21,7 @@ describe('POST /api/chest/:sessionId/upload - Upload Files', () => {
 		const file = new File(['test content'], 'test.txt', { type: 'text/plain' });
 		formData.append('files', file);
 
-		const response = await testFetch(`http://example.com/api/chest/${sessionId}/upload`, {
+		const response = await testFetch(`http://example.com/api/upload-sessions/${sessionId}/files`, {
 			method: 'POST',
 			headers: {
 				Authorization: `Bearer ${uploadToken}`,
@@ -45,7 +45,7 @@ describe('POST /api/chest/:sessionId/upload - Upload Files', () => {
 		});
 		formData.append('textItems', textItem);
 
-		const response = await testFetch(`http://example.com/api/chest/${sessionId}/upload`, {
+		const response = await testFetch(`http://example.com/api/upload-sessions/${sessionId}/files`, {
 			method: 'POST',
 			headers: {
 				Authorization: `Bearer ${uploadToken}`,
@@ -65,7 +65,7 @@ describe('POST /api/chest/:sessionId/upload - Upload Files', () => {
 		const file = new File([''], 'empty.txt', { type: 'text/plain' });
 		formData.append('files', file);
 
-		const response = await testFetch(`http://example.com/api/chest/${sessionId}/upload`, {
+		const response = await testFetch(`http://example.com/api/upload-sessions/${sessionId}/files`, {
 			method: 'POST',
 			headers: {
 				Authorization: `Bearer ${uploadToken}`,
@@ -85,7 +85,7 @@ describe('POST /api/chest/:sessionId/upload - Upload Files', () => {
 		const file = new File(['content'], specialFilename, { type: 'text/plain' });
 		formData.append('files', file);
 
-		const response = await testFetch(`http://example.com/api/chest/${sessionId}/upload`, {
+		const response = await testFetch(`http://example.com/api/upload-sessions/${sessionId}/files`, {
 			method: 'POST',
 			headers: {
 				Authorization: `Bearer ${uploadToken}`,
@@ -111,7 +111,7 @@ describe('POST /api/chest/:sessionId/upload - Upload Files', () => {
 		formData.append('textItems', textItem1);
 		formData.append('textItems', textItem2);
 
-		const response = await testFetch(`http://example.com/api/chest/${sessionId}/upload`, {
+		const response = await testFetch(`http://example.com/api/upload-sessions/${sessionId}/files`, {
 			method: 'POST',
 			headers: {
 				Authorization: `Bearer ${uploadToken}`,
@@ -131,7 +131,7 @@ describe('POST /api/chest/:sessionId/upload - Upload Files', () => {
 		const file = new File([largeContent], 'large-file.txt', { type: 'text/plain' });
 		formData.append('files', file);
 
-		const response = await testFetch(`http://example.com/api/chest/${sessionId}/upload`, {
+		const response = await testFetch(`http://example.com/api/upload-sessions/${sessionId}/files`, {
 			method: 'POST',
 			headers: {
 				Authorization: `Bearer ${uploadToken}`,
@@ -149,7 +149,7 @@ describe('POST /api/chest/:sessionId/upload - Upload Files', () => {
 		const file = new File(['test'], 'test.txt');
 		formData.append('files', file);
 
-		const response = await testFetch(`http://example.com/api/chest/${sessionId}/upload`, {
+		const response = await testFetch(`http://example.com/api/upload-sessions/${sessionId}/files`, {
 			method: 'POST',
 			headers: {
 				Authorization: 'Bearer invalid-token',
@@ -165,7 +165,7 @@ describe('POST /api/chest/:sessionId/upload - Upload Files', () => {
 		const file = new File(['test'], 'test.txt');
 		formData.append('files', file);
 
-		const response = await testFetch(`http://example.com/api/chest/${sessionId}/upload`, {
+		const response = await testFetch(`http://example.com/api/upload-sessions/${sessionId}/files`, {
 			method: 'POST',
 			body: formData,
 		});
@@ -178,7 +178,7 @@ describe('POST /api/chest/:sessionId/upload - Upload Files', () => {
 		const file = new File(['test'], 'test.txt');
 		formData.append('files', file);
 
-		const response = await testFetch('http://example.com/api/chest/00000000-0000-4000-8000-000000000000/upload', {
+		const response = await testFetch('http://example.com/api/upload-sessions/00000000-0000-4000-8000-000000000000/files', {
 			method: 'POST',
 			headers: {
 				Authorization: `Bearer ${uploadToken}`,

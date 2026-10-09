@@ -16,9 +16,9 @@ describe('Multipart Upload', () => {
 		uploadToken = session.uploadToken;
 	});
 
-	describe('POST /api/chest/:sessionId/multipart/create', () => {
+	describe('POST /api/upload-sessions/:sessionId/multipart/create', () => {
 		it('should create multipart upload successfully', async () => {
-			const response = await testFetch(`http://example.com/api/chest/${sessionId}/multipart/create`, {
+			const response = await testFetch(`http://example.com/api/upload-sessions/${sessionId}/multipart/create`, {
 				method: 'POST',
 				headers: {
 					Authorization: `Bearer ${uploadToken}`,
@@ -40,7 +40,7 @@ describe('Multipart Upload', () => {
 		});
 
 		it('should reject multipart upload creation with invalid parameters', async () => {
-			const response = await testFetch(`http://example.com/api/chest/${sessionId}/multipart/create`, {
+			const response = await testFetch(`http://example.com/api/upload-sessions/${sessionId}/multipart/create`, {
 				method: 'POST',
 				headers: {
 					Authorization: `Bearer ${uploadToken}`,
@@ -57,7 +57,7 @@ describe('Multipart Upload', () => {
 		});
 
 		it('should reject unauthorized requests', async () => {
-			const response = await testFetch(`http://example.com/api/chest/${sessionId}/multipart/create`, {
+			const response = await testFetch(`http://example.com/api/upload-sessions/${sessionId}/multipart/create`, {
 				method: 'POST',
 				headers: {
 					'Content-Type': 'application/json',
@@ -73,13 +73,13 @@ describe('Multipart Upload', () => {
 		});
 	});
 
-	describe('PUT /api/chest/:sessionId/multipart/:fileId/part/:partNumber', () => {
+	describe('PUT /api/upload-sessions/:sessionId/multipart/:fileId/parts/:partNumber', () => {
 		let fileId: string;
 		let multipartToken: string;
 
 		beforeEach(async () => {
 			// Create multipart upload first
-			const createResponse = await testFetch(`http://example.com/api/chest/${sessionId}/multipart/create`, {
+			const createResponse = await testFetch(`http://example.com/api/upload-sessions/${sessionId}/multipart/create`, {
 				method: 'POST',
 				headers: {
 					Authorization: `Bearer ${uploadToken}`,
@@ -99,7 +99,7 @@ describe('Multipart Upload', () => {
 
 		it('should upload part successfully', async () => {
 			const partData = new TextEncoder().encode('This is part 1 content');
-			const response = await testFetch(`http://example.com/api/chest/${sessionId}/multipart/${fileId}/part/1`, {
+			const response = await testFetch(`http://example.com/api/upload-sessions/${sessionId}/multipart/${fileId}/parts/1`, {
 				method: 'PUT',
 				headers: {
 					Authorization: `Bearer ${multipartToken}`,
@@ -114,7 +114,7 @@ describe('Multipart Upload', () => {
 		});
 
 		it('should reject part upload with invalid part number', async () => {
-			const response = await testFetch(`http://example.com/api/chest/${sessionId}/multipart/${fileId}/part/0`, {
+			const response = await testFetch(`http://example.com/api/upload-sessions/${sessionId}/multipart/${fileId}/parts/0`, {
 				method: 'PUT',
 				headers: {
 					Authorization: `Bearer ${multipartToken}`,
@@ -126,7 +126,7 @@ describe('Multipart Upload', () => {
 		});
 
 		it('should reject part upload with empty body', async () => {
-			const response = await testFetch(`http://example.com/api/chest/${sessionId}/multipart/${fileId}/part/1`, {
+			const response = await testFetch(`http://example.com/api/upload-sessions/${sessionId}/multipart/${fileId}/parts/1`, {
 				method: 'PUT',
 				headers: {
 					Authorization: `Bearer ${multipartToken}`,
@@ -138,7 +138,7 @@ describe('Multipart Upload', () => {
 		});
 
 		it('should reject operations with invalid multipart JWT', async () => {
-			const response = await testFetch(`http://example.com/api/chest/${sessionId}/multipart/${fileId}/part/1`, {
+			const response = await testFetch(`http://example.com/api/upload-sessions/${sessionId}/multipart/${fileId}/parts/1`, {
 				method: 'PUT',
 				headers: {
 					Authorization: 'Bearer invalid-token',
@@ -150,10 +150,10 @@ describe('Multipart Upload', () => {
 		});
 	});
 
-	describe('POST /api/chest/:sessionId/multipart/:fileId/complete', () => {
+	describe('POST /api/upload-sessions/:sessionId/multipart/:fileId/complete', () => {
 		it('should handle complete multipart upload workflow', async () => {
 			// 1. Create multipart upload
-			const createResponse = await testFetch(`http://example.com/api/chest/${sessionId}/multipart/create`, {
+			const createResponse = await testFetch(`http://example.com/api/upload-sessions/${sessionId}/multipart/create`, {
 				method: 'POST',
 				headers: {
 					Authorization: `Bearer ${uploadToken}`,
@@ -173,7 +173,7 @@ describe('Multipart Upload', () => {
 
 			// 2. Upload part
 			const partData = new TextEncoder().encode('This is part 1 of the multipart upload test file content.');
-			const uploadPartResponse = await testFetch(`http://example.com/api/chest/${sessionId}/multipart/${fileId}/part/1`, {
+			const uploadPartResponse = await testFetch(`http://example.com/api/upload-sessions/${sessionId}/multipart/${fileId}/parts/1`, {
 				method: 'PUT',
 				headers: {
 					Authorization: `Bearer ${multipartToken}`,
@@ -187,7 +187,7 @@ describe('Multipart Upload', () => {
 			expect(partData1).toHaveProperty('partNumber', 1);
 
 			// 3. Complete multipart upload
-			const completeResponse = await testFetch(`http://example.com/api/chest/${sessionId}/multipart/${fileId}/complete`, {
+			const completeResponse = await testFetch(`http://example.com/api/upload-sessions/${sessionId}/multipart/${fileId}/complete`, {
 				method: 'POST',
 				headers: {
 					Authorization: `Bearer ${multipartToken}`,
@@ -211,7 +211,7 @@ describe('Multipart Upload', () => {
 
 		it('should reject completion with invalid parts array', async () => {
 			// Create multipart upload first
-			const createResponse = await testFetch(`http://example.com/api/chest/${sessionId}/multipart/create`, {
+			const createResponse = await testFetch(`http://example.com/api/upload-sessions/${sessionId}/multipart/create`, {
 				method: 'POST',
 				headers: {
 					Authorization: `Bearer ${uploadToken}`,
@@ -229,7 +229,7 @@ describe('Multipart Upload', () => {
 			const multipartToken = createData.uploadId;
 
 			// Try to complete with empty parts array
-			const response = await testFetch(`http://example.com/api/chest/${sessionId}/multipart/${fileId}/complete`, {
+			const response = await testFetch(`http://example.com/api/upload-sessions/${sessionId}/multipart/${fileId}/complete`, {
 				method: 'POST',
 				headers: {
 					Authorization: `Bearer ${multipartToken}`,
@@ -244,7 +244,7 @@ describe('Multipart Upload', () => {
 		});
 
 		it('should reject unauthorized completion requests', async () => {
-			const response = await testFetch(`http://example.com/api/chest/${sessionId}/multipart/fake-file-id/complete`, {
+			const response = await testFetch(`http://example.com/api/upload-sessions/${sessionId}/multipart/fake-file-id/complete`, {
 				method: 'POST',
 				headers: {
 					Authorization: 'Bearer invalid-token',

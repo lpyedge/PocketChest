@@ -1,7 +1,7 @@
 import { describe, it, expect, beforeAll, beforeEach } from 'vitest';
 import { resetStorage, setupTestEnvironment, createTestSession, testFetch } from './utils/test-setup';
 
-describe('POST /api/chest/:sessionId/complete - Complete Upload', () => {
+describe('POST /api/upload-sessions/:sessionId/complete - Complete Upload', () => {
 	let sessionId: string;
 	let uploadToken: string;
 	let fileIds: string[] = [];
@@ -23,7 +23,7 @@ describe('POST /api/chest/:sessionId/complete - Complete Upload', () => {
 		formData.append('files', file1);
 		formData.append('files', file2);
 
-		const uploadResponse = await testFetch(`http://example.com/api/chest/${sessionId}/upload`, {
+		const uploadResponse = await testFetch(`http://example.com/api/upload-sessions/${sessionId}/files`, {
 			method: 'POST',
 			headers: {
 				Authorization: `Bearer ${uploadToken}`,
@@ -36,7 +36,7 @@ describe('POST /api/chest/:sessionId/complete - Complete Upload', () => {
 	});
 
 	it('should complete upload and generate retrieval code', async () => {
-		const response = await testFetch(`http://example.com/api/chest/${sessionId}/complete`, {
+		const response = await testFetch(`http://example.com/api/upload-sessions/${sessionId}/complete`, {
 			method: 'POST',
 			headers: {
 				Authorization: `Bearer ${uploadToken}`,
@@ -65,7 +65,7 @@ describe('POST /api/chest/:sessionId/complete - Complete Upload', () => {
 		// Upload file
 		const formData = new FormData();
 		formData.append('files', new File(['temp'], 'temp.txt'));
-		const uploadResponse = await testFetch(`http://example.com/api/chest/${tempSessionId}/upload`, {
+		const uploadResponse = await testFetch(`http://example.com/api/upload-sessions/${tempSessionId}/files`, {
 			method: 'POST',
 			headers: { Authorization: `Bearer ${tempUploadToken}` },
 			body: formData,
@@ -73,7 +73,7 @@ describe('POST /api/chest/:sessionId/complete - Complete Upload', () => {
 		const uploadData = (await uploadResponse.json()) as any;
 		const tempFileIds = uploadData.uploadedFiles.map((f: any) => f.fileId);
 
-		const response = await testFetch(`http://example.com/api/chest/${tempSessionId}/complete`, {
+		const response = await testFetch(`http://example.com/api/upload-sessions/${tempSessionId}/complete`, {
 			method: 'POST',
 			headers: {
 				Authorization: `Bearer ${tempUploadToken}`,
@@ -91,7 +91,7 @@ describe('POST /api/chest/:sessionId/complete - Complete Upload', () => {
 	});
 
 	it('should reject invalid fileIds format', async () => {
-		const response = await testFetch(`http://example.com/api/chest/${sessionId}/complete`, {
+		const response = await testFetch(`http://example.com/api/upload-sessions/${sessionId}/complete`, {
 			method: 'POST',
 			headers: {
 				Authorization: `Bearer ${uploadToken}`,
@@ -107,7 +107,7 @@ describe('POST /api/chest/:sessionId/complete - Complete Upload', () => {
 	});
 
 	it.each([0, 2, 30, 99999, '7', null])('should reject unsupported validityDays %s', async (validityDays) => {
-		const response = await testFetch(`http://example.com/api/chest/${sessionId}/complete`, {
+		const response = await testFetch(`http://example.com/api/upload-sessions/${sessionId}/complete`, {
 			method: 'POST',
 			headers: {
 				Authorization: `Bearer ${uploadToken}`,
@@ -123,7 +123,7 @@ describe('POST /api/chest/:sessionId/complete - Complete Upload', () => {
 	});
 
 	it('should reject fileIds from other sessions', async () => {
-		const response = await testFetch(`http://example.com/api/chest/${sessionId}/complete`, {
+		const response = await testFetch(`http://example.com/api/upload-sessions/${sessionId}/complete`, {
 			method: 'POST',
 			headers: {
 				Authorization: `Bearer ${uploadToken}`,
@@ -139,7 +139,7 @@ describe('POST /api/chest/:sessionId/complete - Complete Upload', () => {
 	});
 
 	it('should handle malformed JSON gracefully', async () => {
-		const response = await testFetch(`http://example.com/api/chest/${sessionId}/complete`, {
+		const response = await testFetch(`http://example.com/api/upload-sessions/${sessionId}/complete`, {
 			method: 'POST',
 			headers: {
 				Authorization: `Bearer ${uploadToken}`,
@@ -152,7 +152,7 @@ describe('POST /api/chest/:sessionId/complete - Complete Upload', () => {
 	});
 
 	it('should reject unauthorized requests', async () => {
-		const response = await testFetch(`http://example.com/api/chest/${sessionId}/complete`, {
+		const response = await testFetch(`http://example.com/api/upload-sessions/${sessionId}/complete`, {
 			method: 'POST',
 			headers: {
 				'Content-Type': 'application/json',

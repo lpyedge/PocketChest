@@ -119,36 +119,82 @@ export async function loadOwnerSession(
 	now: number = Math.floor(Date.now() / 1000),
 ): Promise<LoadedSession | null> {
 	const key = sessionKey(await sha256Hex(sid));
-	const object = await bucket.get(key);
-	if (!object) {
-		return null;
-	}
+	// One retry is enough: the second read sees whatever a concurrent request or logout wrote
+	for (let attempt = 0; attempt < 2; attempt++) {
+		const object = await bucket.get(key);
+		if (!object) {
+			return null;
+		}
+		const parsed = parseRecord(await object.text());
+		if (!parsed) {
+			return null;
+		}
+		if (now >= parsed.absoluteExpiresAt || now - parsed.lastSeenAt >= IDLE_SECONDS) {
+			return null;
+		}
 
-	let parsed: unknown;
+		const owner = await loadOwner(bucket).catch(() => null);
+		if (!owner || owner.owner.authVersion !== parsed.ownerAuthVersion) {
+			return null;
+		}
+
+		if (now - parsed.lastSeenAt < TOUCH_SECONDS) {
+			return { key, record: parsed, sid };
+		}
+		const touched: OwnerSessionRecord = { ...parsed, lastSeenAt: now };
+		if (await replaceRecord(bucket, key, object.etag, touched)) {
+			return { key, record: touched, sid };
+		}
+	}
+	return null;
+}
+
+/**
+ * Records that the owner just entered their password again. Only the session record changes, and
+ * only if it is still the one that was read, so a logout that lands meanwhile is not undone.
+ */
+export async function markReauthenticated(bucket: R2Bucket, sid: string, now: number): Promise<void> {
+	const key = sessionKey(await sha256Hex(sid));
+	for (let attempt = 0; attempt < 3; attempt++) {
+		const object = await bucket.get(key);
+		const parsed = object ? parseRecord(await object.text()) : null;
+		if (!object || !parsed) {
+			throw new ApiError(401, 'AUTH_INVALID', 'Sign in required');
+		}
+		if (await replaceRecord(bucket, key, object.etag, { ...parsed, reauthenticatedAt: now })) {
+			return;
+		}
+	}
+	throw new ApiError(409, 'CONFLICT', 'Session changed, try again');
+}
+
+// Enforces the short window after a password re-entry that sensitive changes require
+export const REAUTH_SECONDS = 5 * 60;
+
+export function assertRecentReauth(session: LoadedSession, now: number): void {
+	const at = session.record.reauthenticatedAt;
+	if (at === null || now - at >= REAUTH_SECONDS || at > now) {
+		throw new ApiError(403, 'REAUTH_REQUIRED', 'Confirm your password to continue');
+	}
+}
+
+function parseRecord(text: string): OwnerSessionRecord | null {
 	try {
-		parsed = JSON.parse(await object.text());
+		const parsed: unknown = JSON.parse(text);
+		return isRecord(parsed) ? parsed : null;
 	} catch {
 		return null;
 	}
-	if (!isRecord(parsed)) {
-		return null;
-	}
+}
 
-	if (now >= parsed.absoluteExpiresAt || now - parsed.lastSeenAt >= IDLE_SECONDS) {
-		return null;
-	}
-
-	const owner = await loadOwner(bucket).catch(() => null);
-	if (!owner || owner.owner.authVersion !== parsed.ownerAuthVersion) {
-		return null;
-	}
-
-	if (now - parsed.lastSeenAt >= TOUCH_SECONDS) {
-		const touched: OwnerSessionRecord = { ...parsed, lastSeenAt: now };
-		await bucket.put(key, JSON.stringify(touched), { httpMetadata: { contentType: 'application/json' } });
-		return { key, record: touched, sid };
-	}
-	return { key, record: parsed, sid };
+// Writes only if the object still has the etag that was read. A concurrent logout deletes it, so
+// the write fails instead of bringing the session back.
+async function replaceRecord(bucket: R2Bucket, key: string, etag: string, record: OwnerSessionRecord): Promise<boolean> {
+	const stored = await bucket.put(key, JSON.stringify(record), {
+		httpMetadata: { contentType: 'application/json' },
+		onlyIf: { etagMatches: etag },
+	});
+	return stored !== null;
 }
 
 export async function revokeOwnerSession(bucket: R2Bucket, sid: string): Promise<void> {
@@ -158,6 +204,13 @@ export async function revokeOwnerSession(bucket: R2Bucket, sid: string): Promise
 export function sameOrigin(request: Request): boolean {
 	const origin = request.headers.get('Origin');
 	return origin !== null && origin === new URL(request.url).origin;
+}
+
+/** Endpoints that start a session (login, bootstrap) have no cookie yet, so only the Origin can be checked */
+export function assertSameOrigin(request: Request): void {
+	if (!sameOrigin(request)) {
+		throw new ApiError(403, 'CSRF_REJECTED', 'Request origin is not allowed');
+	}
 }
 
 /**

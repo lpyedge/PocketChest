@@ -12,7 +12,6 @@ export default defineConfig({
 			miniflare: {
 				// Default test environment variables - can be overridden in individual tests
 				bindings: {
-					REQUIRE_TOTP: 'false',
 					JWT_SECRET: 'test-jwt-secret-for-vitest-only',
 					BOOTSTRAP_ENABLED: 'true',
 					ADMIN_BOOTSTRAP_PASSWORD: 'test-bootstrap-password-0123456789',

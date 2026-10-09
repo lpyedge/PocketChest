@@ -11,7 +11,7 @@ async function uploadTwoTexts(sessionId: string, uploadToken: string): Promise<s
 	const formData = new FormData();
 	formData.append('textItems', JSON.stringify({ content: 'one', filename: 'one.txt' }));
 	formData.append('textItems', JSON.stringify({ content: 'two', filename: 'two.txt' }));
-	const response = await testFetch(`http://example.com/api/chest/${sessionId}/upload`, {
+	const response = await testFetch(`http://example.com/api/upload-sessions/${sessionId}/files`, {
 		method: 'POST',
 		headers: { Authorization: `Bearer ${uploadToken}` },
 		body: formData,
@@ -20,7 +20,7 @@ async function uploadTwoTexts(sessionId: string, uploadToken: string): Promise<s
 }
 
 function complete(sessionId: string, uploadToken: string, fileIds: string[], validityDays = 7) {
-	return testFetch(`http://example.com/api/chest/${sessionId}/complete`, {
+	return testFetch(`http://example.com/api/upload-sessions/${sessionId}/complete`, {
 		method: 'POST',
 		headers: { Authorization: `Bearer ${uploadToken}`, 'Content-Type': 'application/json' },
 		body: JSON.stringify({ fileIds, validityDays }),

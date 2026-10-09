@@ -1,10 +1,10 @@
 import { env } from 'cloudflare:test';
-import { generateTOTPSecret } from '../../src/worker/utils';
+import { createOwnerOnce } from '../../src/worker/auth/owner';
 
 // Test environment setup
 export const TEST_JWT_SECRET = 'test-jwt-secret-for-vitest-only';
-export const TEST_TOTP_SECRET = generateTOTPSecret();
-export const TEST_TOTP_SECRETS = `test:${TEST_TOTP_SECRET}`;
+export const TEST_ORIGIN = 'http://example.com';
+export const TEST_OWNER_PASSWORD = 'test-owner-password-0123456789';
 
 // Removes every object from the R2 bucket so each test starts from empty storage
 export async function resetStorage() {
@@ -21,8 +21,6 @@ export async function resetStorage() {
 export async function setupTestEnvironment() {
 	// Set environment variables for each test
 	env.JWT_SECRET = TEST_JWT_SECRET;
-	env.TOTP_SECRETS = TEST_TOTP_SECRETS;
-	env.REQUIRE_TOTP = 'false'; // Disable TOTP for most tests unless specifically testing it
 
 	await resetStorage();
 }
@@ -42,14 +40,38 @@ export async function testFetch(url: string, init?: RequestInit): Promise<Respon
 	return response;
 }
 
+// Signs the test owner in through the real password endpoint, creating the owner first if the bucket has none
+export async function ownerSignIn(): Promise<{ cookie: string; csrfToken: string }> {
+	await createOwnerOnce(env.R2_STORAGE, TEST_OWNER_PASSWORD);
+	const response = await testFetch(`${TEST_ORIGIN}/api/auth/login/password`, {
+		method: 'POST',
+		headers: { 'Content-Type': 'application/json', Origin: TEST_ORIGIN },
+		body: JSON.stringify({ password: TEST_OWNER_PASSWORD }),
+	});
+	if (response.status !== 200) {
+		throw new Error(`Owner sign-in failed with ${response.status}`);
+	}
+	const cookie = (response.headers.get('Set-Cookie') ?? '').split(';')[0];
+	const { csrfToken } = (await response.json()) as { csrfToken: string };
+	return { cookie, csrfToken };
+}
+
+// Starts an upload session the way the upload page does: as the signed-in owner, with CSRF
 export async function createTestSession() {
-	const createResponse = await testFetch('http://example.com/api/chest', {
+	const owner = await ownerSignIn();
+	const createResponse = await testFetch(`${TEST_ORIGIN}/api/upload-sessions`, {
 		method: 'POST',
 		headers: {
 			'Content-Type': 'application/json',
+			Origin: TEST_ORIGIN,
+			Cookie: owner.cookie,
+			'X-PocketChest-CSRF': owner.csrfToken,
 		},
 		body: JSON.stringify({}),
 	});
+	if (createResponse.status !== 200) {
+		throw new Error(`Upload session creation failed with ${createResponse.status}`);
+	}
 
 	const createData = (await createResponse.json()) as any;
 	return {

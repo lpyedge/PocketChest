@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeAll, beforeEach } from 'vitest';
-import { resetStorage, setupTestEnvironment, testFetch, postRetrieve, fetchDownload } from './utils/test-setup';
+import { createTestSession, resetStorage, setupTestEnvironment, testFetch, postRetrieve, fetchDownload } from './utils/test-setup';
 
 describe('Integration Tests', () => {
 	beforeAll(async () => {
@@ -12,16 +12,7 @@ describe('Integration Tests', () => {
 
 	it('should handle complete end-to-end workflow', async () => {
 		// 1. Create chest
-		const createResponse = await testFetch('http://example.com/api/chest', {
-			method: 'POST',
-			headers: {
-				'Content-Type': 'application/json',
-			},
-			body: JSON.stringify({}),
-		});
-
-		expect(createResponse.status).toBe(200);
-		const createData = (await createResponse.json()) as any;
+		const createData = await createTestSession();
 
 		// 2. Upload mixed files and text
 		const formData = new FormData();
@@ -34,7 +25,7 @@ describe('Integration Tests', () => {
 			}),
 		);
 
-		const uploadResponse = await testFetch(`http://example.com/api/chest/${createData.sessionId}/upload`, {
+		const uploadResponse = await testFetch(`http://example.com/api/upload-sessions/${createData.sessionId}/files`, {
 			method: 'POST',
 			headers: { Authorization: `Bearer ${createData.uploadToken}` },
 			body: formData,
@@ -43,7 +34,7 @@ describe('Integration Tests', () => {
 		const uploadData = (await uploadResponse.json()) as any;
 
 		// 3. Complete upload
-		const completeResponse = await testFetch(`http://example.com/api/chest/${createData.sessionId}/complete`, {
+		const completeResponse = await testFetch(`http://example.com/api/upload-sessions/${createData.sessionId}/complete`, {
 			method: 'POST',
 			headers: {
 				Authorization: `Bearer ${createData.uploadToken}`,
@@ -79,17 +70,10 @@ describe('Integration Tests', () => {
 
 	it('should handle multipart upload in end-to-end workflow', async () => {
 		// 1. Create chest
-		const createResponse = await testFetch('http://example.com/api/chest', {
-			method: 'POST',
-			headers: {
-				'Content-Type': 'application/json',
-			},
-			body: JSON.stringify({}),
-		});
-		const createData = (await createResponse.json()) as any;
+		const createData = await createTestSession();
 
 		// 2. Create multipart upload
-		const multipartCreateResponse = await testFetch(`http://example.com/api/chest/${createData.sessionId}/multipart/create`, {
+		const multipartCreateResponse = await testFetch(`http://example.com/api/upload-sessions/${createData.sessionId}/multipart/create`, {
 			method: 'POST',
 			headers: {
 				Authorization: `Bearer ${createData.uploadToken}`,
@@ -106,7 +90,7 @@ describe('Integration Tests', () => {
 		// 3. Upload part
 		const partData = new TextEncoder().encode('End-to-end multipart content');
 		const uploadPartResponse = await testFetch(
-			`http://example.com/api/chest/${createData.sessionId}/multipart/${multipartCreateData.fileId}/part/1`,
+			`http://example.com/api/upload-sessions/${createData.sessionId}/multipart/${multipartCreateData.fileId}/parts/1`,
 			{
 				method: 'PUT',
 				headers: {
@@ -119,7 +103,7 @@ describe('Integration Tests', () => {
 
 		// 4. Complete multipart upload
 		const completeMultipartResponse = await testFetch(
-			`http://example.com/api/chest/${createData.sessionId}/multipart/${multipartCreateData.fileId}/complete`,
+			`http://example.com/api/upload-sessions/${createData.sessionId}/multipart/${multipartCreateData.fileId}/complete`,
 			{
 				method: 'POST',
 				headers: {
@@ -139,7 +123,7 @@ describe('Integration Tests', () => {
 		expect(completeMultipartResponse.status).toBe(200);
 
 		// 5. Complete session
-		const completeSessionResponse = await testFetch(`http://example.com/api/chest/${createData.sessionId}/complete`, {
+		const completeSessionResponse = await testFetch(`http://example.com/api/upload-sessions/${createData.sessionId}/complete`, {
 			method: 'POST',
 			headers: {
 				Authorization: `Bearer ${createData.uploadToken}`,
@@ -169,7 +153,7 @@ describe('Integration Tests', () => {
 		const formData = new FormData();
 		formData.append('files', new File(['test'], 'test.txt'));
 
-		const uploadResponse = await testFetch('http://example.com/api/chest/fake-session-id/upload', {
+		const uploadResponse = await testFetch('http://example.com/api/upload-sessions/fake-session-id/files', {
 			method: 'POST',
 			headers: {
 				Authorization: 'Bearer fake-token',

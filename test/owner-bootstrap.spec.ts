@@ -11,7 +11,7 @@ const e = env as unknown as Record<string, string | undefined>;
 function bootstrap(password: unknown) {
 	return testFetch('http://example.com/api/auth/bootstrap', {
 		method: 'POST',
-		headers: { 'Content-Type': 'application/json' },
+		headers: { 'Content-Type': 'application/json', Origin: 'http://example.com' },
 		body: JSON.stringify({ password }),
 	});
 }
@@ -100,6 +100,18 @@ describe('owner record', () => {
 });
 
 describe('POST /api/auth/bootstrap', () => {
+	it('refuses a cross-origin request and claims nothing', async () => {
+		const response = await testFetch('http://example.com/api/auth/bootstrap', {
+			method: 'POST',
+			headers: { 'Content-Type': 'application/json', Origin: 'https://evil.example' },
+			body: JSON.stringify({ password: BOOTSTRAP_PASSWORD }),
+		});
+		expect(response.status).toBe(403);
+		await response.text();
+		expect(await loadOwner(bucket())).toBeNull();
+		expect(await bucket().head('auth/bootstrap-marker')).toBeNull();
+	});
+
 	beforeEach(async () => {
 		await resetStorage();
 		e.BOOTSTRAP_ENABLED = 'true';

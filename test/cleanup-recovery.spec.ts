@@ -56,14 +56,14 @@ describe('cleanup recovery', () => {
 		const { sessionId, uploadToken } = await createTestSession();
 		const formData = new FormData();
 		formData.append('textItems', JSON.stringify({ content: 'keep me', filename: 'keep.txt' }));
-		const upload = await testFetch(`http://example.com/api/chest/${sessionId}/upload`, {
+		const upload = await testFetch(`http://example.com/api/upload-sessions/${sessionId}/files`, {
 			method: 'POST',
 			headers: { Authorization: `Bearer ${uploadToken}` },
 			body: formData,
 		});
 		const fileId = ((await upload.json()) as any).uploadedFiles[0].fileId;
 		const completion = (await (
-			await testFetch(`http://example.com/api/chest/${sessionId}/complete`, {
+			await testFetch(`http://example.com/api/upload-sessions/${sessionId}/complete`, {
 				method: 'POST',
 				headers: { Authorization: `Bearer ${uploadToken}`, 'Content-Type': 'application/json' },
 				body: JSON.stringify({ fileIds: [fileId], validityDays: 7 }),

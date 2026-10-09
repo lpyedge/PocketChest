@@ -19,14 +19,14 @@ describe('POST /api/retrieve - Get Chest Contents', () => {
 		formData.append('files', new File(['test content'], 'test-retrieve.txt', { type: 'text/plain' }));
 		formData.append('textItems', JSON.stringify({ content: 'Text content for retrieval', filename: 'text-retrieve.txt' }));
 
-		const uploadResponse = await testFetch(`http://example.com/api/chest/${sessionId}/upload`, {
+		const uploadResponse = await testFetch(`http://example.com/api/upload-sessions/${sessionId}/files`, {
 			method: 'POST',
 			headers: { Authorization: `Bearer ${uploadToken}` },
 			body: formData,
 		});
 		const fileIds = ((await uploadResponse.json()) as any).uploadedFiles.map((f: any) => f.fileId);
 
-		const completeResponse = await testFetch(`http://example.com/api/chest/${sessionId}/complete`, {
+		const completeResponse = await testFetch(`http://example.com/api/upload-sessions/${sessionId}/complete`, {
 			method: 'POST',
 			headers: { Authorization: `Bearer ${uploadToken}`, 'Content-Type': 'application/json' },
 			body: JSON.stringify({ fileIds, validityDays: 7 }),

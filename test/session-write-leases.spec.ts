@@ -33,7 +33,7 @@ async function newOpenSession(): Promise<string> {
 function uploadText(sessionId: string, uploadToken: string, content: string, filename = 'a.txt') {
 	const formData = new FormData();
 	formData.append('textItems', JSON.stringify({ content, filename }));
-	return testFetch(`http://example.com/api/chest/${sessionId}/upload`, {
+	return testFetch(`http://example.com/api/upload-sessions/${sessionId}/files`, {
 		method: 'POST',
 		headers: { Authorization: `Bearer ${uploadToken}` },
 		body: formData,
@@ -41,7 +41,7 @@ function uploadText(sessionId: string, uploadToken: string, content: string, fil
 }
 
 function complete(sessionId: string, uploadToken: string, fileIds: string[]) {
-	return testFetch(`http://example.com/api/chest/${sessionId}/complete`, {
+	return testFetch(`http://example.com/api/upload-sessions/${sessionId}/complete`, {
 		method: 'POST',
 		headers: { Authorization: `Bearer ${uploadToken}`, 'Content-Type': 'application/json' },
 		body: JSON.stringify({ fileIds, validityDays: 7 }),
@@ -161,21 +161,21 @@ describe('write leases and the completion barrier', () => {
 
 	it('rejects a multipart file whose uploaded size differs from the declared size, and leaves no object behind', async () => {
 		const { sessionId, uploadToken } = await createTestSession();
-		const create = await testFetch(`http://example.com/api/chest/${sessionId}/multipart/create`, {
+		const create = await testFetch(`http://example.com/api/upload-sessions/${sessionId}/multipart/create`, {
 			method: 'POST',
 			headers: { Authorization: `Bearer ${uploadToken}`, 'Content-Type': 'application/json' },
 			body: JSON.stringify({ filename: 'short.txt', mimeType: 'text/plain', fileSize: 100 }),
 		});
 		const { fileId, uploadId } = (await create.json()) as any;
 
-		const part = await testFetch(`http://example.com/api/chest/${sessionId}/multipart/${fileId}/part/1`, {
+		const part = await testFetch(`http://example.com/api/upload-sessions/${sessionId}/multipart/${fileId}/parts/1`, {
 			method: 'PUT',
 			headers: { Authorization: `Bearer ${uploadId}` },
 			body: new TextEncoder().encode('only ten!!'),
 		});
 		const { etag } = (await part.json()) as any;
 
-		const response = await testFetch(`http://example.com/api/chest/${sessionId}/multipart/${fileId}/complete`, {
+		const response = await testFetch(`http://example.com/api/upload-sessions/${sessionId}/multipart/${fileId}/complete`, {
 			method: 'POST',
 			headers: { Authorization: `Bearer ${uploadId}`, 'Content-Type': 'application/json' },
 			body: JSON.stringify({ parts: [{ partNumber: 1, etag }] }),

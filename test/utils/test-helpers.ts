@@ -1,6 +1,6 @@
 // Test helper functions for common operations
 import { expect } from 'vitest';
-import { testFetch, postRetrieve } from './test-setup';
+import { createTestSession, testFetch, postRetrieve } from './test-setup';
 
 export class TestWorkflow {
 	/**
@@ -8,19 +8,14 @@ export class TestWorkflow {
 	 */
 	static async createCompleteChest(files: File[], textItems: string[] = []) {
 		// 1. Create chest
-		const createResponse = await testFetch('http://example.com/api/chest', {
-			method: 'POST',
-			headers: { 'Content-Type': 'application/json' },
-			body: JSON.stringify({}),
-		});
-		const { sessionId, uploadToken } = (await createResponse.json()) as any;
+		const { sessionId, uploadToken } = await createTestSession();
 
 		// 2. Upload files
 		const formData = new FormData();
 		files.forEach((file) => formData.append('files', file));
 		textItems.forEach((item) => formData.append('textItems', item));
 
-		const uploadResponse = await testFetch(`http://example.com/api/chest/${sessionId}/upload`, {
+		const uploadResponse = await testFetch(`http://example.com/api/upload-sessions/${sessionId}/files`, {
 			method: 'POST',
 			headers: { Authorization: `Bearer ${uploadToken}` },
 			body: formData,
@@ -28,7 +23,7 @@ export class TestWorkflow {
 		const uploadData = (await uploadResponse.json()) as any;
 
 		// 3. Complete upload
-		const completeResponse = await testFetch(`http://example.com/api/chest/${sessionId}/complete`, {
+		const completeResponse = await testFetch(`http://example.com/api/upload-sessions/${sessionId}/complete`, {
 			method: 'POST',
 			headers: {
 				Authorization: `Bearer ${uploadToken}`,

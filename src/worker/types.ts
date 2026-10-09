@@ -18,10 +18,6 @@ export interface ChestManifest {
 }
 
 // API Request/Response types
-export interface CreateChestRequest {
-	totpToken?: string;
-}
-
 export interface CreateChestResponse {
 	sessionId: string;
 	uploadToken: string;
@@ -133,6 +129,4 @@ export interface Env {
 	ASSETS: Fetcher;
 	R2_STORAGE: R2Bucket;
 	JWT_SECRET: string;
-	TOTP_SECRETS?: string; // Format: "name1:secret1,name2:secret2"
-	REQUIRE_TOTP?: string; // "true" to require TOTP authentication
 }

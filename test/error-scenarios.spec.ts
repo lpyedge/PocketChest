@@ -1,10 +1,10 @@
 import { describe, it, beforeAll, beforeEach } from 'vitest';
-import { setupDatabase, setupTestEnvironment } from './utils/test-setup';
+import { resetStorage, setupTestEnvironment } from './utils/test-setup';
 import { TestDataFactory } from './utils/test-factories';
 
 describe('Error Scenarios & Edge Cases', () => {
 	beforeAll(async () => {
-		await setupDatabase();
+		await resetStorage();
 	});
 
 	beforeEach(async () => {

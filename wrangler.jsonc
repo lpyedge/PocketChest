@@ -1,8 +1,6 @@
 /**
  * PocketChest — one Worker serving both the API (/api/*) and the static frontend (dist/).
- *
- * Before deploying, replace <your-database-id> with your D1 database ID.
- * Keep real IDs out of git: git update-index --assume-unchanged wrangler.jsonc
+ * All data lives in the R2 bucket; there is no database.
  */
 {
 	"$schema": "node_modules/wrangler/config-schema.json",
@@ -19,13 +17,6 @@
 		"not_found_handling": "404-page",
 		"run_worker_first": ["/api/*"],
 	},
-	"d1_databases": [
-		{
-			"binding": "DB",
-			"database_name": "pocket-chest",
-			"database_id": "<your-database-id>",
-		},
-	],
 	"r2_buckets": [
 		{
 			"bucket_name": "pocket-chest",
@@ -43,6 +34,7 @@
 	// 	}
 	// ],
 	"workers_dev": true,
+	// Hourly cleanup of expired chests and abandoned upload sessions
 	"triggers": {
 		"crons": ["0 * * * *"],
 	},

@@ -1,22 +1,20 @@
-// Database types
-export interface Session {
-	session_id: string;
-	retrieval_code: string | null;
-	upload_complete: boolean;
-	expiry_date: number | null;
-	created_at: number;
-	updated_at: number;
+// Chest manifest stored in R2 at codes/{CODE}
+export interface ChestFile {
+	fileId: string;
+	filename: string;
+	size: number;
+	mimeType: string;
+	isText: boolean;
+	fileExtension: string | null;
 }
 
-export interface FileRecord {
-	file_id: string;
-	session_id: string;
-	original_filename: string;
-	mime_type: string;
-	file_size: number;
-	file_extension: string | null;
-	is_text: boolean;
-	created_at: number;
+export interface ChestManifest {
+	version: 1;
+	sessionId: string;
+	// Upload session start (upload JWT iat); locates the session's pending marker
+	createdAt: number;
+	expiresAt: number | null;
+	files: ChestFile[];
 }
 
 // API Request/Response types
@@ -83,14 +81,7 @@ export interface CompleteUploadResponse {
 }
 
 export interface RetrieveChestResponse {
-	files: Array<{
-		fileId: string;
-		filename: string;
-		size: number;
-		mimeType: string;
-		isText: boolean;
-		fileExtension: string | null;
-	}>;
+	files: ChestFile[];
 	chestToken: string;
 	expiryDate: string | null;
 }
@@ -105,6 +96,7 @@ export interface UploadJWTPayload {
 
 export interface ChestJWTPayload {
 	sessionId: string;
+	code: string;
 	type: 'chest';
 	iat: number;
 	exp: number;
@@ -125,7 +117,6 @@ export interface MultipartJWTPayload {
 // Cloudflare Env type
 export interface Env {
 	ASSETS: Fetcher;
-	DB: D1Database;
 	R2_STORAGE: R2Bucket;
 	JWT_SECRET: string;
 	TOTP_SECRETS?: string; // Format: "name1:secret1,name2:secret2"

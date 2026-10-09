@@ -221,8 +221,7 @@ async function verifyJWT(token: string, secret: string): Promise<any> {
 	return payload;
 }
 
-export async function createUploadJWT(sessionId: string, secret: string): Promise<string> {
-	const now = Math.floor(Date.now() / 1000);
+export async function createUploadJWT(sessionId: string, secret: string, now: number = getCurrentTimestamp()): Promise<string> {
 	const payload: UploadJWTPayload = {
 		sessionId,
 		type: 'upload',
@@ -233,10 +232,11 @@ export async function createUploadJWT(sessionId: string, secret: string): Promis
 	return signJWT(payload, secret);
 }
 
-export async function createChestJWT(sessionId: string, expiryTimestamp: number | null, secret: string): Promise<string> {
+export async function createChestJWT(sessionId: string, code: string, expiryTimestamp: number | null, secret: string): Promise<string> {
 	const now = Math.floor(Date.now() / 1000);
 	const payload: ChestJWTPayload = {
 		sessionId,
+		code,
 		type: 'chest',
 		iat: now,
 		exp: expiryTimestamp || now + 365 * 24 * 60 * 60, // Use session expiry or 1 year for permanent
@@ -255,7 +255,8 @@ export async function verifyUploadJWT(token: string, secret: string): Promise<Up
 
 export async function verifyChestJWT(token: string, secret: string): Promise<ChestJWTPayload> {
 	const payload = await verifyJWT(token, secret);
-	if (payload.type !== 'chest') {
+	// Tokens issued before the R2-only storage carry no code and must be re-issued via /api/retrieve
+	if (payload.type !== 'chest' || typeof payload.code !== 'string') {
 		throw new Error('Invalid token type');
 	}
 	return payload as ChestJWTPayload;

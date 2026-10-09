@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeAll, beforeEach } from 'vitest';
-import { setupDatabase, setupTestEnvironment, createTestSession, testFetch } from './utils/test-setup';
+import { resetStorage, setupTestEnvironment, createTestSession, testFetch } from './utils/test-setup';
 
 describe('POST /api/chest/:sessionId/complete - Complete Upload', () => {
 	let sessionId: string;
@@ -7,7 +7,7 @@ describe('POST /api/chest/:sessionId/complete - Complete Upload', () => {
 	let fileIds: string[] = [];
 
 	beforeAll(async () => {
-		await setupDatabase();
+		await resetStorage();
 	});
 
 	beforeEach(async () => {
@@ -148,7 +148,7 @@ describe('POST /api/chest/:sessionId/complete - Complete Upload', () => {
 			body: 'invalid json{',
 		});
 
-		expect(response.status).toBe(500); // JSON parse errors are handled as 500 in this backend
+		expect(response.status).toBe(400);
 	});
 
 	it('should reject unauthorized requests', async () => {

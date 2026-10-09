@@ -1,13 +1,13 @@
 import { env, createExecutionContext, waitOnExecutionContext } from 'cloudflare:test';
 import { describe, it, expect, beforeAll, beforeEach } from 'vitest';
-import { setupDatabase, setupTestEnvironment, testFetch } from './utils/test-setup';
+import { resetStorage, setupTestEnvironment, testFetch } from './utils/test-setup';
 import worker from '../src/worker/index';
 
 const IncomingRequest = Request<unknown, IncomingRequestCfProperties>;
 
 describe('POST /api/chest - Create Chest', () => {
 	beforeAll(async () => {
-		await setupDatabase();
+		await resetStorage();
 	});
 
 	beforeEach(async () => {
@@ -63,7 +63,7 @@ describe('POST /api/chest - Create Chest', () => {
 		expect(uniqueIds.size).toBe(3); // All should be unique
 	});
 
-	it('should store session in database', async () => {
+	it('should open the upload session in storage', async () => {
 		const response = await testFetch('http://example.com/api/chest', {
 			method: 'POST',
 			headers: {
@@ -75,12 +75,9 @@ describe('POST /api/chest - Create Chest', () => {
 		expect(response.status).toBe(200);
 		const data = (await response.json()) as any;
 
-		// Verify session was created in database
-		const session = await env.DB.prepare('SELECT * FROM sessions WHERE session_id = ?').bind(data.sessionId).first();
-
-		expect(session).toBeTruthy();
-		expect(session?.upload_complete).toBe(0); // SQLite stores boolean as 0/1
-		expect(session?.session_id).toBe(data.sessionId);
+		// The open session is a pending/{createdAt}/{sessionId} marker in R2
+		const markers = await env.R2_STORAGE.list({ prefix: 'pending/' });
+		expect(markers.objects.map((object) => object.key.split('/')[2])).toEqual([data.sessionId]);
 	});
 
 	it('should not include CORS headers in response', async () => {

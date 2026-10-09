@@ -1,14 +1,14 @@
 import { env, createExecutionContext, waitOnExecutionContext } from 'cloudflare:test';
 import { describe, it, expect, beforeAll, beforeEach } from 'vitest';
 import { generateTOTP, generateTOTPSecret } from '../src/worker/utils';
-import { setupDatabase, setupTestEnvironment, testFetch, TEST_TOTP_SECRET, TEST_TOTP_SECRETS } from './utils/test-setup';
+import { resetStorage, setupTestEnvironment, testFetch, TEST_TOTP_SECRET, TEST_TOTP_SECRETS } from './utils/test-setup';
 import worker from '../src/worker/index';
 
 const IncomingRequest = Request<unknown, IncomingRequestCfProperties>;
 
 describe('Authentication & Authorization', () => {
 	beforeAll(async () => {
-		await setupDatabase();
+		await resetStorage();
 	});
 
 	beforeEach(async () => {

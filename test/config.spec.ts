@@ -1,9 +1,9 @@
 import { describe, it, expect, beforeAll, beforeEach } from 'vitest';
-import { setupDatabase, setupTestEnvironment, testFetch } from './utils/test-setup';
+import { resetStorage, setupTestEnvironment, testFetch } from './utils/test-setup';
 
 describe('GET /api/config - Get Configuration', () => {
 	beforeAll(async () => {
-		await setupDatabase();
+		await resetStorage();
 	});
 
 	beforeEach(async () => {

@@ -1,12 +1,12 @@
 import { describe, it, expect, beforeAll, beforeEach } from 'vitest';
-import { setupDatabase, setupTestEnvironment, createTestSession, testFetch } from './utils/test-setup';
+import { resetStorage, setupTestEnvironment, createTestSession, testFetch } from './utils/test-setup';
 
 describe('GET /api/retrieve/:retrievalCode - Get Chest Contents', () => {
 	let retrievalCode: string;
 	let sessionId: string;
 
 	beforeAll(async () => {
-		await setupDatabase();
+		await resetStorage();
 	});
 
 	beforeEach(async () => {

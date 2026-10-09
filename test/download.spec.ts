@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeAll, beforeEach } from 'vitest';
-import { setupDatabase, setupTestEnvironment, createTestSession, testFetch } from './utils/test-setup';
+import { resetStorage, setupTestEnvironment, createTestSession, testFetch } from './utils/test-setup';
 
 describe('GET /api/download/:fileId - Download File', () => {
 	let chestToken: string;
@@ -7,7 +7,7 @@ describe('GET /api/download/:fileId - Download File', () => {
 	let textFileId: string;
 
 	beforeAll(async () => {
-		await setupDatabase();
+		await resetStorage();
 	});
 
 	beforeEach(async () => {

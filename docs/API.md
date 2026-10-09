@@ -5,8 +5,7 @@ The `/api/*` routes of the PocketChest Worker. The frontend calls them on the sa
 ## Architecture
 
 - **Cloudflare Workers**: Edge computing for API endpoints
-- **D1 Database**: SQLite database for metadata storage
-- **R2 Storage**: Object storage for files and text content
+- **R2 Storage**: Files, text content and per-chest JSON manifests (no database)
 - **JWT Authentication**: Token-based security for uploads and downloads
 - **TOTP Authentication**: Optional two-factor authentication for enhanced security
 
@@ -199,26 +198,15 @@ The token can also be passed as `?token={chestToken}` (used for direct browser d
 
 Setup, configuration and deployment are covered in the [README](../README.md) and [DEPLOYMENT.md](../DEPLOYMENT.md).
 
-## Database Schema
+## Errors
 
-The application uses two main tables:
+Error responses are JSON with a human-readable message and a stable code:
 
-### Sessions
-- `session_id`: Primary key (UUID)
-- `retrieval_code`: 6-character alphanumeric code
-- `upload_complete`: Boolean flag
-- `expiry_date`: Unix timestamp
-- `created_at`, `updated_at`: Timestamps
+```json
+{ "error": "Retrieval code not found or expired", "code": "CHEST_NOT_FOUND" }
+```
 
-### Files
-- `file_id`: Primary key (UUID)
-- `session_id`: Foreign key to sessions
-- `original_filename`: Original file name
-- `mime_type`: MIME type
-- `file_size`: Size in bytes
-- `file_extension`: File extension
-- `is_text`: Boolean flag for text content
-- `created_at`: Timestamp
+Codes: `NOT_FOUND`, `INVALID_REQUEST`, `INVALID_CODE`, `INVALID_SESSION`, `AUTH_REQUIRED`, `AUTH_INVALID`, `TOKEN_MISMATCH`, `TOTP_REQUIRED`, `TOTP_INVALID`, `TOTP_NOT_CONFIGURED`, `SESSION_NOT_FOUND`, `FILE_NOT_IN_SESSION`, `FILE_NOT_FOUND`, `CHEST_NOT_FOUND`, `CODE_GENERATION_FAILED`, `INTERNAL_ERROR`.
 
 ## Security Features
 
@@ -231,14 +219,9 @@ The application uses two main tables:
 - Optional TOTP two-factor authentication
 - Multipart upload support for large files (with separate JWT tokens)
 
-## File Storage
+## Storage
 
-All files (including text content) are stored in Cloudflare R2 with the path structure:
-```
-{sessionId}/{fileId}
-```
-
-Text content is stored as plain text files, and the frontend can differentiate using the `isText` flag in the metadata.
+All state lives in R2 (see the storage layout in [DEPLOYMENT.md](../DEPLOYMENT.md#storage-layout)). File content is stored at `{sessionId}/{fileId}`; completing an upload writes a JSON manifest at `codes/{CODE}`, which `/api/retrieve` and `/api/download` read. Text content is stored as plain text files, and the frontend can differentiate using the `isText` flag.
 
 ## Multipart Upload Flow
 

@@ -38,10 +38,10 @@ One Cloudflare Worker serves everything from one domain:
 | `/upload/` | Upload app (React) |
 | `/retrieve/`, `/retrieve/#ABC123` | Retrieve app (React); the code in the `#` fragment is never sent to the server |
 | `/assets/*` | Hashed JS/CSS from the Vite build |
-| `/api/*` | Worker API, backed by D1 (metadata) and R2 (file content) |
+| `/api/*` | Worker API; all data (files and chest manifests) lives in one R2 bucket |
 
 - **Frontend**: React 18 + Tailwind CSS, built with Vite into `dist/` and served as Workers Static Assets
-- **Backend**: TypeScript Worker + D1 Database + R2 Storage, hourly cron cleanup
+- **Backend**: TypeScript Worker + R2 Storage (no database), hourly cron cleanup
 - **Deployment**: `npm run deploy` builds the frontend and deploys the Worker and its assets together
 
 ## 🚀 Quick Start
@@ -56,8 +56,7 @@ For complete deployment instructions, see **[DEPLOYMENT.md](DEPLOYMENT.md)**. Th
 
 ```bash
 npm install
-cp .dev.vars.example .dev.vars                                   # local secrets
-npx wrangler d1 execute pocket-chest --local --file=schema.sql   # local database
+cp .dev.vars.example .dev.vars   # local secrets
 
 # Option 1: build once and run everything on the Worker (http://localhost:8787)
 npm run preview
@@ -79,7 +78,8 @@ npm run typecheck && npm run lint && npm test && npm run build
 PocketChest/
 ├── src/
 │   ├── worker/                # Cloudflare Worker (API + cron cleanup)
-│   │   ├── index.ts
+│   │   ├── index.ts           # Routes and handlers
+│   │   ├── storage.ts         # R2 key layout, chest manifests, cleanup
 │   │   ├── types.ts
 │   │   └── utils.ts
 │   └── web/                   # Vite frontend (three HTML entry points)
@@ -89,10 +89,9 @@ PocketChest/
 │       └── shared/            # Components, hooks, API client, styles
 ├── public/                    # Copied into dist/ as-is (_headers, _redirects, 404.html, favicon)
 ├── test/                      # Worker tests (Vitest + @cloudflare/vitest-pool-workers)
-├── scripts/                   # generate-secrets.js, test-ci.sh
+├── scripts/                   # generate-secrets.js, migrate-d1-to-r2.mjs, test-ci.sh
 ├── docs/API.md                # API reference
-├── schema.sql                 # D1 schema
-├── wrangler.jsonc             # Worker, assets, D1, R2 and cron configuration
+├── wrangler.jsonc             # Worker, assets, R2 and cron configuration
 ├── vite.config.ts
 └── DEPLOYMENT.md
 ```
@@ -102,14 +101,13 @@ PocketChest/
 - **TOTP Authentication** - Optional two-factor authentication
 - **JWT Session Tokens** - Secure session management
 - **Auto Expiration** - Files automatically deleted after expiry
-- **Automated Cleanup** - Hourly cron job removes expired content
+- **Automated Cleanup** - Hourly cron job removes expired chests and abandoned uploads
 - **Input Validation** - File type and size restrictions
 
 ## 🚢 Deployment
 
 See **[DEPLOYMENT.md](DEPLOYMENT.md)** for complete deployment instructions including:
 - Single Worker deployment (API + static frontend)
-- D1 database configuration
 - R2 storage setup
 - TOTP authentication setup
 - Custom domain configuration

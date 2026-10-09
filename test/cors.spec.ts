@@ -1,10 +1,10 @@
 import { describe, it, expect, beforeAll, beforeEach } from 'vitest';
-import { setupDatabase, setupTestEnvironment, testFetch } from './utils/test-setup';
+import { resetStorage, setupTestEnvironment, testFetch } from './utils/test-setup';
 
 // The frontend is served from the same Worker, so the API must not grant cross-origin access
 describe('Same-origin API', () => {
 	beforeAll(async () => {
-		await setupDatabase();
+		await resetStorage();
 	});
 
 	beforeEach(async () => {

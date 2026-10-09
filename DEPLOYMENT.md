@@ -5,8 +5,8 @@ This guide walks you through deploying PocketChest, a secure file-sharing applic
 ## Architecture Overview
 
 - **One Worker** serves the API (`/api/*`) and the static frontend (built by Vite into `dist/` and uploaded as Workers Static Assets)
-- **D1** stores chest metadata, **R2** stores file content
-- **Cron trigger** (hourly) deletes expired chests
+- **R2** stores everything: file content and a small JSON manifest per chest (no database)
+- **Cron trigger** (hourly) deletes expired chests and abandoned uploads
 - **Authentication**: Optional TOTP (Time-based One-Time Password)
 
 There is no separate Cloudflare Pages project and no separate API domain.
@@ -25,29 +25,7 @@ All commands below run from the repository root.
 
 ## Deployment
 
-### 1. Create Cloudflare Resources
-
-#### Create D1 Database
-
-```bash
-npx wrangler d1 create pocket-chest
-```
-
-Save the database ID from the output. Update `wrangler.jsonc`:
-
-```jsonc
-{
-  "d1_databases": [
-    {
-      "binding": "DB",
-      "database_name": "pocket-chest",
-      "database_id": "<your-database-id-here>"
-    }
-  ]
-}
-```
-
-#### Create R2 Bucket
+### 1. Create the R2 Bucket
 
 ```bash
 npx wrangler r2 bucket create pocket-chest
@@ -66,15 +44,7 @@ If you used a different bucket name, update the bucket name in `wrangler.jsonc`.
 }
 ```
 
-### 2. Initialize Database Schema
-
-```bash
-npx wrangler d1 execute pocket-chest --file=schema.sql --remote
-```
-
-> Tip: to stop git from picking up your real database ID, run `git update-index --assume-unchanged wrangler.jsonc`.
-
-### 3. Configure Custom Domain (Optional)
+### 2. Configure Custom Domain (Optional)
 
 **Using Routes in wrangler.jsonc**
 
@@ -104,7 +74,7 @@ If you have a domain managed by Cloudflare, you can configure a custom domain ro
 - **Important**: Use a subdomain (3-level domain like `share.yourdomain.com`) for automatic SSL certificates
 - Avoid deeper subdomains (4+ levels like `share.pc.yourdomain.com`) as they won't receive automatic SSL certificates due to Cloudflare limitations
 
-### 4. Configure Secrets
+### 3. Configure Secrets
 
 **⚠️ IMPORTANT**: Never put secrets in `wrangler.jsonc` vars section - use Cloudflare Worker Secrets ([docs](https://developers.cloudflare.com/workers/configuration/secrets/)) instead.
 
@@ -178,7 +148,7 @@ Fill in your PocketChest domain to enable autofill.
 - You should generate and use unique secrets
 - Remove any secrets from the `wrangler.jsonc` vars section
 
-### 5. Deploy
+### 4. Deploy
 
 ```bash
 npm run deploy
@@ -188,7 +158,22 @@ This builds the frontend into `dist/` and deploys the Worker together with the s
 
 PocketChest will be available at `https://pocket-chest.your-subdomain.workers.dev` (or your custom domain if configured).
 
-> Upgrading from the old two-part deployment (Pages frontend + `pocket-chest-backend` Worker)? The Worker is now named `pocket-chest`, so deploying creates a new Worker. Reuse your existing D1 database ID and R2 bucket, set the secrets again on the new Worker, move your custom domain to it, then delete the old Pages project and old Worker.
+### Upgrading from the D1 + Pages version
+
+Earlier versions used a Cloudflare Pages frontend, a `pocket-chest-backend` Worker and a D1 database. To upgrade:
+
+1. Keep the same R2 bucket (`bucket_name` in `wrangler.jsonc`); files stay where they are.
+2. Set the secrets on the new Worker (`npx wrangler secret put JWT_SECRET`, and `TOTP_SECRETS` if used) — it is named `pocket-chest`, so it is a new Worker.
+3. Deploy with `npm run deploy`.
+4. Copy the chest index from D1 into R2 (use the `database_id` from your old `wrangler.jsonc`):
+
+   ```bash
+   node scripts/migrate-d1-to-r2.mjs --database-id <your-database-id> --remote --dry-run   # preview
+   node scripts/migrate-d1-to-r2.mjs --database-id <your-database-id> --remote
+   ```
+
+   Existing retrieval codes keep working. Download links opened before the migration need the code entered again.
+5. Move your custom domain to the new Worker, then delete the old Worker, the Pages project and (once you are happy) the D1 database.
 
 ## Post-Deployment Configuration
 
@@ -243,16 +228,28 @@ For local development, put these values in `.dev.vars` (see `.dev.vars.example`)
 # Worker logs
 npx wrangler tail
 
-# Check D1 database
-npx wrangler d1 execute pocket-chest --command "SELECT COUNT(*) FROM sessions;" --remote
+# Inspect a chest manifest by retrieval code
+npx wrangler r2 object get pocket-chest/codes/ABC123 --pipe --remote
 ```
 
 ### Cleanup Job
 
-The Worker includes an automated cleanup job that runs hourly to:
-- Delete expired sessions and files
-- Clean up incomplete uploads older than 48 hours
-- Remove associated R2 storage objects
+The Worker runs a cleanup job every hour. It:
+- Deletes chests whose expiry has passed, together with their files
+- Deletes upload sessions that were never completed within 48 hours
+
+Expiry is also enforced on every request, so an expired chest is unreachable even before the job removes it. Unfinished multipart uploads are aborted by R2's default bucket lifecycle rule (7 days).
+
+### Storage Layout
+
+Everything lives in the R2 bucket:
+
+| Key | Content |
+|-----|---------|
+| `{sessionId}/{fileId}` | File content |
+| `codes/{CODE}` | Chest manifest (JSON): session, expiry and file list |
+| `expiry/{expiresAt}/{CODE}` | Empty marker; lets the cleanup job find due chests in time order |
+| `pending/{createdAt}/{sessionId}` | Empty marker for an upload that has not been completed yet |
 
 ## Security Considerations
 
@@ -267,9 +264,8 @@ The Worker includes an automated cleanup job that runs hourly to:
 ### Common Issues
 
 1. **Blank page or 404 for `/upload/`**: Make sure `npm run deploy` (not plain `wrangler deploy`) ran, so `dist/` was built
-2. **Database Errors**: Verify D1 database is properly bound in `wrangler.jsonc`
-3. **Storage Errors**: Ensure R2 bucket exists and is properly bound
-4. **TOTP Issues**: Verify secrets are properly formatted and time is synchronized
+2. **Storage Errors**: Ensure the R2 bucket exists and `bucket_name` in `wrangler.jsonc` matches it
+3. **TOTP Issues**: Verify secrets are properly formatted and time is synchronized
 
 ### Debug Commands
 
@@ -280,8 +276,7 @@ curl https://your-worker.workers.dev/api/chest -X POST
 
 ## Scaling Considerations
 
-- **D1**: Supports up to 100,000 reads/day and 50,000 writes/day on free tier
-- **R2**: First 10GB storage free, then $0.015/GB/month
+- **R2**: First 10GB storage free, then $0.015/GB/month; 1M Class A and 10M Class B operations/month free (a chest uses a handful of each)
 - **Workers**: 100,000 requests/day free, then $0.50 per million; static asset requests are free and do not invoke the Worker
 
 For higher usage, consider Cloudflare's paid tiers.

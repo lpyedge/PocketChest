@@ -129,6 +129,13 @@ export default {
 		const result = await cleanupExpired(env.R2_STORAGE, getCurrentTimestamp());
 		const { errors, ...counts } = result;
 		console.log('🧹 Cleanup summary:', JSON.stringify(counts));
+		const behind = Object.entries(result.backlog)
+			.filter(([, pending]) => pending)
+			.map(([name]) => name);
+		if (behind.length > 0) {
+			// Not an error: the next run continues. Seen run after run, it means the job cannot keep up.
+			console.warn(`⚠️ Cleanup backlog remains for: ${behind.join(', ')}`);
+		}
 
 		// Partial failures are kept and retried by the next run; the invocation is still reported as failed
 		// so that the problem shows up in the Worker's logs and observability

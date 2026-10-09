@@ -1,6 +1,7 @@
 import { cleanupOwnerSessions } from './auth/sessions';
 import { cleanupThrottles } from './auth/throttle';
 import { cleanupChallenges } from './auth/challenges';
+import type { ScanState } from './auth/scan';
 import { ChestFile, ChestManifest } from './types';
 import {
 	createSessionRecord,
@@ -300,7 +301,7 @@ export interface CleanupResult {
 	challengesRemoved: number;
 	deletedObjects: number;
 	// true when more due work exists than this run processed; the next run continues it
-	backlog: { expired: boolean; abandoned: boolean; finalizing: boolean };
+	backlog: { expired: boolean; abandoned: boolean; finalizing: boolean; sessions: boolean; challenges: boolean };
 	errors: string[];
 }
 
@@ -378,7 +379,7 @@ export async function cleanupExpired(bucket: R2Bucket, now: number): Promise<Cle
 		throttlesReset: 0,
 		challengesRemoved: 0,
 		deletedObjects: 0,
-		backlog: { expired: false, abandoned: false, finalizing: false },
+		backlog: { expired: false, abandoned: false, finalizing: false, sessions: false, challenges: false },
 		errors: [],
 	};
 
@@ -463,7 +464,9 @@ export async function cleanupExpired(bucket: R2Bucket, now: number): Promise<Cle
 
 	// 4. Owner sign-in sessions that have ended (revoked, idle, expired, or from an older owner version)
 	try {
-		result.sessionsRemoved = await cleanupOwnerSessions(bucket, now);
+		const sessionScan: ScanState = { more: false };
+		result.sessionsRemoved = await cleanupOwnerSessions(bucket, now, undefined, sessionScan);
+		result.backlog.sessions = sessionScan.more;
 	} catch (error) {
 		result.errors.push(`Failed to clean up owner sessions: ${error}`);
 	}
@@ -477,7 +480,9 @@ export async function cleanupExpired(bucket: R2Bucket, now: number): Promise<Cle
 
 	// 4c. WebAuthn challenges past their expiry; live ones are never removed
 	try {
-		result.challengesRemoved = await cleanupChallenges(bucket, now);
+		const challengeScan: ScanState = { more: false };
+		result.challengesRemoved = await cleanupChallenges(bucket, now, undefined, challengeScan);
+		result.backlog.challenges = challengeScan.more;
 	} catch (error) {
 		result.errors.push(`Failed to clean up passkey challenges: ${error}`);
 	}

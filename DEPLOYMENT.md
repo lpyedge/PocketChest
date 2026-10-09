@@ -251,3 +251,10 @@ curl https://your-worker.workers.dev/api/chest -X POST
 - **Workers**: 100,000 requests/day free, then $0.50 per million; static asset requests are free and do not invoke the Worker
 
 For higher usage, consider Cloudflare's paid tiers.
+## Known limits (review v3, FIX-12)
+
+- **Workers plan**: password hashing uses PBKDF2 with 600,000 iterations. Node measures about 150 ms of wall time for it, which is not billed CPU time on Workers. Cloudflare lists 10 ms of CPU for the Free plan, so do not assume the Free plan works. Measure sign-in CPU on a real Worker (TASK-31, R11) before choosing a plan.
+- **Rate limits** are counted per Cloudflare location, so they are approximate across the world. The owner-level lockout in `auth/throttle.ts` is the real protection for sign-in. Its check, verify and record steps are separate requests, so a burst of simultaneous guesses can all be verified before the lock takes effect. Add a Cloudflare WAF rate-limiting rule on `/api/auth/*` if that matters for your deployment.
+- **Content-Security-Policy** is served as report-only (`public/_headers`). Watch the browser console on your own domain, then switch the header name to `Content-Security-Policy` once nothing is reported.
+- **Downloads** do not support `Range` requests, so an interrupted large download starts again from the beginning.
+- **Cleanup** scans owner sessions and passkey challenges in batches of 500 and remembers its position. A `⚠️ Cleanup backlog remains` line in the Worker logs on every run means the job cannot keep up.

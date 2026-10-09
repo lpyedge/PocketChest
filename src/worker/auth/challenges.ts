@@ -6,6 +6,7 @@
 import { ApiError } from '../errors';
 import type { EncryptedSecret } from './owner';
 import { sha256Hex } from './sessions';
+import { scanBatch, ScanState } from './scan';
 
 export const CHALLENGE_SECONDS = 120;
 export const CHALLENGE_PREFIX = 'auth/challenges/';
@@ -111,11 +112,9 @@ export async function consumeChallenge(
  * Deletes challenges that have expired. A challenge that is still valid, used or not, is never removed,
  * so a replay cannot succeed after cleanup.
  */
-export async function cleanupChallenges(bucket: R2Bucket, now: number, limit = 500): Promise<number> {
-	const page = await bucket.list({ prefix: CHALLENGE_PREFIX, limit });
-	let removed = 0;
-	for (const object of page.objects) {
-		const stored = await bucket.get(object.key);
+export async function cleanupChallenges(bucket: R2Bucket, now: number, limit = 500, state?: ScanState): Promise<number> {
+	return scanBatch(bucket, CHALLENGE_PREFIX, limit, state, async (key) => {
+		const stored = await bucket.get(key);
 		let expired = true;
 		if (stored) {
 			try {
@@ -125,10 +124,7 @@ export async function cleanupChallenges(bucket: R2Bucket, now: number, limit = 5
 				expired = true;
 			}
 		}
-		if (expired) {
-			await bucket.delete(object.key);
-			removed++;
-		}
-	}
-	return removed;
+		if (expired) await bucket.delete(key);
+		return expired;
+	});
 }

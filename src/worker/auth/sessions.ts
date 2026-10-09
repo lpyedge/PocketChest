@@ -8,6 +8,7 @@
 import { ApiError } from '../errors';
 import { constantTimeEqual, toBase64Url } from './encoding';
 import { loadOwner } from './owner';
+import { scanBatch, ScanState } from './scan';
 
 export const OWNER_COOKIE = '__Host-pc_owner';
 export const CSRF_HEADER = 'X-PocketChest-CSRF';
@@ -260,12 +261,10 @@ export async function requireOwner(
 }
 
 /** Deletes sessions that can no longer be used. Bounded per run; the next run continues. */
-export async function cleanupOwnerSessions(bucket: R2Bucket, now: number, limit = 500): Promise<number> {
+export async function cleanupOwnerSessions(bucket: R2Bucket, now: number, limit = 500, state?: ScanState): Promise<number> {
 	const owner = await loadOwner(bucket).catch(() => null);
-	const page = await bucket.list({ prefix: 'auth/sessions/', limit });
-	let removed = 0;
-	for (const object of page.objects) {
-		const stored = await bucket.get(object.key);
+	return scanBatch(bucket, 'auth/sessions/', limit, state, async (key) => {
+		const stored = await bucket.get(key);
 		let stale = true;
 		if (stored) {
 			try {
@@ -279,10 +278,7 @@ export async function cleanupOwnerSessions(bucket: R2Bucket, now: number, limit 
 				stale = true;
 			}
 		}
-		if (stale) {
-			await bucket.delete(object.key);
-			removed++;
-		}
-	}
-	return removed;
+		if (stale) await bucket.delete(key);
+		return stale;
+	});
 }

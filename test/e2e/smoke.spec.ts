@@ -32,3 +32,20 @@ test('home page ships no application script', async ({ request }) => {
 	const html = await (await request.get('/')).text();
 	expect(html).not.toMatch(/<script[^>]+type="module"/);
 });
+
+// The policy is report-only for now: it must be served, and the real pages must not violate it
+for (const path of ['/', '/en/', '/upload/', '/retrieve/']) {
+	test(`${path} is served with a report-only CSP and does not violate it`, async ({ page }) => {
+		const violations: string[] = [];
+		page.on('console', (message) => {
+			if (/Content Security Policy|Content-Security-Policy/i.test(message.text())) violations.push(message.text());
+		});
+		const response = await page.goto(path);
+		const policy = response?.headers()['content-security-policy-report-only'] ?? '';
+		expect(policy).toContain("object-src 'none'");
+		expect(policy).toContain("base-uri 'none'");
+		expect(policy).toContain("frame-ancestors 'none'");
+		await page.waitForLoadState('networkidle');
+		expect(violations).toEqual([]);
+	});
+}

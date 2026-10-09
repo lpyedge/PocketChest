@@ -24,21 +24,10 @@ export function usePocketChest() {
 			try {
 				const { files, chestToken, expiryDate } = await api.retrieveChest(retrievalCode, signal);
 
-				// Only pre-load text content (small), not binary files (large)
-				const filesWithText = await Promise.all(
-					files.map(async (file) => {
-						if (file.isText) {
-							const content = await api.downloadTextContent(file.fileId, chestToken, signal);
-							return { ...file, content };
-						} else {
-							// Don't pre-download binary files - just return metadata
-							return { ...file };
-						}
-					}),
-				);
-
+				// Only the list is fetched here. Text content is read afterwards, a few items at a time (see lib/text-loader):
+				// each item needs its own authorization, and a share can hold many of them
 				return {
-					files: filesWithText,
+					files,
 					expiryDate,
 					chestToken,
 				};
@@ -54,6 +43,12 @@ export function usePocketChest() {
 				setIsRetrieving(false);
 			}
 		},
+		[api],
+	);
+
+	// One text item. Its failure belongs to that item, so it is not shown as the page's error
+	const loadText = useCallback(
+		(fileId: string, chestToken: string, signal: AbortSignal) => api.downloadTextContent(fileId, chestToken, signal),
 		[api],
 	);
 
@@ -174,6 +169,7 @@ export function usePocketChest() {
 		retryUpload,
 		cancelUpload,
 		retrieve,
+		loadText,
 		downloadSingleFile,
 		isUploading,
 		isRetrieving,

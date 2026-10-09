@@ -1,14 +1,12 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { usePocketChest } from '@/hooks/usePocketChest';
 import { FileInfo } from '@/lib/types';
 import { describeExpiry } from '@/lib/expiry';
 import { formatBytes } from '@/lib/format';
+import { AUTO_LOAD_TEXT_ITEMS, loadTexts, TextState } from '@/lib/text-loader';
 import { useI18n } from '@/i18n/I18nProvider';
 
-interface FileWithContent extends FileInfo {
-	content?: string;
-	blob?: Blob;
-}
+type FileWithContent = FileInfo;
 
 interface RetrieveClientProps {
 	code: string;
@@ -22,7 +20,10 @@ export function RetrieveClient({ code, onBack }: RetrieveClientProps) {
 	const [chestToken, setChestToken] = useState<string>('');
 	const [copiedFileId, setCopiedFileId] = useState<string | null>(null);
 
-	const { retrieve, downloadSingleFile, isRetrieving, error } = usePocketChest();
+	const { retrieve, loadText, downloadSingleFile, isRetrieving, error } = usePocketChest();
+	// Requests made on demand, so switching to another code can cancel them as well
+	const textControllers = useRef(new Set<AbortController>());
+	const [texts, setTexts] = useState<Record<string, TextState>>({});
 
 	// Each code is its own retrieval: switching codes aborts the previous request, and a response
 	// that arrives late is dropped, so it can never replace the content of the current code
@@ -31,6 +32,7 @@ export function RetrieveClient({ code, onBack }: RetrieveClientProps) {
 		setFiles([]);
 		setExpiryDate(null);
 		setChestToken('');
+		setTexts({});
 
 		retrieve(code, controller.signal)
 			.then((result) => {
@@ -38,6 +40,16 @@ export function RetrieveClient({ code, onBack }: RetrieveClientProps) {
 				setFiles(result.files);
 				setExpiryDate(result.expiryDate);
 				setChestToken(result.chestToken);
+				// The first few text items appear by themselves; the others wait to be asked for
+				const first = result.files.filter((file) => file.isText).slice(0, AUTO_LOAD_TEXT_ITEMS);
+				void loadTexts(
+					first.map((file) => file.fileId),
+					(fileId, signal) => loadText(fileId, result.chestToken, signal),
+					controller.signal,
+					(fileId, next) => {
+						if (!controller.signal.aborted) setTexts((current) => ({ ...current, [fileId]: next }));
+					},
+				);
 			})
 			.catch((err: unknown) => {
 				if (!controller.signal.aborted) {
@@ -45,8 +57,25 @@ export function RetrieveClient({ code, onBack }: RetrieveClientProps) {
 				}
 			});
 
-		return () => controller.abort();
+		const onDemand = textControllers.current;
+		return () => {
+			controller.abort();
+			onDemand.forEach((pending) => pending.abort());
+			onDemand.clear();
+		};
 	}, [code]);
+
+	// One text item on request, or again after it failed. Never affects the other items or the page
+	const requestText = (fileId: string) => {
+		const controller = new AbortController();
+		textControllers.current.add(controller);
+		void loadTexts(
+			[fileId],
+			(id, signal) => loadText(id, chestToken, signal),
+			controller.signal,
+			(id, next) => setTexts((current) => ({ ...current, [id]: next })),
+		).finally(() => textControllers.current.delete(controller));
+	};
 
 	const handleDownload = async (file: FileWithContent) => {
 		try {
@@ -117,29 +146,54 @@ export function RetrieveClient({ code, onBack }: RetrieveClientProps) {
 													<h3 className="font-semibold text-lg text-gray-900 mb-2 truncate">{displayName}</h3>
 													<p className="text-sm text-gray-500 mb-3">{formatFileSize(file.size)}</p>
 
-													{file.content && (
-														<div>
-															<div className="bg-gray-50 rounded p-3 max-h-40 overflow-y-auto mb-3">
-																<pre className="text-sm whitespace-pre-wrap font-mono">{file.content}</pre>
-															</div>
-															<div className="flex gap-2">
+													{(() => {
+														const text = texts[file.fileId] ?? { status: 'idle' as const };
+														if (text.status === 'loaded') {
+															return (
+																<div>
+																	<div className="bg-gray-50 rounded p-3 max-h-40 overflow-y-auto mb-3">
+																		<pre className="text-sm whitespace-pre-wrap font-mono">{text.content}</pre>
+																	</div>
+																	<div className="flex gap-2">
+																		<button
+																			onClick={() => copyTextToClipboard(text.content, file.fileId)}
+																			className={`flex-1 text-xs px-3 py-2 rounded transition-colors ${
+																				copiedFileId === file.fileId
+																					? 'bg-green-500 text-white'
+																					: 'bg-blue-500 text-white hover:bg-blue-600'
+																			}`}
+																		>
+																			{copiedFileId === file.fileId ? t('retrieve.copied') : t('retrieve.copy')}
+																		</button>
+																		<button
+																			onClick={() => handleDownload(file)}
+																			className="flex-1 text-xs px-3 py-2 bg-green-500 text-white rounded hover:bg-green-600"
+																		>
+																			{t('retrieve.downloadTxt')}
+																		</button>
+																	</div>
+																</div>
+															);
+														}
+														if (text.status === 'loading') {
+															return <p className="text-sm text-gray-500">{t('retrieve.loadingText')}</p>;
+														}
+														return (
+															<div className="space-y-2">
+																{text.status === 'error' && (
+																	<p role="alert" className="text-sm text-red-700">
+																		{t(text.messageKey)}
+																	</p>
+																)}
 																<button
-																	onClick={() => copyTextToClipboard(file.content!, file.fileId)}
-																	className={`flex-1 text-xs px-3 py-2 rounded transition-colors ${
-																		copiedFileId === file.fileId ? 'bg-green-500 text-white' : 'bg-blue-500 text-white hover:bg-blue-600'
-																	}`}
+																	onClick={() => requestText(file.fileId)}
+																	className="w-full text-xs px-3 py-2 bg-blue-500 text-white rounded hover:bg-blue-600"
 																>
-																	{copiedFileId === file.fileId ? t('retrieve.copied') : t('retrieve.copy')}
-																</button>
-																<button
-																	onClick={() => handleDownload(file)}
-																	className="flex-1 text-xs px-3 py-2 bg-green-500 text-white rounded hover:bg-green-600"
-																>
-																	{t('retrieve.downloadTxt')}
+																	{text.status === 'error' ? t('retrieve.retryText') : t('retrieve.showText')}
 																</button>
 															</div>
-														</div>
-													)}
+														);
+													})()}
 												</div>
 											);
 										})}

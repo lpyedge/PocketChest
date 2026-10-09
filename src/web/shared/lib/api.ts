@@ -386,7 +386,7 @@ export class PocketChestAPI {
 	}
 
 	// Step 1 of a download: exchange the retrieval token for a download Cookie valid for this file only
-	async authorizeDownload(fileId: string, chestToken: string): Promise<void> {
+	async authorizeDownload(fileId: string, chestToken: string, signal?: AbortSignal): Promise<void> {
 		const response = await fetch(`${this.baseUrl}/api/download/authorize`, {
 			method: 'POST',
 			headers: {
@@ -394,6 +394,7 @@ export class PocketChestAPI {
 				'Content-Type': 'application/json',
 			},
 			body: JSON.stringify({ fileId }),
+			signal,
 		});
 
 		if (!response.ok) {
@@ -404,7 +405,10 @@ export class PocketChestAPI {
 
 	// Small text items are read through the same two steps as a download
 	async downloadTextContent(fileId: string, chestToken: string, signal?: AbortSignal): Promise<string> {
-		await this.authorizeDownload(fileId, chestToken);
+		signal?.throwIfAborted();
+		await this.authorizeDownload(fileId, chestToken, signal);
+		// A retrieval that has been replaced while the authorization was on its way must not go on to read
+		signal?.throwIfAborted();
 		const response = await fetch(`${this.baseUrl}/api/download/${fileId}`, { signal });
 
 		if (!response.ok) {

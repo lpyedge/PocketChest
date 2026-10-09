@@ -83,34 +83,42 @@ export function fileUploadOptions(meta: FileMetadata): R2PutOptions & R2Multipar
 	};
 }
 
-function toChestFile(fileId: string, object: R2Object): ChestFile {
-	const filename = decodeURIComponent(object.customMetadata?.filename ?? fileId);
-	return {
-		fileId,
-		filename,
-		size: object.size,
-		mimeType: object.httpMetadata?.contentType ?? 'application/octet-stream',
-		isText: object.customMetadata?.isText === '1',
-		fileExtension: getFileExtension(filename),
-	};
-}
-
 function getFileExtension(filename: string): string | null {
 	const lastDot = filename.lastIndexOf('.');
 	return lastDot > 0 ? filename.substring(lastDot + 1) : null;
 }
 
-// Returns the stored files of a session, or null if any of them does not exist
-export async function getSessionFiles(bucket: R2Bucket, sessionId: string, fileIds: string[]): Promise<ChestFile[] | null> {
-	const objects = await Promise.all(fileIds.map((fileId) => bucket.head(fileKey(sessionId, fileId))));
-	const files: ChestFile[] = [];
-	for (const [index, object] of objects.entries()) {
-		if (!object) {
-			return null;
-		}
-		files.push(toChestFile(fileIds[index], object));
+export class StorageVerificationError extends Error {
+	constructor(readonly reason: 'missing' | 'size-mismatch') {
+		super(`Stored file failed verification: ${reason}`);
 	}
-	return files;
+}
+
+/**
+ * Checks that a finished write really stored the bytes it was supposed to store, and returns the file
+ * record to register. A missing object or a size mismatch is an error, never a silent success.
+ */
+export async function verifyStoredFile(
+	bucket: R2Bucket,
+	sessionId: string,
+	fileId: string,
+	expected: { size: number; filename: string; mimeType: string; isText: boolean },
+): Promise<ChestFile> {
+	const object = await bucket.head(fileKey(sessionId, fileId));
+	if (!object) {
+		throw new StorageVerificationError('missing');
+	}
+	if (object.size !== expected.size) {
+		throw new StorageVerificationError('size-mismatch');
+	}
+	return {
+		fileId,
+		filename: expected.filename,
+		size: expected.size,
+		mimeType: expected.mimeType,
+		isText: expected.isText,
+		fileExtension: getFileExtension(expected.filename),
+	};
 }
 
 // --- Chests ---
@@ -121,9 +129,7 @@ export async function getSessionFiles(bucket: R2Bucket, sessionId: string, fileI
  * Returns null if no free code was found.
  */
 export async function createChest(bucket: R2Bucket, manifest: ChestManifest): Promise<string | null> {
-	// Claim the session first: only one request can finalize it
-	await transitionSession(bucket, manifest.sessionId, 'FINALIZING');
-
+	// The caller has already moved the session to FINALIZING (see beginFinalize)
 	const code = await claimRetrievalCode(bucket, manifest);
 	if (!code) {
 		await transitionSession(bucket, manifest.sessionId, 'OPEN');

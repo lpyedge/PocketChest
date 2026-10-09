@@ -100,7 +100,7 @@ describe('Integration Tests', () => {
 			body: JSON.stringify({
 				filename: 'e2e-multipart.txt',
 				mimeType: 'text/plain',
-				fileSize: 50,
+				fileSize: new TextEncoder().encode('End-to-end multipart content').byteLength,
 			}),
 		});
 		const multipartCreateData = (await multipartCreateResponse.json()) as any;

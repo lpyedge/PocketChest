@@ -1,4 +1,4 @@
-import { SessionError } from './session';
+import { acquireLease, beginFinalize, releaseLease, SessionError, transitionSession } from './session';
 import {
 	Env,
 	CreateChestRequest,
@@ -12,6 +12,7 @@ import {
 	UploadPartResponse,
 	CompleteMultipartUploadRequest,
 	CompleteMultipartUploadResponse,
+	ChestFile,
 	ChestManifest,
 	UploadJWTPayload,
 	MultipartJWTPayload,
@@ -32,7 +33,17 @@ import {
 	isValidValidityDays,
 	contentDisposition,
 } from './utils';
-import { cleanupExpired, createChest, fileKey, fileUploadOptions, getChest, getSessionFiles, isSessionOpen, openSession } from './storage';
+import {
+	cleanupExpired,
+	createChest,
+	fileKey,
+	fileUploadOptions,
+	getChest,
+	isSessionOpen,
+	openSession,
+	StorageVerificationError,
+	verifyStoredFile,
+} from './storage';
 
 // Error responses: { "error": human-readable message, "code": stable machine-readable code }
 class ApiError extends Error {
@@ -45,11 +56,32 @@ class ApiError extends Error {
 	}
 }
 
+// A write lease lasts this long; a write that outlives it can no longer register its file
+const UPLOAD_LEASE_SECONDS = 15 * 60;
+
 function json(data: unknown, status = 200): Response {
 	return new Response(JSON.stringify(data), {
 		status,
 		headers: { 'Content-Type': 'application/json' },
 	});
+}
+
+// Maps session state errors to stable API codes; internal details are never returned
+function sessionErrorToApi(error: SessionError): ApiError {
+	switch (error.code) {
+		case 'NOT_FOUND':
+		case 'NOT_OPEN':
+			return new ApiError(404, 'SESSION_NOT_FOUND', 'Session not found or already completed');
+		case 'LEASE_ACTIVE':
+			return new ApiError(409, 'UPLOAD_IN_PROGRESS', 'Uploads are still in progress; try again shortly');
+		case 'LEASE_LOST':
+			return new ApiError(409, 'UPLOAD_LEASE_LOST', 'The upload expired before it finished; please upload again');
+		case 'CORRUPT_RECORD':
+			console.error('Corrupt session record');
+			return new ApiError(500, 'INTERNAL_ERROR', 'Internal Server Error');
+		default:
+			return new ApiError(409, 'CONFLICT', 'Session state changed, try again');
+	}
 }
 
 function errorResponse(error: ApiError): Response {
@@ -112,10 +144,7 @@ export default {
 				return errorResponse(error);
 			}
 			if (error instanceof SessionError) {
-				if (error.code === 'NOT_FOUND')
-					return errorResponse(new ApiError(404, 'SESSION_NOT_FOUND', 'Session not found or already completed'));
-				if (error.code === 'CORRUPT_RECORD') console.error('Corrupt session record');
-				if (error.code !== 'CORRUPT_RECORD') return errorResponse(new ApiError(409, 'CONFLICT', 'Session state changed, try again'));
+				return errorResponse(sessionErrorToApi(error));
 			}
 			console.error('Error:', error);
 			return errorResponse(new ApiError(500, 'INTERNAL_ERROR', 'Internal Server Error'));
@@ -237,44 +266,68 @@ async function handleCreateChest(request: Request, env: Env): Promise<Response> 
 async function handleUploadFiles(request: Request, env: Env, sessionId: string): Promise<Response> {
 	await authorizeUpload(request, env, sessionId);
 
-	const formData = await request.formData();
-	const uploadedFiles: UploadFileResponse['uploadedFiles'] = [];
-	const r2Operations: Promise<R2Object | null>[] = [];
+	// Reserve the session for this write before anything is stored, so Complete cannot race it
+	const leaseId = generateUUID();
+	await acquireLease(env.R2_STORAGE, sessionId, { id: leaseId, expiresAt: getCurrentTimestamp() + UPLOAD_LEASE_SECONDS });
 
-	for (const value of formData.getAll('files')) {
-		if (value instanceof File) {
-			const fileId = generateUUID();
-			const filename = value.name || 'unnamed-file';
-			const options = fileUploadOptions({ filename, mimeType: value.type || 'application/octet-stream', isText: false });
-			r2Operations.push(env.R2_STORAGE.put(fileKey(sessionId, fileId), value.stream(), options));
-			uploadedFiles.push({ fileId, filename, isText: false });
-		}
-	}
+	try {
+		const formData = await request.formData();
+		const uploadedFiles: UploadFileResponse['uploadedFiles'] = [];
+		const expected: { fileId: string; size: number; filename: string; mimeType: string; isText: boolean }[] = [];
+		const writes: Promise<unknown>[] = [];
 
-	for (const textItem of formData.getAll('textItems')) {
-		if (typeof textItem === 'string') {
-			let textData: { content?: unknown; filename?: unknown };
-			try {
-				textData = JSON.parse(textItem);
-			} catch {
-				throw new ApiError(400, 'INVALID_REQUEST', 'Invalid text item');
+		for (const value of formData.getAll('files')) {
+			if (value instanceof File) {
+				const fileId = generateUUID();
+				const filename = value.name || 'unnamed-file';
+				const mimeType = value.type || 'application/octet-stream';
+				writes.push(
+					env.R2_STORAGE.put(fileKey(sessionId, fileId), value.stream(), fileUploadOptions({ filename, mimeType, isText: false })),
+				);
+				expected.push({ fileId, size: value.size, filename, mimeType, isText: false });
+				uploadedFiles.push({ fileId, filename, isText: false });
 			}
-			if (typeof textData.content !== 'string') {
-				throw new ApiError(400, 'INVALID_REQUEST', 'Invalid text item');
-			}
-
-			const fileId = generateUUID();
-			const filename = typeof textData.filename === 'string' && textData.filename ? textData.filename : `text-${Date.now()}.txt`;
-			const options = fileUploadOptions({ filename, mimeType: 'text/plain', isText: true });
-			r2Operations.push(env.R2_STORAGE.put(fileKey(sessionId, fileId), textData.content, options));
-			uploadedFiles.push({ fileId, filename, isText: true });
 		}
+
+		for (const textItem of formData.getAll('textItems')) {
+			if (typeof textItem === 'string') {
+				let textData: { content?: unknown; filename?: unknown };
+				try {
+					textData = JSON.parse(textItem);
+				} catch {
+					throw new ApiError(400, 'INVALID_REQUEST', 'Invalid text item');
+				}
+				if (typeof textData.content !== 'string') {
+					throw new ApiError(400, 'INVALID_REQUEST', 'Invalid text item');
+				}
+
+				const fileId = generateUUID();
+				const filename = typeof textData.filename === 'string' && textData.filename ? textData.filename : `text-${Date.now()}.txt`;
+				writes.push(
+					env.R2_STORAGE.put(
+						fileKey(sessionId, fileId),
+						textData.content,
+						fileUploadOptions({ filename, mimeType: 'text/plain', isText: true }),
+					),
+				);
+				expected.push({ fileId, size: new TextEncoder().encode(textData.content).length, filename, mimeType: 'text/plain', isText: true });
+				uploadedFiles.push({ fileId, filename, isText: true });
+			}
+		}
+
+		await Promise.all(writes);
+
+		// Only size-checked files are registered; a file that is missing or truncated fails the whole upload
+		const registered = await Promise.all(expected.map((file) => verifyStoredFile(env.R2_STORAGE, sessionId, file.fileId, file)));
+		await releaseLease(env.R2_STORAGE, sessionId, leaseId, registered);
+
+		const response: UploadFileResponse = { uploadedFiles };
+		return json(response);
+	} catch (error) {
+		// Free the lease so Complete is not blocked for the rest of its lifetime; unregistered objects are cleaned up later
+		await releaseLease(env.R2_STORAGE, sessionId, leaseId, []).catch(() => undefined);
+		throw error;
 	}
-
-	await Promise.all(r2Operations);
-
-	const response: UploadFileResponse = { uploadedFiles };
-	return json(response);
 }
 
 // POST /api/chest/:sessionId/complete - Complete upload and generate retrieval code
@@ -295,8 +348,13 @@ async function handleCompleteUpload(request: Request, env: Env, sessionId: strin
 		throw new ApiError(400, 'INVALID_REQUEST', 'Invalid validity period');
 	}
 
-	const files = await getSessionFiles(env.R2_STORAGE, sessionId, fileIds);
-	if (!files) {
+	// Fails while any upload is still running; after this no new upload can start for this session
+	const finalizing = await beginFinalize(env.R2_STORAGE, sessionId);
+
+	const registered = new Map(finalizing.files.map((file) => [file.fileId, file]));
+	const files = fileIds.map((fileId) => registered.get(fileId));
+	if (files.some((file) => file === undefined)) {
+		await transitionSession(env.R2_STORAGE, sessionId, 'OPEN');
 		throw new ApiError(400, 'FILE_NOT_IN_SESSION', 'Some files do not belong to this session');
 	}
 
@@ -305,7 +363,7 @@ async function handleCompleteUpload(request: Request, env: Env, sessionId: strin
 		sessionId,
 		createdAt: payload.iat,
 		expiresAt: calculateExpiry(validityDays),
-		files,
+		files: files as ChestFile[],
 	};
 
 	const retrievalCode = await createChest(env.R2_STORAGE, manifest);
@@ -415,8 +473,15 @@ async function handleUploadPart(request: Request, env: Env, sessionId: string, f
 		throw new ApiError(400, 'INVALID_REQUEST', 'Empty part body');
 	}
 
-	const multipartUpload = env.R2_STORAGE.resumeMultipartUpload(fileKey(sessionId, fileId), payload.uploadId);
-	const uploadedPart = await multipartUpload.uploadPart(partNumber, body);
+	const leaseId = generateUUID();
+	await acquireLease(env.R2_STORAGE, sessionId, { id: leaseId, expiresAt: getCurrentTimestamp() + UPLOAD_LEASE_SECONDS });
+	let uploadedPart: R2UploadedPart;
+	try {
+		const multipartUpload = env.R2_STORAGE.resumeMultipartUpload(fileKey(sessionId, fileId), payload.uploadId);
+		uploadedPart = await multipartUpload.uploadPart(partNumber, body);
+	} finally {
+		await releaseLease(env.R2_STORAGE, sessionId, leaseId, []).catch(() => undefined);
+	}
 
 	const response: UploadPartResponse = {
 		etag: uploadedPart.etag,
@@ -435,8 +500,31 @@ async function handleCompleteMultipartUpload(request: Request, env: Env, session
 	}
 
 	const sortedParts = [...parts].sort((a, b) => a.partNumber - b.partNumber);
-	const multipartUpload = env.R2_STORAGE.resumeMultipartUpload(fileKey(sessionId, fileId), payload.uploadId);
-	await multipartUpload.complete(sortedParts);
+	const leaseId = generateUUID();
+	await acquireLease(env.R2_STORAGE, sessionId, { id: leaseId, expiresAt: getCurrentTimestamp() + UPLOAD_LEASE_SECONDS });
+	try {
+		const multipartUpload = env.R2_STORAGE.resumeMultipartUpload(fileKey(sessionId, fileId), payload.uploadId);
+		await multipartUpload.complete(sortedParts);
+
+		const registered = await verifyStoredFile(env.R2_STORAGE, sessionId, fileId, {
+			size: payload.fileSize,
+			filename: payload.filename,
+			mimeType: payload.mimeType,
+			isText: false,
+		});
+		await releaseLease(env.R2_STORAGE, sessionId, leaseId, [registered]);
+	} catch (error) {
+		if (error instanceof StorageVerificationError && error.reason === 'size-mismatch') {
+			// The declared size does not match what was uploaded
+			await env.R2_STORAGE.delete(fileKey(sessionId, fileId)).catch(() => undefined);
+			await releaseLease(env.R2_STORAGE, sessionId, leaseId, []).catch(() => undefined);
+			throw new ApiError(400, 'SIZE_MISMATCH', 'Uploaded size does not match the declared file size');
+		}
+		// The object was assembled but never registered: remove it instead of leaving an untracked file
+		await env.R2_STORAGE.delete(fileKey(sessionId, fileId)).catch(() => undefined);
+		await releaseLease(env.R2_STORAGE, sessionId, leaseId, []).catch(() => undefined);
+		throw error;
+	}
 
 	const response: CompleteMultipartUploadResponse = {
 		fileId,

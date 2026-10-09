@@ -162,7 +162,7 @@ describe('Multipart Upload', () => {
 				body: JSON.stringify({
 					filename: 'test-multipart.txt',
 					mimeType: 'text/plain',
-					fileSize: 100,
+					fileSize: new TextEncoder().encode('This is part 1 of the multipart upload test file content.').byteLength,
 				}),
 			});
 

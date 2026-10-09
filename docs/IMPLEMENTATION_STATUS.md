@@ -9,7 +9,7 @@
 | TASK-02 | 前端依賴更新與 UI Gate | PASS | 見 Git log |
 | TASK-03 | 小檔並行上傳完成屏障（P0） | PASS | 見 Git log |
 | TASK-04 | 單 Session R2 CAS 狀態層 | PASS | 見 Git log |
-| TASK-05 | 寫入租約與 Complete 屏障 | TODO | |
+| TASK-05 | 寫入租約與 Complete 屏障 | PASS | 見 Git log |
 | TASK-06 | Complete 冪等與碼碰撞補償（P0） | TODO | |
 | TASK-07 | Multipart 狀態、Abort | TODO | |
 | TASK-08 | Cron 清理與故障自修復 | TODO | |

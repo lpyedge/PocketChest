@@ -1,22 +1,31 @@
 'use client';
 
-import { useState, useEffect, Suspense } from 'react';
+import { useState, useEffect } from 'react';
 import Link from 'next/link';
-import { useSearchParams } from 'next/navigation';
 import { RetrieveClient } from '@/components/RetrieveClient';
+import { readCodeFromLocation } from '@/lib/share';
 
-function RetrievePageContent() {
-  const searchParams = useSearchParams();
-  const codeFromUrl = searchParams.get('code');
-  const [retrievalCode, setRetrievalCode] = useState(codeFromUrl || '');
-  const [showFiles, setShowFiles] = useState(!!codeFromUrl);
+export default function RetrievePage() {
+  const [retrievalCode, setRetrievalCode] = useState('');
+  const [showFiles, setShowFiles] = useState(false);
 
+  // The code travels in the URL fragment (/retrieve/#ABC123), which is never sent to the server
   useEffect(() => {
-    if (codeFromUrl) {
-      setRetrievalCode(codeFromUrl);
-      setShowFiles(true);
-    }
-  }, [codeFromUrl]);
+    const syncFromLocation = () => {
+      const code = readCodeFromLocation();
+      if (code) {
+        setRetrievalCode(code);
+        setShowFiles(true);
+      } else {
+        setRetrievalCode('');
+        setShowFiles(false);
+      }
+    };
+
+    syncFromLocation();
+    window.addEventListener('hashchange', syncFromLocation);
+    return () => window.removeEventListener('hashchange', syncFromLocation);
+  }, []);
 
   const handleRetrieve = () => {
     const code = retrievalCode.trim();
@@ -31,8 +40,7 @@ function RetrievePageContent() {
     }
     
     // Update URL and show files
-    const newUrl = `/retrieve?code=${code}`;
-    window.history.pushState({}, '', newUrl);
+    window.history.pushState({}, '', `/retrieve/#${code}`);
     setShowFiles(true);
   };
 
@@ -43,7 +51,7 @@ function RetrievePageContent() {
   };
 
   const handleBack = () => {
-    window.history.pushState({}, '', '/retrieve');
+    window.history.pushState({}, '', '/retrieve/');
     setShowFiles(false);
     setRetrievalCode('');
   };
@@ -125,20 +133,5 @@ function RetrievePageContent() {
         </div>
       </div>
     </main>
-  );
-}
-
-export default function RetrievePage() {
-  return (
-    <Suspense fallback={
-      <main className="min-h-screen bg-gradient-to-br from-green-50 via-white to-emerald-50 flex items-center justify-center p-4">
-        <div className="text-center">
-          <div className="animate-spin text-4xl mb-4">⏳</div>
-          <p className="text-xl">Loading...</p>
-        </div>
-      </main>
-    }>
-      <RetrievePageContent />
-    </Suspense>
   );
 }

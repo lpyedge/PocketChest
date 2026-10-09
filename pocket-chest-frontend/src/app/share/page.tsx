@@ -7,6 +7,7 @@ import { TextInput } from '@/components/TextInput';
 import { ExpirySelector } from '@/components/ExpirySelector';
 import { TOTPModal } from '@/components/TOTPModal';
 import { UploadProgress } from '@/components/UploadProgress';
+import { ShareResult } from '@/components/ShareResult';
 import { usePocketChest } from '@/hooks/usePocketChest';
 import { PocketChestAPI } from '@/lib/api';
 import { TextItem, ValidityDays } from '@/lib/types';
@@ -16,7 +17,6 @@ export default function SharePage() {
   const [textItems, setTextItems] = useState<TextItem[]>([]);
   const [validityDays, setValidityDays] = useState<ValidityDays>(7);
   const [uploadResult, setUploadResult] = useState<string | null>(null);
-  const [copied, setCopied] = useState(false);
   
   // Authentication state
   const [isAuthenticated, setIsAuthenticated] = useState(false);
@@ -158,13 +158,6 @@ export default function SharePage() {
     cancelUpload();
     // Reset local page state
     setUploadResult(null);
-    setCopied(false);
-  };
-
-  const copyToClipboard = (text: string) => {
-    navigator.clipboard.writeText(text);
-    setCopied(true);
-    setTimeout(() => setCopied(false), 2000);
   };
 
   // Show loading state until config is loaded and authentication is complete
@@ -236,29 +229,8 @@ export default function SharePage() {
               <h2 className="text-3xl font-bold text-green-700 mb-4">Files Shared Successfully</h2>
               <p className="text-gray-600 mb-8 text-lg">Your files are uploaded and ready to share!</p>
               
-              <div className="bg-gray-50 rounded-lg p-6 mb-8">
-                <p className="text-sm text-gray-600 mb-3 font-medium">Share this retrieval code:</p>
-                <div className="flex items-center justify-center gap-3 mb-4">
-                  <code className="text-3xl font-mono font-bold text-blue-600 bg-white px-6 py-3 rounded-lg border-2 border-blue-200">
-                    {uploadResult}
-                  </code>
-                  <button
-                    onClick={() => copyToClipboard(uploadResult)}
-                    className={`p-3 rounded-lg border-2 transition-colors ${
-                      copied
-                        ? 'text-green-600 bg-green-50 border-green-200'
-                        : 'text-blue-600 hover:bg-blue-50 border-blue-200 hover:border-blue-300'
-                    }`}
-                    title="Copy to clipboard"
-                  >
-                    {copied ? '✓' : '📋'}
-                  </button>
-                </div>
-                <p className="text-xs text-gray-500">
-                  Recipients can use this code at {window.location.origin}/retrieve
-                </p>
-              </div>
-              
+              <ShareResult code={uploadResult} />
+
               <div className="space-y-3">
                 <button
                   onClick={() => {

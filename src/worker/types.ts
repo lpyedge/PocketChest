@@ -119,8 +119,16 @@ export interface MultipartJWTPayload {
 	exp: number;
 }
 
+// Cloudflare rate limiting binding (ratelimits in wrangler.jsonc)
+export interface RateLimitBinding {
+	limit(options: { key: string }): Promise<{ success: boolean }>;
+}
+
 // Cloudflare Env type
 export interface Env {
+	AUTH_LIMITER?: RateLimitBinding;
+	RETRIEVE_LIMITER?: RateLimitBinding;
+	UPLOAD_LIMITER?: RateLimitBinding;
 	// Initial setup (see auth/bootstrap.ts). BOOTSTRAP_ENABLED is a plain var; the password is a secret.
 	BOOTSTRAP_ENABLED?: string;
 	ADMIN_BOOTSTRAP_PASSWORD?: string;

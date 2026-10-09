@@ -7,6 +7,7 @@ import { BOOTSTRAP_MARKER_KEY } from './bootstrap';
 import { isUsable, loadOwner, mutateOwner, Method, OwnerConflictError, OwnerRecord } from './owner';
 import { verifyPassword } from './password';
 import { matchTotpStep, openSeed } from './totp';
+import { assertNotLocked, clearFailures, recordFailure, ThrottledMethod } from './throttle';
 import { issueOwnerSession, LoadedSession, markReauthenticated } from './sessions';
 
 export interface AuthEnv {
@@ -58,19 +59,43 @@ async function checkPassword(env: AuthEnv, password: string): Promise<OwnerRecor
 }
 
 // Signs the owner in with the password, starting a new session (new id, so no fixation)
+/**
+ * Runs one credential attempt under the owner-level lockout: refused while the method is locked, a
+ * wrong credential counts as a failure, and a success clears this method's counter only.
+ */
+async function guarded<T>(env: AuthEnv, method: ThrottledMethod, now: number, attempt: () => Promise<T>): Promise<T> {
+	await assertNotLocked(env.R2_STORAGE, method, now);
+	try {
+		const result = await attempt();
+		await clearFailures(env.R2_STORAGE, method, now);
+		return result;
+	} catch (error) {
+		if (error instanceof ApiError && error.code === 'AUTH_INVALID_CREDENTIALS') {
+			await recordFailure(env.R2_STORAGE, method, now);
+		}
+		throw error;
+	}
+}
+
+// Signs the owner in with the password, starting a new session (new id, so no fixation)
 export async function loginWithPassword(
 	env: AuthEnv,
 	password: string,
 	now: number,
 ): Promise<{ sid: string; csrfToken: string; cookie: string }> {
-	const owner = await checkPassword(env, password);
-	return issueOwnerSession(env.R2_STORAGE, env.JWT_SECRET, owner.authVersion, now);
+	return guarded(env, 'password', now, async () => {
+		const owner = await checkPassword(env, password);
+		return issueOwnerSession(env.R2_STORAGE, env.JWT_SECRET, owner.authVersion, now);
+	});
 }
 
 // Re-confirms the owner's password inside an existing session, opening the reauth window
+// Re-confirms the owner's password inside an existing session, opening the reauth window
 export async function reauthWithPassword(env: AuthEnv, session: LoadedSession, password: string, now: number): Promise<void> {
-	await checkPassword(env, password);
-	await markReauthenticated(env.R2_STORAGE, session.sid, now);
+	await guarded(env, 'password', now, async () => {
+		await checkPassword(env, password);
+		await markReauthenticated(env.R2_STORAGE, session.sid, now);
+	});
 }
 
 // Raised inside the owner update when the code cannot be accepted any more
@@ -119,13 +144,19 @@ async function consumeTotpCode(env: AuthEnv, code: string, now: number): Promise
 }
 
 // Signs the owner in with an authenticator code alone; the password is not needed
+// Signs the owner in with an authenticator code alone; the password is not needed
 export async function loginWithTotp(env: AuthEnv, code: string, now: number): Promise<{ sid: string; csrfToken: string; cookie: string }> {
-	const owner = await consumeTotpCode(env, code, now);
-	return issueOwnerSession(env.R2_STORAGE, env.JWT_SECRET, owner.authVersion, now);
+	return guarded(env, 'totp', now, async () => {
+		const owner = await consumeTotpCode(env, code, now);
+		return issueOwnerSession(env.R2_STORAGE, env.JWT_SECRET, owner.authVersion, now);
+	});
 }
 
 // Re-confirms the owner with an authenticator code inside an existing session
+// Re-confirms the owner with an authenticator code inside an existing session
 export async function reauthWithTotp(env: AuthEnv, session: LoadedSession, code: string, now: number): Promise<void> {
-	await consumeTotpCode(env, code, now);
-	await markReauthenticated(env.R2_STORAGE, session.sid, now);
+	await guarded(env, 'totp', now, async () => {
+		await consumeTotpCode(env, code, now);
+		await markReauthenticated(env.R2_STORAGE, session.sid, now);
+	});
 }

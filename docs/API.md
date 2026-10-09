@@ -41,8 +41,8 @@
 | `FILE_NOT_FOUND` | 404 | 檔案不存在或不在此分享中 |
 | `CHEST_NOT_FOUND` | 404 | 取件碼不存在、已過期 |
 | `TOTP_REQUIRED` / `TOTP_INVALID` / `TOTP_NOT_CONFIGURED` | 401/500 | **舊協定**，TASK-28 刪除 |
-| `AUTH_TEMPORARILY_LOCKED` | 429 | 方法暫停，附 `Retry-After` `[TODO-TASK-16]` |
-| `RATE_LIMITED` | 429 | 來源超出限流，附 `Retry-After` `[TODO-TASK-16]` |
+| `AUTH_TEMPORARILY_LOCKED` | 429 | 方法暫停（Owner 層計數，各方式獨立），附 `Retry-After` `[已實作]` |
+| `RATE_LIMITED` | 429 | 來源超出限流（近似、每個 Cloudflare 位置計），附 `Retry-After` `[已實作]` |
 | `PAYLOAD_TOO_LARGE` | 413 | 超過檔數／容量／大小上限 `[TODO-TASK-09]` |
 | `CODE_GENERATION_FAILED` | 500 | 多次撞碼仍無法分配取件碼 |
 | `INTERNAL_ERROR` | 500 | 其他錯誤 |

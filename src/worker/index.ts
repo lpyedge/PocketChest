@@ -2,6 +2,7 @@ import { assertSameOrigin, clearedSessionCookie, csrfTokenFor, requireOwner } fr
 import { bootstrapOwner } from './auth/bootstrap';
 import { authMethods, loginWithPassword, loginWithTotp, reauthWithPassword, reauthWithTotp } from './auth/login';
 import { ApiError } from './errors';
+import { enforceRateLimit } from './ratelimit';
 import {
 	abandonSession,
 	acquireLease,
@@ -101,7 +102,7 @@ function sessionErrorToApi(error: SessionError): ApiError {
 }
 
 function errorResponse(error: ApiError): Response {
-	return json({ error: error.message, code: error.code }, error.status);
+	return json({ error: error.message, code: error.code }, error.status, error.headers);
 }
 
 export default {
@@ -354,6 +355,7 @@ async function handleAuthMethods(env: Env): Promise<Response> {
 // POST /api/auth/login/password - Starts an owner session when the password is correct
 async function handlePasswordLogin(request: Request, env: Env): Promise<Response> {
 	assertSameOrigin(request);
+	await enforceRateLimit(env.AUTH_LIMITER, request, 'login-password');
 	const { password } = await readJson<{ password?: unknown }>(request);
 	if (typeof password !== 'string' || password.length === 0 || password.length > 1024) {
 		throw new ApiError(401, 'AUTH_INVALID_CREDENTIALS', 'Invalid credentials');
@@ -365,6 +367,7 @@ async function handlePasswordLogin(request: Request, env: Env): Promise<Response
 // POST /api/auth/reauth/password - Re-enters the password inside a signed-in session
 async function handlePasswordReauth(request: Request, env: Env): Promise<Response> {
 	const session = await requireOwner(request, env.R2_STORAGE, env.JWT_SECRET, { mutating: true });
+	await enforceRateLimit(env.AUTH_LIMITER, request, 'reauth-password');
 	const { password } = await readJson<{ password?: unknown }>(request);
 	if (typeof password !== 'string' || password.length === 0 || password.length > 1024) {
 		throw new ApiError(401, 'AUTH_INVALID_CREDENTIALS', 'Invalid credentials');
@@ -382,6 +385,7 @@ async function readTotpCode(request: Request): Promise<string> {
 // POST /api/auth/login/totp - Starts an owner session with an authenticator code, no password needed
 async function handleTotpLogin(request: Request, env: Env): Promise<Response> {
 	assertSameOrigin(request);
+	await enforceRateLimit(env.AUTH_LIMITER, request, 'login-totp');
 	const code = await readTotpCode(request);
 	const issued = await loginWithTotp(env, code, getCurrentTimestamp());
 	return json({ authenticated: true, csrfToken: issued.csrfToken }, 200, { 'Set-Cookie': issued.cookie });
@@ -390,6 +394,7 @@ async function handleTotpLogin(request: Request, env: Env): Promise<Response> {
 // POST /api/auth/reauth/totp - Re-enters an authenticator code inside a signed-in session
 async function handleTotpReauth(request: Request, env: Env): Promise<Response> {
 	const session = await requireOwner(request, env.R2_STORAGE, env.JWT_SECRET, { mutating: true });
+	await enforceRateLimit(env.AUTH_LIMITER, request, 'reauth-totp');
 	const code = await readTotpCode(request);
 	await reauthWithTotp(env, session, code, getCurrentTimestamp());
 	return json({ reauthenticated: true }, 200, { 'Cache-Control': 'no-store' });
@@ -398,6 +403,7 @@ async function handleTotpReauth(request: Request, env: Env): Promise<Response> {
 // POST /api/upload-sessions - Owner starts an upload session and receives its upload token
 async function handleCreateUploadSession(request: Request, env: Env): Promise<Response> {
 	await requireOwner(request, env.R2_STORAGE, env.JWT_SECRET, { mutating: true });
+	await enforceRateLimit(env.UPLOAD_LIMITER, request, 'create-session');
 
 	const sessionId = generateUUID();
 	const createdAt = getCurrentTimestamp();
@@ -414,6 +420,7 @@ async function handleCreateUploadSession(request: Request, env: Env): Promise<Re
 
 // POST /api/upload-sessions/:sessionId/files - Upload files
 async function handleUploadFiles(request: Request, env: Env, sessionId: string): Promise<Response> {
+	await enforceRateLimit(env.UPLOAD_LIMITER, request, 'upload-files');
 	await authorizeUpload(request, env, sessionId);
 
 	// A declared body size is checked before anything is read; the real size is checked after parsing
@@ -647,6 +654,7 @@ function completionResponse(retrievalCode: string, expiresAt: number | null): Re
 
 // POST /api/retrieve - Look up a chest. The code travels in the JSON body, never in the URL.
 async function handleRetrieveChest(request: Request, env: Env): Promise<Response> {
+	await enforceRateLimit(env.RETRIEVE_LIMITER, request, 'retrieve');
 	const body = await readJson<{ code?: unknown }>(request);
 	if (typeof body.code !== 'string') {
 		throw new ApiError(400, 'INVALID_REQUEST', 'Retrieval code is required');
@@ -687,6 +695,7 @@ function cookieValue(header: string | null, name: string): string | null {
 
 // POST /api/download/authorize - Trade the retrieval token for a download Cookie for one file
 async function handleAuthorizeDownload(request: Request, env: Env): Promise<Response> {
+	await enforceRateLimit(env.RETRIEVE_LIMITER, request, 'download-authorize');
 	let chest;
 	try {
 		chest = await verifyChestJWT(bearerToken(request), env.JWT_SECRET);
@@ -767,6 +776,7 @@ async function handleDownloadFile(request: Request, env: Env, fileId: string): P
 
 // POST /api/upload-sessions/:sessionId/multipart/create - Create multipart upload
 async function handleCreateMultipartUpload(request: Request, env: Env, sessionId: string): Promise<Response> {
+	await enforceRateLimit(env.UPLOAD_LIMITER, request, 'multipart-create');
 	await authorizeUpload(request, env, sessionId);
 	const { filename, mimeType, fileSize } = await readJson<CreateMultipartUploadRequest>(request);
 

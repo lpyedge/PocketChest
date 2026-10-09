@@ -26,12 +26,23 @@ export async function setupTestEnvironment() {
 }
 
 // Wrapper for fetch that ensures proper environment variable handling
+// Every test request gets its own client address, so the per-address limits of one test never affect another.
+// Tests that exercise limits pass their own address explicitly.
+export function randomClientIp(): string {
+	const octet = () => Math.floor(Math.random() * 254) + 1;
+	return `198.51.${octet()}.${octet()}`;
+}
+
 export async function testFetch(url: string, init?: RequestInit): Promise<Response> {
 	const { env, createExecutionContext, waitOnExecutionContext } = await import('cloudflare:test');
 	const worker = (await import('../../src/worker/index')).default;
 
+	const headers = new Headers(init?.headers);
+	if (!headers.has('CF-Connecting-IP')) {
+		headers.set('CF-Connecting-IP', randomClientIp());
+	}
 	const IncomingRequest = Request<unknown, IncomingRequestCfProperties>;
-	const request = new IncomingRequest(url, init as RequestInit<IncomingRequestCfProperties>);
+	const request = new IncomingRequest(url, { ...init, headers } as RequestInit<IncomingRequestCfProperties>);
 
 	const ctx = createExecutionContext();
 	const response = await worker.fetch(request, env, ctx);

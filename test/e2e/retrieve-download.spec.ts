@@ -4,15 +4,26 @@ import { test, expect, APIRequestContext } from '@playwright/test';
 const ORIGIN = 'http://localhost:8788';
 const OWNER_PASSWORD = 'e2e-bootstrap-password-0123456789';
 
+// Each test is its own client, so the per-address limits of one test never affect another
+let clientIp = '198.51.100.1';
+
+test.beforeEach(async ({ page }) => {
+	clientIp = `198.51.100.${1 + Math.floor(Math.random() * 250)}`;
+	await page.setExtraHTTPHeaders({ 'CF-Connecting-IP': clientIp });
+});
+
 // Signs in as the owner and returns the headers that owner-only endpoints need
 async function ownerHeaders(request: APIRequestContext): Promise<Record<string, string>> {
 	// Claims the owner on a fresh bucket; later runs get 409 because the owner already exists
 	await request.post('/api/auth/bootstrap', { headers: { Origin: ORIGIN }, data: { password: OWNER_PASSWORD } });
-	const login = await request.post('/api/auth/login/password', { headers: { Origin: ORIGIN }, data: { password: OWNER_PASSWORD } });
+	const login = await request.post('/api/auth/login/password', {
+		headers: { Origin: ORIGIN, 'CF-Connecting-IP': clientIp },
+		data: { password: OWNER_PASSWORD },
+	});
 	expect(login.status()).toBe(200);
 	const cookie = (login.headers()['set-cookie'] ?? '').split(';')[0];
 	const { csrfToken } = (await login.json()) as { csrfToken: string };
-	return { Origin: ORIGIN, Cookie: cookie, 'X-PocketChest-CSRF': csrfToken };
+	return { Origin: ORIGIN, Cookie: cookie, 'X-PocketChest-CSRF': csrfToken, 'CF-Connecting-IP': clientIp };
 }
 
 // Creates a completed chest through the API, the same way the upload page does
@@ -22,7 +33,7 @@ async function createChest(
 	file?: { name: string; body: string },
 ) {
 	const session = await (await request.post('/api/upload-sessions', { headers: await ownerHeaders(request), data: {} })).json();
-	const headers = { Authorization: `Bearer ${session.uploadToken}` };
+	const headers = { Authorization: `Bearer ${session.uploadToken}`, 'CF-Connecting-IP': clientIp };
 	const multipart: Record<string, unknown> = {};
 	if (file) {
 		multipart.files = { name: file.name, mimeType: 'text/plain', buffer: Buffer.from(file.body) };

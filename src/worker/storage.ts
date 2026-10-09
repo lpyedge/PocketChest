@@ -1,4 +1,5 @@
 import { cleanupOwnerSessions } from './auth/sessions';
+import { cleanupThrottles } from './auth/throttle';
 import { ChestFile, ChestManifest } from './types';
 import {
 	createSessionRecord,
@@ -268,6 +269,7 @@ export interface CleanupResult {
 	orphanClaims: number;
 	orphanObjects: number;
 	sessionsRemoved: number;
+	throttlesReset: number;
 	deletedObjects: number;
 	// true when more due work exists than this run processed; the next run continues it
 	backlog: { expired: boolean; abandoned: boolean; finalizing: boolean };
@@ -342,6 +344,7 @@ export async function cleanupExpired(bucket: R2Bucket, now: number): Promise<Cle
 		orphanClaims: 0,
 		orphanObjects: 0,
 		sessionsRemoved: 0,
+		throttlesReset: 0,
 		deletedObjects: 0,
 		backlog: { expired: false, abandoned: false, finalizing: false },
 		errors: [],
@@ -420,6 +423,13 @@ export async function cleanupExpired(bucket: R2Bucket, now: number): Promise<Cle
 		result.sessionsRemoved = await cleanupOwnerSessions(bucket, now);
 	} catch (error) {
 		result.errors.push(`Failed to clean up owner sessions: ${error}`);
+	}
+
+	// 4b. Sign-in failure counters that have been quiet for a long time; locked counters are never touched
+	try {
+		result.throttlesReset = await cleanupThrottles(bucket, now);
+	} catch (error) {
+		result.errors.push(`Failed to reset sign-in throttles: ${error}`);
 	}
 
 	// 5. Orphaned file objects: content whose session record is gone. Scanned in batches; the cursor persists.

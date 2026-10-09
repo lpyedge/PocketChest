@@ -144,7 +144,10 @@ describe('switching methods on and off', () => {
 		const statuses = [a.status, b.status].sort();
 		await a.text();
 		await b.text();
-		expect(statuses).toEqual([200, 409]);
+		// The loser is refused either because it would remove the last method (409) or, when the winner got
+		// there first, because the winner's change already ended its session (401)
+		expect(statuses[0]).toBe(200);
+		expect([401, 409]).toContain(statuses[1]);
 
 		const stored = await ownerRecord();
 		const usable = [stored.methods.password.enabled, stored.methods.totp.enabled].filter(Boolean).length;

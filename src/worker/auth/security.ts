@@ -79,15 +79,40 @@ function withEnabled(owner: OwnerRecord, method: Method, enabled: boolean): Owne
  * Ends the current session, and starts a new one for the same caller with the same re-entry time.
  * Called after authVersion changed, so the old session and every other session are already invalid.
  */
-async function rotate(env: { R2_STORAGE: R2Bucket; JWT_SECRET: string }, session: LoadedSession, now: number): Promise<Rotated> {
-	const loaded = await loadOwner(env.R2_STORAGE);
-	if (!loaded || session.record.reauthMethod === null || session.record.reauthenticatedAt === null) {
+async function rotate(
+	env: { R2_STORAGE: R2Bucket; JWT_SECRET: string },
+	session: LoadedSession,
+	written: OwnerRecord,
+	now: number,
+): Promise<Rotated> {
+	if (session.record.reauthMethod === null || session.record.reauthenticatedAt === null) {
 		throw new ApiError(401, 'AUTH_INVALID', 'Sign in required');
 	}
-	const issued = await issueOwnerSession(env.R2_STORAGE, env.JWT_SECRET, loaded.owner.authVersion, now);
+	// The new session is made for the record this very change wrote, never for whatever is stored now
+	const issued = await issueOwnerSession(env.R2_STORAGE, env.JWT_SECRET, written.authVersion, now);
 	await markReauthenticated(env.R2_STORAGE, issued.sid, now, session.record.reauthMethod, session.record.reauthenticatedAt);
 	await revokeOwnerSession(env.R2_STORAGE, session.sid);
-	return { cookie: issued.cookie, csrfToken: issued.csrfToken, security: summarize(loaded.owner) };
+	return { cookie: issued.cookie, csrfToken: issued.csrfToken, security: summarize(written) };
+}
+
+/**
+ * Applies a change on behalf of `session`. The check that the session still belongs to the current owner
+ * version runs inside the same compare-and-swap as the change, so a request that started before another
+ * change (password reset, CLI reset) cannot act after it.
+ */
+function mutateAsSession(bucket: R2Bucket, session: LoadedSession, mutate: (owner: OwnerRecord) => OwnerRecord): Promise<OwnerRecord> {
+	return mutateOwner(bucket, (owner) => {
+		if (owner.authVersion !== session.record.ownerAuthVersion) {
+			throw new ApiError(401, 'AUTH_INVALID', 'Sign in required');
+		}
+		return mutate(owner);
+	});
+}
+
+function assertCurrent(owner: OwnerRecord, session: LoadedSession): void {
+	if (owner.authVersion !== session.record.ownerAuthVersion) {
+		throw new ApiError(401, 'AUTH_INVALID', 'Sign in required');
+	}
 }
 
 function conflict(error: unknown): unknown {
@@ -114,14 +139,16 @@ export async function setMethodEnabled(
 		if (!loaded) {
 			throw new ApiError(401, 'AUTH_INVALID', 'Sign in required');
 		}
+		assertCurrent(loaded.owner, session);
 		if (!isConfigured(loaded.owner, method)) {
 			throw new ApiError(409, 'AUTH_METHOD_NOT_CONFIGURED', 'This method has not been set up yet');
 		}
 		// Proof that the owner still holds this method: the re-entry was made with it
 		assertRecentReauth(session, now, method);
 	}
+	let written: OwnerRecord;
 	try {
-		await mutateOwner(env.R2_STORAGE, (owner) => {
+		written = await mutateAsSession(env.R2_STORAGE, session, (owner) => {
 			if (enabled && !isConfigured(owner, method)) {
 				throw new ApiError(409, 'AUTH_METHOD_NOT_CONFIGURED', 'This method has not been set up yet');
 			}
@@ -130,7 +157,7 @@ export async function setMethodEnabled(
 	} catch (error) {
 		throw conflict(error);
 	}
-	return rotate(env, session, now);
+	return rotate(env, session, written, now);
 }
 
 /** Removes one passkey. Removing the last one also switches the passkey method off. */
@@ -141,8 +168,9 @@ export async function removePasskey(
 	now: number,
 ): Promise<Rotated> {
 	assertRecentReauth(session, now);
+	let written: OwnerRecord;
 	try {
-		await mutateOwner(env.R2_STORAGE, (owner) => {
+		written = await mutateAsSession(env.R2_STORAGE, session, (owner) => {
 			const remaining = owner.methods.passkey.credentials.filter((credential) => credential.id !== credentialId);
 			if (remaining.length === owner.methods.passkey.credentials.length) {
 				throw new ApiError(404, 'PASSKEY_NOT_FOUND', 'No such passkey');
@@ -159,7 +187,7 @@ export async function removePasskey(
 	} catch (error) {
 		throw conflict(error);
 	}
-	return rotate(env, session, now);
+	return rotate(env, session, written, now);
 }
 
 /** Replaces the password hash with one made from a new salt. The method's enabled flag is left as it is. */
@@ -191,13 +219,15 @@ export async function changePassword(
 	if (!loaded) {
 		throw new ApiError(401, 'AUTH_INVALID', 'Sign in required');
 	}
+	assertCurrent(loaded.owner, session);
 	const current = loaded.owner.methods.password.hash;
 	if (current && (await verifyPassword(newPassword, current))) {
 		throw new ApiError(400, 'PASSWORD_UNCHANGED', 'Choose a password different from the current one');
 	}
 	const hash = await hashPassword(newPassword);
+	let written: OwnerRecord;
 	try {
-		await mutateOwner(env.R2_STORAGE, (owner) => ({
+		written = await mutateAsSession(env.R2_STORAGE, session, (owner) => ({
 			...owner,
 			authVersion: owner.authVersion + 1,
 			methods: { ...owner.methods, password: { ...owner.methods.password, hash } },
@@ -205,7 +235,7 @@ export async function changePassword(
 	} catch (error) {
 		throw conflict(error);
 	}
-	return rotate(env, session, now);
+	return rotate(env, session, written, now);
 }
 
 /** Step one of TOTP enrolment: a new seed is made and kept sealed under a single-use challenge. */
@@ -234,6 +264,12 @@ export async function confirmTotp(
 	now: number,
 ): Promise<Rotated> {
 	assertRecentReauth(session, now);
+	// A superseded session must not use up the enrolment challenge either
+	const loaded = await loadOwner(env.R2_STORAGE);
+	if (!loaded) {
+		throw new ApiError(401, 'AUTH_INVALID', 'Sign in required');
+	}
+	assertCurrent(loaded.owner, session);
 	const { payload } = await consumeChallenge(env.R2_STORAGE, challenge, 'totp-enroll', await sha256Hex(session.sid), now);
 	if (payload === null) {
 		throw new ApiError(400, 'CHALLENGE_INVALID', 'The sign-in step expired or was already used; start again');
@@ -243,8 +279,9 @@ export async function confirmTotp(
 	if (step === null) {
 		throw new ApiError(400, 'TOTP_CODE_INVALID', 'That code does not match; the previous authenticator is still in use');
 	}
+	let written: OwnerRecord;
 	try {
-		await mutateOwner(env.R2_STORAGE, (owner) => ({
+		written = await mutateAsSession(env.R2_STORAGE, session, (owner) => ({
 			...owner,
 			authVersion: owner.authVersion + 1,
 			methods: {
@@ -255,5 +292,5 @@ export async function confirmTotp(
 	} catch (error) {
 		throw conflict(error);
 	}
-	return rotate(env, session, now);
+	return rotate(env, session, written, now);
 }

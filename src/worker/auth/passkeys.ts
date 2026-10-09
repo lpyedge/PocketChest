@@ -120,6 +120,10 @@ export async function registrationVerify(
 	try {
 		// Adding a credential does not switch the method on; that is a separate, explicit toggle
 		await mutateOwner(bucket, (owner) => {
+			// Checked in the same swap as the write: a session from before a password reset must not add a passkey
+			if (owner.authVersion !== session.record.ownerAuthVersion) {
+				throw new ApiError(401, 'AUTH_INVALID', 'Sign in required');
+			}
 			if (owner.methods.passkey.credentials.some((existing) => existing.id === credential.id)) {
 				throw new CredentialExistsError();
 			}

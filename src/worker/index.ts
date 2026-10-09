@@ -1,3 +1,4 @@
+import { clearedSessionCookie, csrfTokenFor, requireOwner } from './auth/sessions';
 import { bootstrapOwner } from './auth/bootstrap';
 import { ApiError } from './errors';
 import {
@@ -114,73 +115,7 @@ export default {
 			return env.ASSETS.fetch(request);
 		}
 
-		const segments = path.split('/');
-		const method = request.method;
-
-		try {
-			if (path === '/api/auth/bootstrap' && method === 'POST') {
-				return await handleBootstrap(request, env);
-			}
-
-			if (path === '/api/config' && method === 'GET') {
-				return handleGetConfig(env);
-			}
-
-			if (path === '/api/chest' && method === 'POST') {
-				return await handleCreateChest(request, env);
-			}
-
-			if (path.match(/^\/api\/chest\/[^\/]+\/upload$/) && method === 'POST') {
-				return await handleUploadFiles(request, env, segments[3]);
-			}
-
-			if (path.match(/^\/api\/chest\/[^\/]+\/multipart\/create$/) && method === 'POST') {
-				return await handleCreateMultipartUpload(request, env, segments[3]);
-			}
-
-			if (path.match(/^\/api\/chest\/[^\/]+\/multipart\/[^\/]+\/part\/[^\/]+$/) && method === 'PUT') {
-				return await handleUploadPart(request, env, segments[3], segments[5], parseInt(segments[7]));
-			}
-
-			if (path.match(/^\/api\/chest\/[^\/]+\/multipart\/[^\/]+\/abort$/) && method === 'POST') {
-				return await handleAbortMultipartUpload(request, env, segments[3], segments[5]);
-			}
-
-			if (path.match(/^\/api\/chest\/[^\/]+\/multipart\/[^\/]+\/complete$/) && method === 'POST') {
-				return await handleCompleteMultipartUpload(request, env, segments[3], segments[5]);
-			}
-
-			if (path.match(/^\/api\/chest\/[^\/]+\/cancel$/) && method === 'POST') {
-				return await handleCancelUpload(request, env, segments[3]);
-			}
-
-			if (path.match(/^\/api\/chest\/[^\/]+\/complete$/) && method === 'POST') {
-				return await handleCompleteUpload(request, env, segments[3]);
-			}
-
-			if (path === '/api/retrieve' && method === 'POST') {
-				return await handleRetrieveChest(request, env);
-			}
-
-			if (path === '/api/download/authorize' && method === 'POST') {
-				return await handleAuthorizeDownload(request, env);
-			}
-
-			if (path.match(/^\/api\/download\/[^\/]+$/) && method === 'GET') {
-				return await handleDownloadFile(request, env, segments[3]);
-			}
-
-			return errorResponse(new ApiError(404, 'NOT_FOUND', 'Not Found'));
-		} catch (error) {
-			if (error instanceof ApiError) {
-				return errorResponse(error);
-			}
-			if (error instanceof SessionError) {
-				return errorResponse(sessionErrorToApi(error));
-			}
-			console.error('Error:', error);
-			return errorResponse(new ApiError(500, 'INTERNAL_ERROR', 'Internal Server Error'));
-		}
+		return withApiHeaders(await routeApi(request, env, path));
 	},
 
 	// Scheduled event handler (cron job)
@@ -201,6 +136,93 @@ export default {
 	},
 } satisfies ExportedHandler<Env>;
 
+// Every API response: never cached, never sniffed, no referrer
+function withApiHeaders(response: Response): Response {
+	const headers = new Headers(response.headers);
+	headers.set('Cache-Control', 'no-store');
+	headers.set('X-Content-Type-Options', 'nosniff');
+	headers.set('Referrer-Policy', 'no-referrer');
+	return new Response(response.body, { status: response.status, statusText: response.statusText, headers });
+}
+
+async function routeApi(request: Request, env: Env, path: string): Promise<Response> {
+	const segments = path.split('/');
+	const method = request.method;
+
+	try {
+		if (path === '/api/auth/bootstrap' && method === 'POST') {
+			return await handleBootstrap(request, env);
+		}
+
+		if (path === '/api/auth/session' && method === 'GET') {
+			return await handleOwnerSessionStatus(request, env);
+		}
+
+		if (path === '/api/auth/logout' && method === 'POST') {
+			return await handleLogout(request, env);
+		}
+
+		if (path === '/api/config' && method === 'GET') {
+			return handleGetConfig(env);
+		}
+
+		if (path === '/api/chest' && method === 'POST') {
+			return await handleCreateChest(request, env);
+		}
+
+		if (path.match(/^\/api\/chest\/[^\/]+\/upload$/) && method === 'POST') {
+			return await handleUploadFiles(request, env, segments[3]);
+		}
+
+		if (path.match(/^\/api\/chest\/[^\/]+\/multipart\/create$/) && method === 'POST') {
+			return await handleCreateMultipartUpload(request, env, segments[3]);
+		}
+
+		if (path.match(/^\/api\/chest\/[^\/]+\/multipart\/[^\/]+\/part\/[^\/]+$/) && method === 'PUT') {
+			return await handleUploadPart(request, env, segments[3], segments[5], parseInt(segments[7]));
+		}
+
+		if (path.match(/^\/api\/chest\/[^\/]+\/multipart\/[^\/]+\/abort$/) && method === 'POST') {
+			return await handleAbortMultipartUpload(request, env, segments[3], segments[5]);
+		}
+
+		if (path.match(/^\/api\/chest\/[^\/]+\/multipart\/[^\/]+\/complete$/) && method === 'POST') {
+			return await handleCompleteMultipartUpload(request, env, segments[3], segments[5]);
+		}
+
+		if (path.match(/^\/api\/chest\/[^\/]+\/cancel$/) && method === 'POST') {
+			return await handleCancelUpload(request, env, segments[3]);
+		}
+
+		if (path.match(/^\/api\/chest\/[^\/]+\/complete$/) && method === 'POST') {
+			return await handleCompleteUpload(request, env, segments[3]);
+		}
+
+		if (path === '/api/retrieve' && method === 'POST') {
+			return await handleRetrieveChest(request, env);
+		}
+
+		if (path === '/api/download/authorize' && method === 'POST') {
+			return await handleAuthorizeDownload(request, env);
+		}
+
+		if (path.match(/^\/api\/download\/[^\/]+$/) && method === 'GET') {
+			return await handleDownloadFile(request, env, segments[3]);
+		}
+
+		return errorResponse(new ApiError(404, 'NOT_FOUND', 'Not Found'));
+	} catch (error) {
+		if (error instanceof ApiError) {
+			return errorResponse(error);
+		}
+		if (error instanceof SessionError) {
+			return errorResponse(sessionErrorToApi(error));
+		}
+		console.error('Error:', error);
+		return errorResponse(new ApiError(500, 'INTERNAL_ERROR', 'Internal Server Error'));
+	}
+}
+
 // POST /api/auth/bootstrap - Initial owner setup (one time)
 async function handleBootstrap(request: Request, env: Env): Promise<Response> {
 	const { password } = await readJson<{ password?: unknown }>(request);
@@ -209,6 +231,26 @@ async function handleBootstrap(request: Request, env: Env): Promise<Response> {
 	}
 	await bootstrapOwner(env, password);
 	return json({ initialized: true }, 201, { 'Cache-Control': 'no-store' });
+}
+
+// GET /api/auth/session - Whether the caller is signed in as the owner, and the CSRF token for this session
+async function handleOwnerSessionStatus(request: Request, env: Env): Promise<Response> {
+	try {
+		const session = await requireOwner(request, env.R2_STORAGE, env.JWT_SECRET, { mutating: false });
+		return json({ authenticated: true, csrfToken: await csrfTokenFor(env.JWT_SECRET, session.sid) }, 200, { 'Cache-Control': 'no-store' });
+	} catch (error) {
+		if (error instanceof ApiError && error.status === 401) {
+			return json({ authenticated: false });
+		}
+		throw error;
+	}
+}
+
+// POST /api/auth/logout - Ends the current owner session and clears its cookie
+async function handleLogout(request: Request, env: Env): Promise<Response> {
+	const session = await requireOwner(request, env.R2_STORAGE, env.JWT_SECRET, { mutating: true });
+	await env.R2_STORAGE.delete(session.key);
+	return json({ signedOut: true }, 200, { 'Set-Cookie': clearedSessionCookie() });
 }
 
 // --- Request helpers ---

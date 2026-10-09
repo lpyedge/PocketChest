@@ -17,7 +17,7 @@
 | TASK-10 | POST 查碼 | PASS | 見 Git log |
 | TASK-11 | 下載授權 Cookie 與串流 | PASS | 見 Git log |
 | TASK-12 | Owner 原子資料與首次初始化 | PASS | 見 Git log |
-| TASK-13 | Owner Cookie Session、CSRF | TODO | |
+| TASK-13 | Owner Cookie Session、CSRF | PASS | 見 Git log（sessions.ts、owner-session.spec.ts 14 項） |
 | TASK-14 | Password 獨立登入 | TODO | |
 | TASK-15 | TOTP 獨立登入、重放防護 | TODO | |
 | TASK-16 | Rate Limiting、密碼／TOTP 錯誤冷卻 | TODO | |

@@ -1,3 +1,4 @@
+import { cleanupOwnerSessions } from './auth/sessions';
 import { ChestFile, ChestManifest } from './types';
 import {
 	createSessionRecord,
@@ -266,6 +267,7 @@ export interface CleanupResult {
 	rolledBackFinalizations: number;
 	orphanClaims: number;
 	orphanObjects: number;
+	sessionsRemoved: number;
 	deletedObjects: number;
 	// true when more due work exists than this run processed; the next run continues it
 	backlog: { expired: boolean; abandoned: boolean; finalizing: boolean };
@@ -339,6 +341,7 @@ export async function cleanupExpired(bucket: R2Bucket, now: number): Promise<Cle
 		rolledBackFinalizations: 0,
 		orphanClaims: 0,
 		orphanObjects: 0,
+		sessionsRemoved: 0,
 		deletedObjects: 0,
 		backlog: { expired: false, abandoned: false, finalizing: false },
 		errors: [],
@@ -412,7 +415,14 @@ export async function cleanupExpired(bucket: R2Bucket, now: number): Promise<Cle
 		}
 	}
 
-	// 4. Orphaned file objects: content whose session record is gone. Scanned in batches; the cursor persists.
+	// 4. Owner sign-in sessions that have ended (revoked, idle, expired, or from an older owner version)
+	try {
+		result.sessionsRemoved = await cleanupOwnerSessions(bucket, now);
+	} catch (error) {
+		result.errors.push(`Failed to clean up owner sessions: ${error}`);
+	}
+
+	// 5. Orphaned file objects: content whose session record is gone. Scanned in batches; the cursor persists.
 	try {
 		result.orphanObjects = await cleanupOrphanObjects(bucket, now, result);
 	} catch (error) {

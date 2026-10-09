@@ -7,7 +7,7 @@ import { BOOTSTRAP_MARKER_KEY } from './bootstrap';
 import { isConfigured, isUsable, loadOwner, mutateOwner, Method, OwnerConflictError, OwnerRecord } from './owner';
 import { verifyPassword } from './password';
 import { matchTotpStep, openSeed } from './totp';
-import { assertNotLocked, clearFailures, recordFailure, ThrottledMethod } from './throttle';
+import { clearFailures, recordFailure, releaseAttempt, reserveAttempt, ThrottledMethod } from './throttle';
 import { issueOwnerSession, LoadedSession, markReauthenticated } from './sessions';
 
 export interface AuthEnv {
@@ -68,14 +68,19 @@ async function checkPassword(env: AuthEnv, password: string, mode: Mode): Promis
  * wrong credential counts as a failure, and a success clears this method's counter only.
  */
 async function guarded<T>(env: AuthEnv, method: ThrottledMethod, now: number, attempt: () => Promise<T>): Promise<T> {
-	await assertNotLocked(env.R2_STORAGE, method, now);
+	// A place in the guess budget is taken before anything is checked (see reserveAttempt), so parallel
+	// guesses cannot all slip past a lock that has not been written yet
+	const reservation = await reserveAttempt(env.R2_STORAGE, method, now);
 	try {
 		const result = await attempt();
-		await clearFailures(env.R2_STORAGE, method, now);
+		await clearFailures(env.R2_STORAGE, method, now, reservation);
 		return result;
 	} catch (error) {
 		if (error instanceof ApiError && error.code === 'AUTH_INVALID_CREDENTIALS') {
-			await recordFailure(env.R2_STORAGE, method, now);
+			await recordFailure(env.R2_STORAGE, method, now, reservation);
+		} else {
+			// Not a wrong guess (a storage fault, a disabled method): the place is given back, nothing is counted
+			await releaseAttempt(env.R2_STORAGE, method, reservation, now).catch(() => undefined);
 		}
 		throw error;
 	}

@@ -2,6 +2,11 @@
  * Owner security settings: which sign-in methods are on, passkey removal, password change and
  * authenticator enrolment. Every change is one owner CAS that bumps authVersion, and the caller's own
  * session is then replaced, so every other session stops working.
+ *
+ * One deliberate exception: adding a passkey (auth/passkeys.ts) does not bump authVersion. It needs a fresh
+ * re-entry, does not switch the method on, and ending the owner's sessions for it would sign them out of the
+ * page they just used. It still checks, in the same CAS as the write, that the session belongs to the current
+ * version, so a session from before a reset cannot add one.
  */
 import { ApiError } from '../errors';
 import { toBase64Url } from './encoding';

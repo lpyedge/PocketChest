@@ -14,6 +14,8 @@ const MAX_COOLDOWN_SECONDS = 15 * 60;
 // After this long without any failure, the repeat-offender count starts again
 const MEMORY_SECONDS = 24 * 60 * 60;
 const ATTEMPTS = 20;
+// A guess that is being checked holds a place for at most this long; a request that died cannot hold it for ever
+const RESERVATION_SECONDS = 60;
 
 export interface ThrottleRecord {
 	version: 1;
@@ -22,6 +24,8 @@ export interface ThrottleRecord {
 	blockedUntil: number | null;
 	strikes: number;
 	lastActivityAt: number;
+	// Guesses that are being checked right now (see reserveAttempt)
+	inflight?: { id: string; at: number }[];
 }
 
 const METHODS: ThrottledMethod[] = ['password', 'totp'];
@@ -49,6 +53,9 @@ function parseRecord(text: string): ThrottleRecord {
 		typeof parsed.strikes !== 'number' ||
 		typeof parsed.lastActivityAt !== 'number'
 	) {
+		throw new Error('Corrupt throttle record');
+	}
+	if (parsed.inflight !== undefined && !Array.isArray(parsed.inflight)) {
 		throw new Error('Corrupt throttle record');
 	}
 	return parsed as ThrottleRecord;
@@ -95,8 +102,50 @@ export async function assertNotLocked(bucket: R2Bucket, method: ThrottledMethod,
 	}
 }
 
-export async function recordFailure(bucket: R2Bucket, method: ThrottledMethod, now: number): Promise<void> {
+const live = (record: ThrottleRecord, now: number) => (record.inflight ?? []).filter((entry) => now - entry.at < RESERVATION_SECONDS);
+
+/**
+ * Takes one place in the guess budget before the password or code is checked. Failures already counted plus
+ * guesses being checked right now may never exceed the limit, so any number of parallel guesses (from any
+ * addresses) gets at most FAILURE_LIMIT checks before the lock takes effect. Returns the reservation id to
+ * hand to recordFailure, clearFailures or releaseAttempt.
+ */
+export async function reserveAttempt(bucket: R2Bucket, method: ThrottledMethod, now: number): Promise<string> {
+	const id = crypto.randomUUID();
+	let refusal: ApiError | null = null;
 	await updateRecord(bucket, method, now, (record) => {
+		refusal = null;
+		if (record.blockedUntil !== null && record.blockedUntil > now) {
+			refusal = new ApiError(429, 'AUTH_TEMPORARILY_LOCKED', 'Too many failed attempts; try again later', {
+				'Retry-After': String(record.blockedUntil - now),
+			});
+			return record;
+		}
+		const inWindow = record.windowStart !== null && now - record.windowStart < FAILURE_WINDOW_SECONDS;
+		const counted = inWindow ? record.failureCount : 0;
+		const inflight = live(record, now);
+		if (counted + inflight.length >= FAILURE_LIMIT) {
+			refusal = new ApiError(429, 'AUTH_TEMPORARILY_LOCKED', 'Other attempts are being checked; try again shortly', {
+				'Retry-After': '5',
+			});
+			return record;
+		}
+		return { ...record, inflight: [...inflight, { id, at: now }] };
+	});
+	if (refusal) throw refusal;
+	return id;
+}
+
+const without = (record: ThrottleRecord, id: string | undefined, now: number) => live(record, now).filter((entry) => entry.id !== id);
+
+/** Gives a place back without counting a failure: the attempt ended in a way that was not a wrong guess. */
+export async function releaseAttempt(bucket: R2Bucket, method: ThrottledMethod, id: string, now: number): Promise<void> {
+	await updateRecord(bucket, method, now, (record) => ({ ...record, inflight: without(record, id, now) }));
+}
+
+export async function recordFailure(bucket: R2Bucket, method: ThrottledMethod, now: number, reservation?: string): Promise<void> {
+	await updateRecord(bucket, method, now, (current) => {
+		const record = { ...current, inflight: without(current, reservation, now) };
 		// A lock already in effect absorbs the failure without changing the lock
 		if (record.blockedUntil !== null && record.blockedUntil > now) {
 			return record;
@@ -122,10 +171,10 @@ export async function recordFailure(bucket: R2Bucket, method: ThrottledMethod, n
 }
 
 /** A success clears this method's failures and repeat count. A lock that is still running is kept. */
-export async function clearFailures(bucket: R2Bucket, method: ThrottledMethod, now: number): Promise<void> {
+export async function clearFailures(bucket: R2Bucket, method: ThrottledMethod, now: number, reservation?: string): Promise<void> {
 	await updateRecord(bucket, method, now, (record) => {
 		const stillLocked = record.blockedUntil !== null && record.blockedUntil > now;
-		return { ...emptyRecord(now), blockedUntil: stillLocked ? record.blockedUntil : null };
+		return { ...emptyRecord(now), blockedUntil: stillLocked ? record.blockedUntil : null, inflight: without(record, reservation, now) };
 	});
 }
 

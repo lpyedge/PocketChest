@@ -13,6 +13,7 @@ import {
 import { VirtualAuthenticator } from './utils/virtual-authenticator';
 import { CHALLENGE_PREFIX, cleanupChallenges, consumeChallenge, storeChallenge } from '../src/worker/auth/challenges';
 import { sha256Hex } from '../src/worker/auth/sessions';
+import { mutateOwner } from '../src/worker/auth/owner';
 import { cleanupExpired } from '../src/worker/storage';
 import { ApiError } from '../src/worker/errors';
 import type { Env } from '../src/worker/types';
@@ -94,6 +95,43 @@ describe('passkey registration', () => {
 		expect(credential.publicKey).toMatch(/^[A-Za-z0-9_-]+$/);
 		// Adding a passkey does not switch the method on
 		expect((await ownerRecord()).methods.passkey.enabled).toBe(false);
+	});
+
+	it('C15: refuses a registration finished by a session that an owner change has since ended', async () => {
+		const owner = await ownerSignIn();
+		await reauthenticate(owner);
+		const options = (await (await registerOptions(owner)).json()) as any;
+		const response = await authenticator.register(options);
+		const before = JSON.stringify(await ownerRecord());
+
+		// While the browser is still talking to the authenticator, the owner record moves on (password change, CLI reset)
+		await mutateOwner(bucket(), (record) => ({ ...record, authVersion: record.authVersion + 1 }));
+		const after = JSON.stringify(await ownerRecord());
+		expect(after).not.toBe(before);
+
+		const verify = await registerVerify(owner, { challenge: options.challenge, response, label: 'Late key' });
+		expect(verify.status).toBe(401);
+		await verify.text();
+		expect(await storedCredentials()).toEqual([]);
+		expect(JSON.stringify(await ownerRecord())).toBe(after);
+	});
+
+	it('policy: registering a passkey does not end the current session or others, and leaves the version alone', async () => {
+		// Adding a passkey does not switch it on and takes a fresh re-entry, so it is not treated like a change
+		// of what protects the account (password, authenticator seed, method switches), which end other sessions.
+		const owner = await ownerSignIn();
+		const other = await ownerSignIn();
+		const versionBefore = (await ownerRecord()).authVersion;
+		await reauthenticate(owner);
+
+		expect((await registerPasskey(owner, authenticator)).status).toBe(200);
+
+		expect((await ownerRecord()).authVersion).toBe(versionBefore);
+		for (const session of [owner, other]) {
+			const status = await testFetch(`${TEST_ORIGIN}/api/admin/security`, { headers: { Cookie: session.cookie } });
+			expect(status.status).toBe(200);
+			await status.text();
+		}
 	});
 
 	it('allows at least two passkeys', async () => {

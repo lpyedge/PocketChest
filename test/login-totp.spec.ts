@@ -96,7 +96,8 @@ describe('POST /api/auth/login/totp', () => {
 
 		expect(statuses.filter((status) => status === 200)).toHaveLength(1);
 		for (const status of statuses.filter((value) => value !== 200)) {
-			expect([401, 409]).toContain(status);
+			// 429: refused before checking, because the owner's guess budget (see reserveAttempt) was already taken by the parallel requests
+			expect([401, 409, 429]).toContain(status);
 		}
 	});
 

@@ -84,6 +84,7 @@ If you have a domain managed by Cloudflare, you can configure a custom domain ro
 | `AUTH_ENCRYPTION_KEY` | Secret | 32-byte AES key, base64, that seals the authenticator seed. Lose it and the authenticator must be set up again. |
 | `ADMIN_BOOTSTRAP_PASSWORD` | Secret | Used once, to create the owner. Remove it after setup. |
 | `BOOTSTRAP_ENABLED` | Variable | `"true"` only while the first setup is pending; `"false"` otherwise (`wrangler.jsonc`). |
+| `PASSKEY_RP_ID` | Variable | Optional. The one hostname passkeys are bound to; see Passkey Domain. |
 
 Generate the random values with:
 
@@ -150,6 +151,7 @@ If every sign-in method is unavailable, follow [docs/RECOVERY.md](docs/RECOVERY.
 | `AUTH_ENCRYPTION_KEY` | Secret | Yes, once an authenticator is set up | Base64 32-byte key that seals the authenticator seed |
 | `ADMIN_BOOTSTRAP_PASSWORD` | Secret | During first setup only | Creates the owner; remove afterwards |
 | `BOOTSTRAP_ENABLED` | Variable | Yes | `"true"` only during first setup |
+| `PASSKEY_RP_ID` | Variable | Recommended | The one hostname passkeys are bound to |
 | `AUTH_LIMITER`, `RETRIEVE_LIMITER`, `UPLOAD_LIMITER` | Rate limiting bindings | Yes | Per-client request limits (`ratelimits` in `wrangler.jsonc`) |
 
 The frontend needs no configuration: it calls the API on the same origin.
@@ -169,15 +171,32 @@ npx wrangler r2 object get pocket-chest/codes/ABC123 --pipe --remote
 
 ### Cleanup Job
 
-The Worker runs a cleanup job every hour. It:
+The Worker runs `0 * * * *` (hourly, `wrangler.jsonc`). Each run is bounded and the next run continues where it stopped. It:
 - Deletes chests whose expiry has passed, together with their files
-- Deletes upload sessions that were never completed within 48 hours
+- Deletes upload sessions that were not completed within 48 hours, and aborts their unfinished multipart uploads
+- Finishes or rolls back uploads stuck in finalization for more than an hour
+- Removes owner sign-in sessions that have ended, expired challenges, and resets quiet sign-in failure counters (locked counters are never touched)
+- Removes stored file objects that no session refers to, after a 48-hour grace period
 
-Expiry is also enforced on every request, so an expired chest is unreachable even before the job removes it. Unfinished multipart uploads are aborted by R2's default bucket lifecycle rule (7 days).
+Expiry is also enforced on every request, so an expired chest is unreachable even before the job removes it.
 
-### Storage Layout
+### Operating the Cron Job
 
-Everything lives in the R2 bucket:
+```bash
+# Follow the Worker's logs while the next run happens (or trigger one, see below)
+npx wrangler tail --format pretty
+
+# Local check of the scheduled handler, with the same entry point the platform calls
+npx wrangler dev --test-scheduled
+curl "http://localhost:8787/__scheduled?cron=0+*+*+*+*"
+```
+
+A run logs a `Cleanup summary` with counts. A run that finishes with errors logs `Cleanup finished with N error(s)` and is reported as failed; the remaining work is retried by the next run. Check after the first day that the counts are stable and the error line does not repeat.
+
+### Watching the Storage
+
+- `npx wrangler r2 bucket info pocket-chest` shows the stored size; compare it with what the uploads imply
+- Object key types, for orientation:
 
 | Key | Content |
 |-----|---------|
@@ -185,6 +204,23 @@ Everything lives in the R2 bucket:
 | `codes/{CODE}` | Chest manifest (JSON): session, expiry and file list |
 | `expiry/{expiresAt}/{CODE}` | Empty marker; lets the cleanup job find due chests in time order |
 | `pending/{createdAt}/{sessionId}` | Empty marker for an upload that has not been completed yet |
+| `auth/owner.json` | Owner record: password hash, sealed authenticator seed, passkey public keys |
+| `auth/sessions/{sha256(sid)}` | Owner sign-in sessions (the cookie value itself is never stored) |
+| `auth/challenges/{sha256(challenge)}` | One-time passkey and authenticator-enrolment challenges |
+| `auth/throttle/{method}.json` | Sign-in failure counters for password and authenticator |
+| `auth/bootstrap-marker` | Records that first-time setup was claimed |
+| `maintenance/orphan-cursor.json` | Where the orphan scan continues |
+
+### Passkey Domain
+
+Set `PASSKEY_RP_ID` to the one hostname the site is served on, for example `pocket.example.com`:
+
+```jsonc
+// wrangler.jsonc, "vars"
+"PASSKEY_RP_ID": "pocket.example.com"
+```
+
+Passkeys are bound to that hostname. With the variable set, any request on another hostname (for example the `workers.dev` address next to a custom domain) is refused with `PASSKEY_DOMAIN_MISMATCH`. Set it before the first passkey is registered: a passkey made for one hostname does not work on another.
 
 ## Security Considerations
 

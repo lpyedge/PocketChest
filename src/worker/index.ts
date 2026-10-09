@@ -528,7 +528,7 @@ async function readPasskeyBody<T>(request: Request): Promise<T & { challenge: st
 async function handlePasskeyRegisterOptions(request: Request, env: Env): Promise<Response> {
 	const session = await requireOwner(request, env.R2_STORAGE, env.JWT_SECRET, { mutating: true });
 	await enforceRateLimit(env.AUTH_LIMITER, request, 'passkey-register-options');
-	const options = await registrationOptions(env.R2_STORAGE, request, session, getCurrentTimestamp());
+	const options = await registrationOptions(env.R2_STORAGE, request, session, getCurrentTimestamp(), env.PASSKEY_RP_ID);
 	return json(options, 200, { 'Cache-Control': 'no-store' });
 }
 
@@ -537,7 +537,7 @@ async function handlePasskeyRegisterVerify(request: Request, env: Env): Promise<
 	const session = await requireOwner(request, env.R2_STORAGE, env.JWT_SECRET, { mutating: true });
 	await enforceRateLimit(env.AUTH_LIMITER, request, 'passkey-register-verify');
 	const body = await readPasskeyBody<{ label?: unknown; response: RegistrationResponseJSON }>(request);
-	const result = await registrationVerify(env.R2_STORAGE, request, session, body, getCurrentTimestamp());
+	const result = await registrationVerify(env.R2_STORAGE, request, session, body, getCurrentTimestamp(), env.PASSKEY_RP_ID);
 	return json({ registered: true, credentialId: result.credentialId }, 200, { 'Cache-Control': 'no-store' });
 }
 
@@ -545,7 +545,7 @@ async function handlePasskeyRegisterVerify(request: Request, env: Env): Promise<
 async function handlePasskeyLoginOptions(request: Request, env: Env): Promise<Response> {
 	assertSameOrigin(request);
 	await enforceRateLimit(env.AUTH_LIMITER, request, 'passkey-login-options');
-	const options = await assertionOptions(env.R2_STORAGE, request, 'login', null, getCurrentTimestamp());
+	const options = await assertionOptions(env.R2_STORAGE, request, 'login', null, getCurrentTimestamp(), env.PASSKEY_RP_ID);
 	return json(options, 200, { 'Cache-Control': 'no-store' });
 }
 
@@ -555,7 +555,7 @@ async function handlePasskeyLoginVerify(request: Request, env: Env): Promise<Res
 	await enforceRateLimit(env.AUTH_LIMITER, request, 'passkey-login-verify');
 	const body = await readPasskeyBody<{ response: AuthenticationResponseJSON }>(request);
 	const now = getCurrentTimestamp();
-	const owner = await loginVerify(env.R2_STORAGE, request, body, now);
+	const owner = await loginVerify(env.R2_STORAGE, request, body, now, env.PASSKEY_RP_ID);
 	const issued = await issueOwnerSession(env.R2_STORAGE, env.JWT_SECRET, owner.authVersion, now);
 	return json({ authenticated: true, csrfToken: issued.csrfToken }, 200, { 'Set-Cookie': issued.cookie });
 }
@@ -564,7 +564,7 @@ async function handlePasskeyLoginVerify(request: Request, env: Env): Promise<Res
 async function handlePasskeyReauthOptions(request: Request, env: Env): Promise<Response> {
 	const session = await requireOwner(request, env.R2_STORAGE, env.JWT_SECRET, { mutating: true });
 	await enforceRateLimit(env.AUTH_LIMITER, request, 'passkey-reauth-options');
-	const options = await assertionOptions(env.R2_STORAGE, request, 'reauth', session, getCurrentTimestamp());
+	const options = await assertionOptions(env.R2_STORAGE, request, 'reauth', session, getCurrentTimestamp(), env.PASSKEY_RP_ID);
 	return json(options, 200, { 'Cache-Control': 'no-store' });
 }
 
@@ -573,7 +573,7 @@ async function handlePasskeyReauthVerify(request: Request, env: Env): Promise<Re
 	const session = await requireOwner(request, env.R2_STORAGE, env.JWT_SECRET, { mutating: true });
 	await enforceRateLimit(env.AUTH_LIMITER, request, 'passkey-reauth-verify');
 	const body = await readPasskeyBody<{ response: AuthenticationResponseJSON }>(request);
-	await reauthVerify(env.R2_STORAGE, request, session, body, getCurrentTimestamp());
+	await reauthVerify(env.R2_STORAGE, request, session, body, getCurrentTimestamp(), env.PASSKEY_RP_ID);
 	return json({ reauthenticated: true }, 200, { 'Cache-Control': 'no-store' });
 }
 

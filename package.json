@@ -9,14 +9,19 @@
 		"build": "vite build",
 		"preview": "npm run build && wrangler dev",
 		"deploy": "npm run build && wrangler deploy",
-		"test": "vitest run",
+		"test": "npm run test:unit && npm run test:worker && npm run test:contracts",
+		"test:unit": "vitest run test/web test/i18n-keys.spec.ts",
+		"test:worker": "vitest run --exclude 'test/web/**' --exclude 'test/contracts/**' --exclude 'test/i18n-keys.spec.ts'",
+		"test:contracts": "vitest run test/contracts",
 		"typecheck": "tsc --noEmit -p tsconfig.json && tsc --noEmit -p tsconfig.web.json && tsc --noEmit -p test/tsconfig.json && tsc --noEmit -p test/web/tsconfig.json && tsc --noEmit -p test/e2e/tsconfig.json",
 		"cf-typegen": "wrangler types",
 		"lint": "eslint .",
 		"lint:fix": "eslint . --fix",
 		"format": "prettier --write .",
 		"format:check": "prettier --check .",
-		"test:e2e": "playwright test"
+		"test:e2e": "playwright test",
+		"check:legacy": "node scripts/check-legacy.mjs",
+		"audit:high": "npm audit --audit-level=high"
 	},
 	"dependencies": {
 		"@simplewebauthn/browser": "14.0.0",

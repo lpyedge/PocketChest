@@ -249,3 +249,32 @@ describe('passkey challenges', () => {
 		await expect(consumeChallenge(bucket(), 'short', 'login', null, NOW)).rejects.toBeInstanceOf(ApiError);
 	});
 });
+
+describe('pinned passkey domain', () => {
+	beforeAll(async () => {
+		await resetStorage();
+	});
+
+	beforeEach(async () => {
+		await setupTestEnvironment();
+	});
+
+	it('refuses passkey setup on any other hostname than the configured one, and creates no challenge', async () => {
+		const owner = await ownerSignIn();
+		await reauthenticate(owner);
+		const response = await registerOptions(owner, { ...env, PASSKEY_RP_ID: 'pocket.example.test' } as unknown as Env);
+
+		expect(response.status).toBe(403);
+		expect(((await response.json()) as any).code).toBe('PASSKEY_DOMAIN_MISMATCH');
+		expect((await bucket().list({ prefix: CHALLENGE_PREFIX })).objects).toHaveLength(0);
+	});
+
+	it('scopes options to the configured domain when the request arrives on it', async () => {
+		const owner = await ownerSignIn();
+		await reauthenticate(owner);
+		const response = await registerOptions(owner, { ...env, PASSKEY_RP_ID: RP_ID } as unknown as Env);
+
+		expect(response.status).toBe(200);
+		expect(((await response.json()) as any).rp.id).toBe(RP_ID);
+	});
+});

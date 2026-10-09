@@ -33,6 +33,7 @@
 | `CSRF_REJECTED` | 403 | Origin 或 CSRF Header 不符 `[TODO-TASK-13]` |
 | `REAUTH_REQUIRED` | 403 | 需近期重新驗證（5 分鐘）`[判斷已實作，TASK-19/20 的敏感操作使用]` |
 | `AUTH_METHOD_DISABLED` | 403 | 該登入方式已停用 `[已實作]` |
+| `PASSKEY_DOMAIN_MISMATCH` | 403 | 此網域不是設定的 Passkey 網域（`PASSKEY_RP_ID`）`[已實作]` |
 | `AUTH_METHOD_NOT_CONFIGURED` | 409 | 方式未設定卻要求啟用 `[已實作]` |
 | `LAST_AUTH_METHOD` | 409 | 不可停用最後一種可用方式 `[已實作]` |
 | `CONFLICT` | 409 | R2 CAS 衝突，請重新讀取後再試 `[TODO-TASK-04]` |
@@ -53,8 +54,7 @@
 
 | # | Method | Path | 權限 | 狀態 | 說明 |
 |---|---|---|---|---|---|
-| 1 | GET | `/api/config` | 公開 | [已移除] | 由 #2 取代；TOTP 開關不再存在。 |
-| 2 | GET | `/api/auth/methods` | 公開 | [已實作] | 回三種方式的啟用旗標與 `setupRequired`。 |
+| 1 | GET | `/api/auth/methods` | 公開 | [已實作] | 回三種方式的啟用旗標與 `setupRequired`。 |
 | 3 | POST | `/api/auth/bootstrap` | 公開，需 Bootstrap 條件 | [TODO-TASK-12] | 僅首次初始化。 |
 | 4 | POST | `/api/auth/login/password` | 公開 | [已實作] | 成功發出 Owner Cookie。 |
 | 5 | POST | `/api/auth/login/totp` | 公開 | [已實作] | 同上。 |
@@ -83,7 +83,6 @@
 
 | # | Method | Path | 權限 | 狀態 | 說明 |
 |---|---|---|---|---|---|
-| 21 | POST | `/api/chest` | 舊 | [已移除] | 由 #22 取代。 |
 | 22 | POST | `/api/upload-sessions` | Owner Cookie + CSRF | [已實作] | 回 `{sessionId, uploadToken, expiresIn}`。 |
 | 23 | POST | `/api/upload-sessions/{id}/files` | Upload Token | [已實作] | |
 | 24 | POST | `/api/upload-sessions/{id}/multipart/create` | Upload Token | [已實作] | |
@@ -97,7 +96,6 @@
 | # | Method | Path | 權限 | 狀態 | 說明 |
 |---|---|---|---|---|---|
 | 29 | POST | `/api/retrieve` | 公開（Body 含取件碼） | [已實作] | `{"code":"ABC123"}`，回檔案清單與取件憑證。 |
-| 30 | GET | `/api/retrieve/{code}` | — | [已移除] | 取件碼不再出現在 URL。 |
 | 31 | POST | `/api/download/authorize` | `Authorization: Bearer <取件憑證>` | [已實作] | Body `{"fileId"}`；下發 60 秒、限 Path 的 Cookie。 |
 | 32 | GET | `/api/download/{fileId}` | 下載 Cookie | [已實作] | 原生串流；不接受 `?token=`、`?filename=`、Bearer。 |
 
@@ -173,4 +171,4 @@ Content-Type: application/octet-stream
 ## 驗收對照（AC-00-1、AC-00-2）
 
 - AC-00-1：每條新 API 均有 Method／Path／權限／錯誤碼與樣本（上表與本節）。
-- AC-00-2：新協定沒有 `?code=`、`?token=`、`/api/retrieve/{code}` 的相容要求，這三者已移除。舊的 `/api/chest`、`/api/config` 與 TOTP 舊認證已於 TASK-14 刪除，不保留別名。
+- 新協定沒有 `?code=`、`?token=`、`/api/retrieve/{code}`、`/api/chest`、`/api/config`，也沒有任何相容別名。這些路徑現在回 `404 NOT_FOUND`，由 `test/contracts` 驗證。

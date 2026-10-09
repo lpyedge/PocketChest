@@ -32,10 +32,10 @@
 | TASK-25 | i18n Core、分語言 Dynamic Import 與語言偏好 | PASS | 見 Git log（i18n/index.ts、I18nProvider.tsx、i18n-keys.spec.ts 8 項；build 產生三個語言 chunk） |
 | TASK-26 | Upload／Retrieve／登入／Settings 的三語完整翻譯 | PASS | 見 Git log（199 個鍵；i18n-flow.spec.ts 三語完整流程、複製訊息、375px 溢出）；限流三語訊息僅英文路徑有 E2E 覆蓋 |
 | TASK-27 | 無 JS 三語靜態首頁與靜態路由 | PASS | 見 Git log（/、/ja/、/en/ 純 HTML；static-home.spec.ts 4 項 JS 關閉） |
-| TASK-28 | 刪除舊協定 | TODO | |
-| TASK-29 | 測試完善與 CI Gate | TODO | |
-| TASK-30 | 新部署文檔 | TODO | |
-| TASK-31 | 隔離 Cloudflare 真機驗收 | BLOCKED_REMOTE | 需測試帳號與網域 |
+| TASK-28 | 刪除舊協定、過期配置與無用套件（唯一清理點） | PASS | 見 Git log。移除 /share 轉址、舊 /api/chest 與 /api/config 路由、REQUIRE_TOTP、_redirects；scripts/check-legacy.mjs 與 test/contracts 驗證 |
+| TASK-29 | 自動化測試完善、CI Security Gate 與產物檢查 | PASS | 見 Git log。npm test 分 unit／worker／contracts；CI 依序執行，audit:high 不再被隱藏；docs/TEST_REPORT.md；故障注入已驗證 |
+| TASK-30 | 新部署文檔、維運 Runbook 與版本凍結 | PASS | 見 Git log。README／DEPLOYMENT／API／RECOVERY 已對齊；本機 .dev.vars 首次設定 Smoke 通過；版本核對見 DEPENDENCIES.md |
+| TASK-31 | 隔離 Cloudflare 真實環境最終驗收 | BLOCKED | 無 Cloudflare 憑證、出口代理拒絕連線、無測試網域；見 docs/REMOTE_ACCEPTANCE.md。未以本機結果冒充真機結果 |
 
 ## 基準記錄（TASK-00，修改前）
 

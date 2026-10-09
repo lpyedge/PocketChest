@@ -44,11 +44,6 @@ export interface CreateMultipartUploadResponse {
 	uploadId: string;
 }
 
-export interface UploadPartRequest {
-	partNumber: number;
-	data: ArrayBuffer;
-}
-
 export interface UploadPartResponse {
 	etag: string;
 	partNumber: number;
@@ -137,4 +132,6 @@ export interface Env {
 	ASSETS: Fetcher;
 	R2_STORAGE: R2Bucket;
 	JWT_SECRET: string;
+	// Optional: the one hostname passkeys are bound to (for example pocket.example.com)
+	PASSKEY_RP_ID?: string;
 }

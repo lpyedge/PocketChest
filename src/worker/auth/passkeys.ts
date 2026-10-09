@@ -24,10 +24,16 @@ const OWNER_USER_ID = new Uint8Array(new TextEncoder().encode('pocketchest-owner
 class CredentialExistsError extends Error {}
 class CredentialGoneError extends Error {}
 
-/** The relying party is the origin the request arrived on, and nothing else. */
-export function relyingParty(request: Request): { rpID: string; origin: string } {
+/**
+ * The relying party is the origin the request arrived on. When PASSKEY_RP_ID is set, it is the only
+ * domain allowed: a request on any other hostname is refused, so passkeys cannot be split across hosts.
+ */
+export function relyingParty(request: Request, pinnedRpId?: string): { rpID: string; origin: string } {
 	const url = new URL(request.url);
-	return { rpID: url.hostname, origin: url.origin };
+	if (pinnedRpId && url.hostname !== pinnedRpId) {
+		throw new ApiError(403, 'PASSKEY_DOMAIN_MISMATCH', 'Passkeys are only available on the configured domain');
+	}
+	return { rpID: pinnedRpId || url.hostname, origin: url.origin };
 }
 
 function clampLabel(label: unknown): string {
@@ -60,10 +66,10 @@ async function loadOwnerOrThrow(bucket: R2Bucket, failure: () => ApiError): Prom
 
 // --- Registration (signed-in owner, recent password/TOTP/passkey re-entry required) ---
 
-export async function registrationOptions(bucket: R2Bucket, request: Request, session: LoadedSession, now: number) {
+export async function registrationOptions(bucket: R2Bucket, request: Request, session: LoadedSession, now: number, pinnedRpId?: string) {
 	assertRecentReauth(session, now);
 	const owner = await loadOwnerOrThrow(bucket, () => new ApiError(401, 'AUTH_REQUIRED', 'Sign in required'));
-	const { rpID } = relyingParty(request);
+	const { rpID } = relyingParty(request, pinnedRpId);
 	const options = await generateRegistrationOptions({
 		rpName: RP_NAME,
 		rpID,
@@ -84,11 +90,12 @@ export async function registrationVerify(
 	session: LoadedSession,
 	body: { challenge: string; response: RegistrationResponseJSON; label?: unknown },
 	now: number,
+	pinnedRpId?: string,
 ): Promise<{ credentialId: string }> {
 	assertRecentReauth(session, now);
 	await consumeChallenge(bucket, body.challenge, 'register', await sha256Hex(session.sid), now);
 
-	const { rpID, origin } = relyingParty(request);
+	const { rpID, origin } = relyingParty(request, pinnedRpId);
 	const verification = await verifyRegistrationResponse({
 		response: body.response,
 		expectedChallenge: body.challenge,
@@ -144,13 +151,14 @@ export async function assertionOptions(
 	purpose: 'login' | 'reauth',
 	session: LoadedSession | null,
 	now: number,
+	pinnedRpId?: string,
 ) {
 	const owner = await loadOwnerOrThrow(bucket, invalidSignIn);
 	// Sign-in needs the passkey enabled; re-entry only needs the owner to hold one
 	if (purpose === 'login' ? !isUsable(owner, 'passkey') : !isConfigured(owner, 'passkey')) {
 		throw new ApiError(403, 'AUTH_METHOD_DISABLED', 'Passkey sign-in is not enabled');
 	}
-	const { rpID } = relyingParty(request);
+	const { rpID } = relyingParty(request, pinnedRpId);
 	const options = await generateAuthenticationOptions({
 		rpID,
 		allowCredentials: credentialDescriptors(owner),
@@ -171,6 +179,7 @@ async function verifyAssertion(
 	session: LoadedSession | null,
 	body: { challenge: string; response: AuthenticationResponseJSON },
 	now: number,
+	pinnedRpId?: string,
 ): Promise<OwnerRecord> {
 	const sessionHash = session ? await sha256Hex(session.sid) : null;
 	await consumeChallenge(bucket, body.challenge, purpose, sessionHash, now);
@@ -181,7 +190,7 @@ async function verifyAssertion(
 		throw invalidSignIn();
 	}
 
-	const { rpID, origin } = relyingParty(request);
+	const { rpID, origin } = relyingParty(request, pinnedRpId);
 	const verification = await verifyAuthenticationResponse({
 		response: body.response,
 		expectedChallenge: body.challenge,
@@ -228,8 +237,9 @@ export async function loginVerify(
 	request: Request,
 	body: { challenge: string; response: AuthenticationResponseJSON },
 	now: number,
+	pinnedRpId?: string,
 ) {
-	return verifyAssertion(bucket, request, 'login', null, body, now);
+	return verifyAssertion(bucket, request, 'login', null, body, now, pinnedRpId);
 }
 
 export async function reauthVerify(
@@ -238,7 +248,8 @@ export async function reauthVerify(
 	session: LoadedSession,
 	body: { challenge: string; response: AuthenticationResponseJSON },
 	now: number,
+	pinnedRpId?: string,
 ): Promise<void> {
-	await verifyAssertion(bucket, request, 'reauth', session, body, now);
+	await verifyAssertion(bucket, request, 'reauth', session, body, now, pinnedRpId);
 	await markReauthenticated(bucket, session.sid, now, 'passkey');
 }

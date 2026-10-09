@@ -63,7 +63,6 @@ async function checkPassword(env: AuthEnv, password: string, mode: Mode): Promis
 	return owner;
 }
 
-// Signs the owner in with the password, starting a new session (new id, so no fixation)
 /**
  * Runs one credential attempt under the owner-level lockout: refused while the method is locked, a
  * wrong credential counts as a failure, and a success clears this method's counter only.
@@ -94,7 +93,6 @@ export async function loginWithPassword(
 	});
 }
 
-// Re-confirms the owner's password inside an existing session, opening the reauth window
 // Re-confirms the owner's password inside an existing session, opening the reauth window
 export async function reauthWithPassword(env: AuthEnv, session: LoadedSession, password: string, now: number): Promise<void> {
 	await guarded(env, 'password', now, async () => {
@@ -149,7 +147,6 @@ async function consumeTotpCode(env: AuthEnv, code: string, now: number, mode: Mo
 }
 
 // Signs the owner in with an authenticator code alone; the password is not needed
-// Signs the owner in with an authenticator code alone; the password is not needed
 export async function loginWithTotp(env: AuthEnv, code: string, now: number): Promise<{ sid: string; csrfToken: string; cookie: string }> {
 	return guarded(env, 'totp', now, async () => {
 		const owner = await consumeTotpCode(env, code, now, 'login');
@@ -157,7 +154,6 @@ export async function loginWithTotp(env: AuthEnv, code: string, now: number): Pr
 	});
 }
 
-// Re-confirms the owner with an authenticator code inside an existing session
 // Re-confirms the owner with an authenticator code inside an existing session
 export async function reauthWithTotp(env: AuthEnv, session: LoadedSession, code: string, now: number): Promise<void> {
 	await guarded(env, 'totp', now, async () => {

@@ -873,6 +873,13 @@ async function handleCompleteUpload(request: Request, env: Env, sessionId: strin
 			return completionResponse(record.retrievalCode as string, record.expiresAt);
 		}
 
+		// A request that cannot succeed is refused here, while the session is untouched: nothing has moved to
+		// FINALIZING and no running upload has been stopped. Registered files are never removed from an OPEN
+		// session, so what is valid in this snapshot stays valid.
+		if (record.status === 'OPEN') {
+			assertCompletable(record, fileIds);
+		}
+
 		let finalizing: SessionRecord;
 		try {
 			if (record.status === 'FINALIZING') {
@@ -909,6 +916,7 @@ async function handleCompleteUpload(request: Request, env: Env, sessionId: strin
 			await transitionSession(bucket, sessionId, 'OPEN', {
 				completionFingerprint: null,
 				candidateCode: null,
+				finalizeStartedAt: null,
 				validityDays: null,
 				expiresAt: null,
 			});
@@ -951,6 +959,18 @@ async function handleCompleteUpload(request: Request, env: Env, sessionId: strin
 	}
 
 	throw new ApiError(409, 'CONFLICT', 'Session state changed, try again');
+}
+
+// Every requested file must be a registered (finished) file of the session, and at least one must have content
+function assertCompletable(record: SessionRecord, fileIds: string[]): void {
+	const registered = new Map(record.files.map((file) => [file.fileId, file]));
+	const files = fileIds.map((fileId) => registered.get(fileId));
+	if (files.some((file) => file === undefined)) {
+		throw new ApiError(400, 'FILE_NOT_IN_SESSION', 'Some files do not belong to this session');
+	}
+	if (files.every((file) => (file as ChestFile).size === 0)) {
+		throw new ApiError(400, 'EMPTY_CHEST', 'Nothing to share: all files are empty');
+	}
 }
 
 function completionResponse(retrievalCode: string, expiresAt: number | null): Response {

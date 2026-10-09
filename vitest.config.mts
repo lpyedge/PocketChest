@@ -23,5 +23,7 @@ export default defineConfig({
 	test: {
 		include: ['test/**/*.spec.ts'],
 		exclude: ['test/e2e/**', 'node_modules/**'],
+		// Sign-in tests hash passwords with 600,000 PBKDF2 rounds many times over; a slow machine needs more than 5 seconds
+		testTimeout: 60_000,
 	},
 });

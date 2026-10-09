@@ -2,9 +2,13 @@ name: CI
 
 on:
   push:
-    branches: [master, main, develop]
+    # claude/** are the working branches: every push to one runs the full pipeline, so a branch is never
+    # reported as pushed without its tests having run on that exact commit
+    branches: [master, main, develop, 'claude/**']
   pull_request:
     branches: [master, main, develop]
+  # A manual run is possible too, but it does not replace the automatic run for a push
+  workflow_dispatch:
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}

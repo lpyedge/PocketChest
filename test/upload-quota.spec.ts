@@ -150,21 +150,21 @@ describe('upload limits and quotas', () => {
 
 	it('does not accept a multipart upload that would exceed the session byte budget', async () => {
 		const { sessionId, uploadToken } = await createTestSession();
-		// One byte is already stored, so a file of the full session budget cannot fit
+		// 6 GiB are already stored, so the largest multipart file no longer fits in the session budget
 		const now = getCurrentTimestamp();
 		await acquireLease(bucket(), sessionId, { id: 'one-byte', expiresAt: now + 60, files: 0, bytes: 0 }, now);
 		await releaseLease(
 			bucket(),
 			sessionId,
 			'one-byte',
-			[{ fileId: crypto.randomUUID(), filename: 'one.txt', size: 1, mimeType: 'text/plain', isText: false, fileExtension: 'txt' }],
+			[{ fileId: crypto.randomUUID(), filename: 'one.txt', size: 6 * 1024 ** 3, mimeType: 'text/plain', isText: false, fileExtension: 'txt' }],
 			now,
 		);
 
 		const response = await testFetch(`http://example.com/api/upload-sessions/${sessionId}/multipart/create`, {
 			method: 'POST',
 			headers: { Authorization: `Bearer ${uploadToken}`, 'Content-Type': 'application/json' },
-			body: JSON.stringify({ filename: 'huge.bin', mimeType: 'application/octet-stream', fileSize: LIMITS.maxSessionBytes }),
+			body: JSON.stringify({ filename: 'huge.bin', mimeType: 'application/octet-stream', fileSize: LIMITS.maxMultipartFileBytes }),
 		});
 
 		expect(response.status).toBe(413);

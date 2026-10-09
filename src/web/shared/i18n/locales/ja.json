@@ -43,6 +43,7 @@
 	"error.downloadText": "このテキストを読み込めませんでした。もう一度お試しください。",
 	"error.downloadUnauthorized": "このダウンロードは許可されていません。コードを開き直してください。",
 	"error.fileTooLarge": "1 つのファイルが単独アップロードの上限を超えています。",
+	"error.fileTooLargeMax": "ファイルが上限サイズ（約195GB）を超えています。",
 	"error.generic": "問題が発生しました。もう一度お試しください。",
 	"error.invalidRequest": "リクエストが正しくありません。",
 	"error.leaseLost": "アップロードが完了する前に期限切れになりました。もう一度アップロードしてください。",

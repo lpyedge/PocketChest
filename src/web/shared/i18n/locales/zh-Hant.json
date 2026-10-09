@@ -43,6 +43,7 @@
 	"error.downloadText": "無法載入這段文字，請再試一次。",
 	"error.downloadUnauthorized": "無法授權下載，請重新開啟取件碼。",
 	"error.fileTooLarge": "有檔案超過單檔上傳上限。",
+	"error.fileTooLargeMax": "有檔案超過大小上限（約 195 GB）。",
 	"error.generic": "發生錯誤，請再試一次。",
 	"error.invalidRequest": "請求格式不正確。",
 	"error.leaseLost": "上傳在完成前已逾時，請重新上傳。",

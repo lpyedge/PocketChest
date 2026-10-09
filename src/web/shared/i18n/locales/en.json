@@ -43,6 +43,7 @@
 	"error.downloadText": "Could not load this text. Please try again.",
 	"error.downloadUnauthorized": "This download is not authorized. Open the code again.",
 	"error.fileTooLarge": "A file is larger than the single-upload limit.",
+	"error.fileTooLargeMax": "A file is larger than the maximum size (about 195 GB).",
 	"error.generic": "Something went wrong. Please try again.",
 	"error.invalidRequest": "The request was not valid.",
 	"error.leaseLost": "The upload expired before it finished. Please upload again.",

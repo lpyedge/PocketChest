@@ -1,5 +1,6 @@
 import { ClientError, failureFrom } from './errors';
 import { runWithConcurrency } from './concurrency';
+import { MAX_MULTIPART_FILE_BYTES, PART_BYTES, planParts } from './multipart';
 import {
 	CreateChestResponse,
 	UploadResponse,
@@ -70,7 +71,10 @@ export class PocketChestAPI {
 		signal?: AbortSignal,
 	): Promise<UploadResponse> {
 		signal?.throwIfAborted();
-		const CHUNK_SIZE = 20 * 1024 * 1024; // 20MB: larger files use multipart upload
+		if (files.some((file) => file.size > MAX_MULTIPART_FILE_BYTES)) {
+			throw new ClientError('error.fileTooLargeMax');
+		}
+		const CHUNK_SIZE = PART_BYTES; // larger files use multipart upload
 		const MAX_CONCURRENT_SMALL_FILES = 3;
 
 		const textSizes = textItems.map((textItem) => new TextEncoder().encode(textItem.content).length);
@@ -542,8 +546,13 @@ export class PocketChestAPI {
 		onProgress?: (progress: MultipartUploadProgress) => void,
 		signal?: AbortSignal,
 	): Promise<{ fileId: string; filename: string }> {
-		const CHUNK_SIZE = 20 * 1024 * 1024; // 20MB chunks
-		const totalParts = Math.ceil(file.size / CHUNK_SIZE);
+		// Decided before anything is sent: a file that cannot be finished must not be started
+		const plan = planParts(file.size);
+		if (!plan) {
+			throw new ClientError('error.fileTooLargeMax');
+		}
+		const CHUNK_SIZE = plan.partBytes;
+		const totalParts = plan.totalParts;
 
 		// Create multipart upload - uploadId is now a JWT token
 		const { fileId, uploadId: multipartToken } = await this.createMultipartUpload(

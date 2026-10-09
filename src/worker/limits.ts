@@ -20,8 +20,8 @@ export const LIMITS = {
 	maxFilenameBytes: 255,
 	// One multipart part
 	maxPartBytes: 20 * MiB,
-	// One multipart file
-	maxMultipartFileBytes: 200 * GiB,
+	// One multipart file: every part but the last is maxPartBytes, so this is what the part limit can hold (about 195 GiB)
+	maxMultipartFileBytes: 20 * MiB * 10000,
 	// Parts per multipart upload (R2 limit)
 	maxPartsPerUpload: 10000,
 } as const;

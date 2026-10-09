@@ -259,3 +259,34 @@ describe('Multipart Upload', () => {
 		});
 	});
 });
+
+describe('FIX-10 multipart size limit matches what a client can complete', () => {
+	it('agrees with the part size and part count the client uses', async () => {
+		const { LIMITS } = await import('../src/worker/limits');
+		const web = await import('../src/web/shared/lib/multipart');
+		expect(LIMITS.maxPartBytes).toBe(web.PART_BYTES);
+		expect(LIMITS.maxPartsPerUpload).toBe(web.MAX_PARTS);
+		expect(LIMITS.maxMultipartFileBytes).toBe(web.MAX_MULTIPART_FILE_BYTES);
+		expect(LIMITS.maxMultipartFileBytes).toBe(LIMITS.maxPartBytes * LIMITS.maxPartsPerUpload);
+	});
+
+	async function create(fileSize: number) {
+		const { sessionId, uploadToken } = await createTestSession();
+		return testFetch(`http://example.com/api/upload-sessions/${sessionId}/multipart/create`, {
+			method: 'POST',
+			headers: { Authorization: `Bearer ${uploadToken}`, 'Content-Type': 'application/json' },
+			body: JSON.stringify({ filename: 'big.bin', mimeType: 'application/octet-stream', fileSize }),
+		});
+	}
+
+	it('refuses a file that needs more than 10000 parts, and accepts the largest that fits', async () => {
+		const { LIMITS } = await import('../src/worker/limits');
+		const over = await create(LIMITS.maxMultipartFileBytes + 1);
+		expect(over.status).toBe(413);
+		await over.text();
+
+		const largest = await create(LIMITS.maxMultipartFileBytes);
+		expect(largest.status).toBe(200);
+		await largest.text();
+	});
+});

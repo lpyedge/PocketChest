@@ -7,7 +7,10 @@ const launchOptions = chromiumPath ? { executablePath: chromiumPath } : {};
 
 export default defineConfig({
 	testDir: 'test/e2e',
-	fullyParallel: true,
+	// All tests share one owner on one dev server. A security change (method switch, authenticator setup) ends the
+	// owner's other sessions by design, so tests run one at a time instead of ending each other's sessions.
+	fullyParallel: false,
+	workers: 1,
 	forbidOnly: !!process.env.CI,
 	reporter: [['list']],
 	use: {

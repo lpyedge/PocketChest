@@ -5,7 +5,7 @@
  */
 import { ApiError } from '../errors';
 import { toBase64Url } from './encoding';
-import { consumeChallenge, storeChallenge } from './challenges';
+import { beginAttempts, storeChallenge } from './challenges';
 import { hashPassword, verifyPassword } from './password';
 import { isConfigured, loadOwner, mutateOwner, Method, OwnerConflictError, OwnerInvariantError, OwnerRecord } from './owner';
 import { openSeed, sealSeed, generateSeed, base32Encode, matchTotpStep } from './totp';
@@ -14,6 +14,8 @@ import { assertRecentReauth, issueOwnerSession, LoadedSession, markReauthenticat
 export const MIN_PASSWORD_LENGTH = 16;
 export const MAX_PASSWORD_LENGTH = 1024;
 const ENROLL_SECONDS = 5 * 60;
+// Wrong codes allowed on one authenticator QR before it has to be made again
+const MAX_ENROLL_FAILURES = 5;
 const ISSUER = 'PocketChest';
 
 export interface SecuritySummary {
@@ -270,15 +272,22 @@ export async function confirmTotp(
 		throw new ApiError(401, 'AUTH_INVALID', 'Sign in required');
 	}
 	assertCurrent(loaded.owner, session);
-	const { payload } = await consumeChallenge(env.R2_STORAGE, challenge, 'totp-enroll', await sha256Hex(session.sid), now);
+	// Wrong codes are counted on the challenge instead of using it up, so a typo does not make the QR on screen useless
+	const attempts = await beginAttempts(env.R2_STORAGE, challenge, 'totp-enroll', await sha256Hex(session.sid), now, MAX_ENROLL_FAILURES);
+	const payload = attempts.payload;
 	if (payload === null) {
 		throw new ApiError(400, 'CHALLENGE_INVALID', 'The sign-in step expired or was already used; start again');
 	}
 	const seed = await openSeed(payload, env.AUTH_ENCRYPTION_KEY);
 	const step = await matchTotpStep(seed, code, now);
 	if (step === null) {
+		const { ended } = await attempts.fail();
+		if (ended) {
+			throw new ApiError(400, 'CHALLENGE_INVALID', 'Too many wrong codes; start again');
+		}
 		throw new ApiError(400, 'TOTP_CODE_INVALID', 'That code does not match; the previous authenticator is still in use');
 	}
+	await attempts.succeed();
 	let written: OwnerRecord;
 	try {
 		written = await mutateAsSession(env.R2_STORAGE, session, (owner) => ({

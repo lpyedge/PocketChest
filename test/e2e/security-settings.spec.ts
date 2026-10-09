@@ -1,3 +1,4 @@
+import { createHmac } from 'node:crypto';
 import { test, expect, Page } from '@playwright/test';
 import { ORIGIN, OWNER_PASSWORD, randomClientIp, useClientAddress } from './owner';
 
@@ -100,4 +101,56 @@ test('shows a scannable QR code and the manual key for the authenticator, and ca
 	await authenticator.getByRole('button', { name: /^Cancel/ }).click();
 	await expect(qr).toBeHidden();
 	expect(await authenticator.innerText()).toBe(before);
+});
+
+// RFC 6238, SHA-1, 6 digits, 30 seconds: what an authenticator app computes from the Base32 key
+function totpFor(base32: string, atSeconds: number): string {
+	const alphabet = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ234567';
+	let bits = '';
+	for (const char of base32) bits += alphabet.indexOf(char).toString(2).padStart(5, '0');
+	const key = Buffer.from((bits.match(/.{8}/g) ?? []).map((byte) => parseInt(byte, 2)));
+	const counter = Buffer.alloc(8);
+	counter.writeBigUInt64BE(BigInt(Math.floor(atSeconds / 30)));
+	const hmac = createHmac('sha1', key).update(counter).digest();
+	const offset = hmac[hmac.length - 1] & 0x0f;
+	const value = hmac.readUInt32BE(offset) & 0x7fffffff;
+	return String(value % 1_000_000).padStart(6, '0');
+}
+
+test('a wrong authenticator code keeps the QR usable, and the right code then completes setup', async ({ page, request }) => {
+	await request.post('/api/auth/bootstrap', { headers: { Origin: ORIGIN }, data: { password: OWNER_PASSWORD } });
+	let secret = '';
+	page.on('response', async (response) => {
+		if (response.url().endsWith('/api/admin/security/totp/prepare') && response.ok()) {
+			secret = new URL(((await response.json()) as { otpauthUri: string }).otpauthUri).searchParams.get('secret') ?? '';
+		}
+	});
+
+	await page.goto('/upload/');
+	await page.getByLabel('Password', { exact: true }).fill(OWNER_PASSWORD);
+	await page.getByRole('button', { name: 'Sign in with password' }).click();
+	await page.getByRole('button', { name: 'Security settings' }).click();
+	const dialog = page.getByRole('dialog', { name: 'Security settings' });
+	const authenticator = dialog.locator('section', { hasText: 'Authenticator app' });
+
+	await authenticator.getByRole('button', { name: /Set up authenticator|Replace authenticator/ }).click();
+	await dialog.getByLabel('Password', { exact: true }).fill(OWNER_PASSWORD);
+	await dialog.getByRole('button', { name: 'Confirm with password' }).click();
+	const qr = authenticator.getByRole('img', { name: 'QR code for your authenticator app' });
+	await expect(qr).toBeVisible();
+	const shownBefore = await authenticator.getByTestId('totp-secret').innerText();
+
+	// One typo: the message says so, and the very same QR and key are still on screen
+	const input = authenticator.getByLabel('New authenticator code');
+	await input.fill('000000');
+	await authenticator.getByRole('button', { name: 'Confirm code' }).click();
+	await expect(dialog.getByText(/does not match/i)).toBeVisible();
+	await expect(qr).toBeVisible();
+	expect(await authenticator.getByTestId('totp-secret').innerText()).toBe(shownBefore);
+
+	// The correct code from that same key completes the setup
+	await input.fill(totpFor(secret, Date.now() / 1000));
+	await authenticator.getByRole('button', { name: 'Confirm code' }).click();
+	await expect(qr).toBeHidden();
+	await expect(authenticator.getByText(/Off \(set up\)|On/).first()).toBeVisible();
 });

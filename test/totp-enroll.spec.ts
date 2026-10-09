@@ -99,6 +99,66 @@ describe('authenticator enrolment', () => {
 		expect(JSON.stringify(await ownerRecord())).toBe(before);
 	});
 
+	it('C05: lets the right code succeed after a wrong one on the same QR', async () => {
+		const owner = await ownerSignIn();
+		await configureTotp(OLD_SEED, true);
+		await reauthPassword(owner);
+		const prepared = (await (await call(owner, 'POST', '/api/admin/security/totp/prepare', {})).json()) as any;
+		const newSeed = base32ToBytes(prepared.otpauthUri.match(/secret=([A-Z2-7]+)/)![1]);
+		const before = JSON.stringify(await ownerRecord());
+
+		const wrong = await call(owner, 'POST', '/api/admin/security/totp/confirm', { challenge: prepared.challenge, code: '000000' });
+		expect(((await wrong.json()) as any).code).toBe('TOTP_CODE_INVALID');
+		// The old authenticator is untouched until a code from the new seed is accepted
+		expect(JSON.stringify(await ownerRecord())).toBe(before);
+
+		const code = await totpCodeAt(newSeed, Math.floor(Date.now() / 1000));
+		const right = await call(owner, 'POST', '/api/admin/security/totp/confirm', { challenge: prepared.challenge, code });
+		expect(right.status).toBe(200);
+		await right.text();
+		expect(await openSeed((await ownerRecord()).methods.totp.encryptedSecret!, env2.AUTH_ENCRYPTION_KEY)).toEqual(newSeed);
+	});
+
+	it('C06: ends the enrolment after five wrong codes, so the QR cannot be guessed at without limit', async () => {
+		const owner = await ownerSignIn();
+		await configureTotp(OLD_SEED, true);
+		await reauthPassword(owner);
+		const prepared = (await (await call(owner, 'POST', '/api/admin/security/totp/prepare', {})).json()) as any;
+		const newSeed = base32ToBytes(prepared.otpauthUri.match(/secret=([A-Z2-7]+)/)![1]);
+		const before = JSON.stringify(await ownerRecord());
+
+		const codes: string[] = [];
+		for (let attempt = 0; attempt < 5; attempt++) {
+			const wrong = await call(owner, 'POST', '/api/admin/security/totp/confirm', { challenge: prepared.challenge, code: '000000' });
+			codes.push(((await wrong.json()) as any).code);
+		}
+		expect(codes).toEqual(['TOTP_CODE_INVALID', 'TOTP_CODE_INVALID', 'TOTP_CODE_INVALID', 'TOTP_CODE_INVALID', 'CHALLENGE_INVALID']);
+
+		// Even the correct code is now refused, and the owner record never changed
+		const code = await totpCodeAt(newSeed, Math.floor(Date.now() / 1000));
+		const late = await call(owner, 'POST', '/api/admin/security/totp/confirm', { challenge: prepared.challenge, code });
+		expect(((await late.json()) as any).code).toBe('CHALLENGE_INVALID');
+		expect(JSON.stringify(await ownerRecord())).toBe(before);
+	});
+
+	it('C06: ten parallel wrong codes still count against the same limit', async () => {
+		const owner = await ownerSignIn();
+		await reauthPassword(owner);
+		const prepared = (await (await call(owner, 'POST', '/api/admin/security/totp/prepare', {})).json()) as any;
+		const newSeed = base32ToBytes(prepared.otpauthUri.match(/secret=([A-Z2-7]+)/)![1]);
+
+		const responses = await Promise.all(
+			Array.from({ length: 10 }, () =>
+				call(owner, 'POST', '/api/admin/security/totp/confirm', { challenge: prepared.challenge, code: '000000' }),
+			),
+		);
+		for (const response of responses) await response.text();
+
+		const code = await totpCodeAt(newSeed, Math.floor(Date.now() / 1000));
+		const late = await call(owner, 'POST', '/api/admin/security/totp/confirm', { challenge: prepared.challenge, code });
+		expect(((await late.json()) as any).code).toBe('CHALLENGE_INVALID');
+	});
+
 	it('does not accept the same challenge twice', async () => {
 		const owner = await ownerSignIn();
 		await reauthPassword(owner);

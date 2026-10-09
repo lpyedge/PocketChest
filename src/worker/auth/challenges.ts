@@ -19,6 +19,8 @@ interface ChallengeRecord {
 	sessionHash: string | null;
 	expiresAt: number;
 	used: boolean;
+	// Wrong answers so far, for challenges that allow a few tries (see failChallenge)
+	failures?: number;
 	// Sealed data a later step needs, such as a TOTP seed being enrolled
 	payload: EncryptedSecret | null;
 }
@@ -63,21 +65,25 @@ function isChallengeRecord(value: unknown): value is ChallengeRecord {
 		(record.sessionHash === null || typeof record.sessionHash === 'string') &&
 		typeof record.expiresAt === 'number' &&
 		typeof record.used === 'boolean' &&
+		(record.failures === undefined || (typeof record.failures === 'number' && Number.isInteger(record.failures))) &&
 		(record.payload === null || (typeof record.payload === 'object' && record.payload !== null))
 	);
 }
 
-/**
- * Marks the challenge used, if it is for this purpose, this session and not expired. A second caller
- * racing for the same challenge loses the conditional write and is refused.
- */
-export async function consumeChallenge(
+interface OpenChallenge {
+	key: string;
+	record: ChallengeRecord;
+	etag: string;
+}
+
+/** Reads a challenge and checks it is for this purpose and session, unused and not expired. Does not use it up. */
+async function openChallenge(
 	bucket: R2Bucket,
 	challenge: string,
 	purpose: ChallengePurpose,
 	sessionHash: string | null,
 	now: number,
-): Promise<{ payload: EncryptedSecret | null }> {
+): Promise<OpenChallenge> {
 	if (!/^[A-Za-z0-9_-]{32,128}$/.test(challenge)) {
 		throw invalidChallenge();
 	}
@@ -98,14 +104,91 @@ export async function consumeChallenge(
 	if (now >= record.expiresAt) {
 		throw invalidChallenge();
 	}
-	const stored = await bucket.put(key, JSON.stringify({ ...record, used: true }), {
-		httpMetadata: { contentType: 'application/json' },
-		onlyIf: { etagMatches: object.etag },
-	});
-	if (stored === null) {
-		throw invalidChallenge();
+	return { key, record, etag: object.etag };
+}
+
+const CHALLENGE_WRITE_ATTEMPTS = 20;
+
+/**
+ * Marks an opened challenge used with a conditional write. If the record changed since it was read (for
+ * example another wrong answer was counted), it is read again; a challenge that is by then used or expired
+ * is refused. A second caller racing for the same challenge loses and is refused.
+ */
+async function useOpened(bucket: R2Bucket, opened: OpenChallenge, now: number): Promise<void> {
+	let { record, etag } = opened;
+	for (let attempt = 0; attempt < CHALLENGE_WRITE_ATTEMPTS; attempt++) {
+		const stored = await bucket.put(opened.key, JSON.stringify({ ...record, used: true }), {
+			httpMetadata: { contentType: 'application/json' },
+			onlyIf: { etagMatches: etag },
+		});
+		if (stored !== null) return;
+		const object = await bucket.get(opened.key);
+		const latest: unknown = object ? JSON.parse(await object.text()) : null;
+		if (!object || !isChallengeRecord(latest) || latest.used || now >= latest.expiresAt) {
+			throw invalidChallenge();
+		}
+		record = latest;
+		etag = object.etag;
 	}
-	return { payload: record.payload };
+	throw invalidChallenge();
+}
+
+/**
+ * Marks the challenge used, if it is for this purpose, this session and not expired. A second caller
+ * racing for the same challenge loses the conditional write and is refused.
+ */
+export async function consumeChallenge(
+	bucket: R2Bucket,
+	challenge: string,
+	purpose: ChallengePurpose,
+	sessionHash: string | null,
+	now: number,
+): Promise<{ payload: EncryptedSecret | null }> {
+	const opened = await openChallenge(bucket, challenge, purpose, sessionHash, now);
+	await useOpened(bucket, opened, now);
+	return { payload: opened.record.payload };
+}
+
+/**
+ * For a challenge that allows a few wrong answers: checks the challenge without using it up, and hands back
+ * `fail()` (count one wrong answer) and `succeed()` (use it up). The challenge is ended for good once
+ * `maxFailures` wrong answers have been counted, so the code behind it cannot be guessed at without limit.
+ */
+export async function beginAttempts(
+	bucket: R2Bucket,
+	challenge: string,
+	purpose: ChallengePurpose,
+	sessionHash: string | null,
+	now: number,
+	maxFailures: number,
+): Promise<{ payload: EncryptedSecret | null; fail: () => Promise<{ ended: boolean }>; succeed: () => Promise<void> }> {
+	const opened = await openChallenge(bucket, challenge, purpose, sessionHash, now);
+	return {
+		payload: opened.record.payload,
+		succeed: () => useOpened(bucket, opened, now),
+		fail: async () => {
+			let { record, etag } = opened;
+			for (let attempt = 0; attempt < CHALLENGE_WRITE_ATTEMPTS; attempt++) {
+				const failures = (record.failures ?? 0) + 1;
+				const ended = failures >= maxFailures;
+				const stored = await bucket.put(opened.key, JSON.stringify({ ...record, failures, used: ended }), {
+					httpMetadata: { contentType: 'application/json' },
+					onlyIf: { etagMatches: etag },
+				});
+				if (stored !== null) return { ended };
+				const object = await bucket.get(opened.key);
+				const latest: unknown = object ? JSON.parse(await object.text()) : null;
+				if (!object || !isChallengeRecord(latest) || latest.used || now >= latest.expiresAt) {
+					return { ended: true };
+				}
+				record = latest;
+				etag = object.etag;
+			}
+			// Could not count it: treat the challenge as spent rather than let a guess go uncounted
+			await bucket.put(opened.key, JSON.stringify({ ...record, used: true })).catch(() => undefined);
+			return { ended: true };
+		},
+	};
 }
 
 /**

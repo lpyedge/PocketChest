@@ -160,10 +160,21 @@ export function SecuritySettingsModal({ csrfToken, onRotated, onClose, onSignedO
 	const submitTotpCode = () =>
 		attempt(async (token) => {
 			if (!totpSetup) return;
-			const rotated = await authApi.totpConfirm(token, totpSetup.challenge, totpCode);
-			setTotpSetup(null);
-			setTotpCode('');
-			return rotated;
+			try {
+				const rotated = await authApi.totpConfirm(token, totpSetup.challenge, totpCode);
+				setTotpSetup(null);
+				setTotpCode('');
+				return rotated;
+			} catch (error) {
+				if (error instanceof AuthRequestError && error.code === 'CHALLENGE_INVALID') {
+					// Too many wrong codes, or the setup timed out: the QR on screen is dead, so it is removed
+					// instead of being left to mislead; the message tells the owner to start again
+					setTotpSetup(null);
+				}
+				// A wrong code keeps the same QR on screen: the key is still good, only the code has to be typed again
+				setTotpCode('');
+				throw error;
+			}
 		});
 
 	if (!status) {

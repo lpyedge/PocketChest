@@ -6,6 +6,7 @@ import {
 	createSessionRecord,
 	getSessionRecord,
 	MultipartUploadEntry,
+	SessionRecord,
 	replaceCandidateCode,
 	reserveCandidateCode,
 	sessionKey,
@@ -275,6 +276,9 @@ export interface CleanupResult {
 	repairedExpiry: number;
 	abandonedSessions: number;
 	rolledBackFinalizations: number;
+	// Stuck completions that were finished from their stored plan instead of rolled back
+	recoveredFinalizations: number;
+	orphanCodeClaims: number;
 	orphanClaims: number;
 	orphanObjects: number;
 	sessionsRemoved: number;
@@ -352,6 +356,8 @@ export async function cleanupExpired(bucket: R2Bucket, now: number): Promise<Cle
 		repairedExpiry: 0,
 		abandonedSessions: 0,
 		rolledBackFinalizations: 0,
+		recoveredFinalizations: 0,
+		orphanCodeClaims: 0,
 		orphanClaims: 0,
 		orphanObjects: 0,
 		sessionsRemoved: 0,
@@ -429,14 +435,11 @@ export async function cleanupExpired(bucket: R2Bucket, now: number): Promise<Cle
 		try {
 			const current = await getSessionRecord(bucket, sessionId).catch(() => null);
 			if (current?.record.status === 'FINALIZING') {
-				await transitionSession(
-					bucket,
-					sessionId,
-					'OPEN',
-					{ candidateCode: null, completionFingerprint: null, finalizeStartedAt: null, validityDays: null, expiresAt: null },
-					now,
-				);
-				result.rolledBackFinalizations++;
+				if (await recoverFinalizing(bucket, current.record, now)) {
+					result.recoveredFinalizations++;
+				} else {
+					result.rolledBackFinalizations++;
+				}
 			}
 			await deleteKeys(bucket, [indexKey]);
 		} catch (error) {
@@ -465,6 +468,13 @@ export async function cleanupExpired(bucket: R2Bucket, now: number): Promise<Cle
 		result.errors.push(`Failed to clean up passkey challenges: ${error}`);
 	}
 
+	// 4d. Code claims that no session owns any more
+	try {
+		result.orphanCodeClaims = await cleanupOrphanClaims(bucket, now);
+	} catch (error) {
+		result.errors.push(`Failed to scan for orphaned code claims: ${error}`);
+	}
+
 	// 5. Orphaned file objects: content whose session record is gone. Scanned in batches; the cursor persists.
 	try {
 		result.orphanObjects = await cleanupOrphanObjects(bucket, now, result);
@@ -473,6 +483,82 @@ export async function cleanupExpired(bucket: R2Bucket, now: number): Promise<Cle
 	}
 
 	return result;
+}
+
+/**
+ * Deals with a session that has been FINALIZING for too long. If its code was already claimed with a
+ * manifest that matches the stored plan, the completion is finished (nothing the client could have
+ * been told is lost). Otherwise the claim and its expiry entry are removed and the session goes back to OPEN.
+ * Returns true when the completion was finished.
+ */
+async function recoverFinalizing(bucket: R2Bucket, record: SessionRecord, now: number): Promise<boolean> {
+	const sessionId = record.sessionId;
+	const code = record.candidateCode;
+	const manifest = code ? await readManifest(bucket, code) : null;
+	const claimed = manifest !== null && manifest.sessionId === sessionId;
+
+	if (claimed && code && record.validityDays !== null && manifest.expiresAt === record.expiresAt) {
+		const knownFiles = new Set(record.files.map((file) => file.fileId));
+		if (manifest.files.length > 0 && manifest.files.every((file) => knownFiles.has(file.fileId))) {
+			if (record.expiresAt !== null) await bucket.put(expiryKey(record.expiresAt, code), '');
+			await transitionSession(
+				bucket,
+				sessionId,
+				'COMPLETED',
+				{ retrievalCode: code, fileIds: manifest.files.map((file) => file.fileId) },
+				now,
+			);
+			await closeSession(bucket, sessionId, record.createdAt);
+			return true;
+		}
+	}
+
+	if (claimed && code) {
+		await deleteKeys(bucket, [codeKey(code), ...(manifest.expiresAt !== null ? [expiryKey(manifest.expiresAt, code)] : [])]);
+		if (record.expiresAt !== null && record.expiresAt !== manifest.expiresAt) await deleteKeys(bucket, [expiryKey(record.expiresAt, code)]);
+	}
+	await transitionSession(
+		bucket,
+		sessionId,
+		'OPEN',
+		{ candidateCode: null, completionFingerprint: null, finalizeStartedAt: null, validityDays: null, expiresAt: null },
+		now,
+	);
+	return false;
+}
+
+const CODE_CURSOR_KEY = 'maintenance/code-claim-cursor.json';
+const CODE_SCAN_BATCH = 500;
+
+/**
+ * Scans codes/ in batches (the cursor persists) and removes claims that their session does not back:
+ * the session is gone, or it neither completed with this code nor is completing with it.
+ */
+async function cleanupOrphanClaims(bucket: R2Bucket, now: number): Promise<number> {
+	const saved = await bucket.get(CODE_CURSOR_KEY);
+	const cursor = saved ? (((await saved.json()) as { cursor?: string | null }).cursor ?? undefined) : undefined;
+	const page = await bucket.list({ prefix: 'codes/', cursor, limit: CODE_SCAN_BATCH });
+
+	let removed = 0;
+	for (const object of page.objects) {
+		const code = object.key.slice('codes/'.length);
+		const manifest = await readManifest(bucket, code);
+		if (!manifest) continue;
+		const session = await getSessionRecord(bucket, manifest.sessionId).catch(() => 'unreadable' as const);
+		if (session === 'unreadable') continue; // a corrupt record is not proof that the claim is unowned
+		const owned =
+			session !== null &&
+			((session.record.status === 'COMPLETED' && session.record.retrievalCode === code) ||
+				(session.record.status === 'FINALIZING' && session.record.candidateCode === code));
+		if (owned) continue;
+		await deleteKeys(bucket, [object.key, ...(manifest.expiresAt !== null ? [expiryKey(manifest.expiresAt, code)] : [])]);
+		removed++;
+	}
+
+	await bucket.put(CODE_CURSOR_KEY, JSON.stringify({ cursor: page.truncated ? page.cursor : null }), {
+		httpMetadata: { contentType: 'application/json' },
+	});
+	return removed;
 }
 
 async function cleanupOrphanObjects(bucket: R2Bucket, now: number, result: CleanupResult): Promise<number> {

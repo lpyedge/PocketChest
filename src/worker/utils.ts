@@ -143,12 +143,16 @@ export async function verifyDownloadJWT(token: string, secret: string): Promise<
 	return payload as DownloadJWTPayload;
 }
 
+// An upload session is open for this long from the moment it starts. Every token for it ends no later than that,
+// so a part is never accepted for a session whose final Complete can no longer succeed.
+export const UPLOAD_SESSION_SECONDS = 24 * 60 * 60;
+
 export async function createUploadJWT(sessionId: string, secret: string, now: number = getCurrentTimestamp()): Promise<string> {
 	const payload: UploadJWTPayload = {
 		sessionId,
 		type: 'upload',
 		iat: now,
-		exp: now + 24 * 60 * 60, // 24 hours
+		exp: now + UPLOAD_SESSION_SECONDS,
 	};
 
 	return signJWT(payload, secret);
@@ -195,11 +199,12 @@ export async function createMultipartJWT(
 	mimeType: string,
 	fileSize: number,
 	secret: string,
+	sessionDeadline: number,
 ): Promise<string> {
 	const now = Math.floor(Date.now() / 1000);
 
-	// Multipart uploads get 48 hours regardless of session expiry
-	const expiry = now + 48 * 60 * 60; // 48 hours
+	// Never longer than the upload session itself (see UPLOAD_SESSION_SECONDS)
+	const expiry = sessionDeadline;
 
 	const payload: MultipartJWTPayload = {
 		sessionId,

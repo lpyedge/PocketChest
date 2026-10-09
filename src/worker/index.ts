@@ -1123,7 +1123,7 @@ async function handleDownloadFile(request: Request, env: Env, fileId: string): P
 // POST /api/upload-sessions/:sessionId/multipart/create - Create multipart upload
 async function handleCreateMultipartUpload(request: Request, env: Env, sessionId: string): Promise<Response> {
 	await enforceRateLimit(env.UPLOAD_LIMITER, request, 'multipart-create');
-	await authorizeUpload(request, env, sessionId);
+	const session = await authorizeUpload(request, env, sessionId);
 	const { filename, mimeType, fileSize } = await readJson<CreateMultipartUploadRequest>(request);
 
 	if (!filename || !mimeType || !fileSize || fileSize <= 0 || !Number.isInteger(fileSize)) {
@@ -1157,7 +1157,16 @@ async function handleCreateMultipartUpload(request: Request, env: Env, sessionId
 	const response: CreateMultipartUploadResponse = {
 		fileId,
 		// The raw R2 uploadId stays server-side inside a signed token
-		uploadId: await createMultipartJWT(sessionId, fileId, multipartUpload.uploadId, filename, mimeType, fileSize, env.JWT_SECRET),
+		uploadId: await createMultipartJWT(
+			sessionId,
+			fileId,
+			multipartUpload.uploadId,
+			filename,
+			mimeType,
+			fileSize,
+			env.JWT_SECRET,
+			session.exp,
+		),
 	};
 	return json(response);
 }

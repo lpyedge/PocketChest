@@ -1141,6 +1141,7 @@ async function handleAuthorizeDownload(request: Request, env: Env): Promise<Resp
 
 // GET /api/download/:fileId - Stream one file. Authorized only by the download Cookie for that file.
 async function handleDownloadFile(request: Request, env: Env, fileId: string): Promise<Response> {
+	await enforceRateLimit(env.DOWNLOAD_LIMITER, request, `download:${fileId}`);
 	const token = cookieValue(request.headers.get('Cookie'), downloadCookieName(fileId));
 	if (!token) {
 		throw new ApiError(401, 'AUTH_REQUIRED', 'Download authorization required');

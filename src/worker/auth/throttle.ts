@@ -81,6 +81,11 @@ async function updateRecord(
 		const object = await bucket.get(key);
 		const current = object ? parseRecord(await object.text()) : emptyRecord(now);
 		const next = mutate(current);
+		// Nothing to change (a refusal): answer from what was read, without a write. Refusing on a read is safe:
+		// only a write can ever let an attempt through, and that stays a compare-and-swap.
+		if (next === current) {
+			return current;
+		}
 		const stored = await bucket.put(key, JSON.stringify(next), {
 			httpMetadata: { contentType: 'application/json' },
 			onlyIf: object ? { etagMatches: object.etag } : new Headers({ 'If-None-Match': '*' }),

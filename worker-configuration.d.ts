@@ -8,6 +8,7 @@ interface __BaseEnv_Env {
 	UPLOAD_LIMITER: RateLimit;
 	PART_LIMITER: RateLimit;
 	PART_TOTAL_LIMITER: RateLimit;
+	DOWNLOAD_LIMITER: RateLimit;
 	ASSETS: Fetcher;
 	BOOTSTRAP_ENABLED: "false";
 	JWT_SECRET: string;

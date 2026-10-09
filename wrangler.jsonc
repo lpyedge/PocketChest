@@ -32,6 +32,8 @@
 		{ "name": "PART_LIMITER", "namespace_id": "1004", "simple": { "limit": 600, "period": 60 } },
 		// All multipart parts from one client address, whatever the file: opening many files does not multiply the allowance
 		{ "name": "PART_TOTAL_LIMITER", "namespace_id": "1005", "simple": { "limit": 1200, "period": 60 } },
+		// File downloads, per file and client address: generous for a real download (one request, a few retries), stops loops
+		{ "name": "DOWNLOAD_LIMITER", "namespace_id": "1006", "simple": { "limit": 120, "period": 60 } },
 	],
 	"vars": {
 		"BOOTSTRAP_ENABLED": "false",

@@ -59,3 +59,45 @@ test('adds a passkey, switches it on, signs in with it, and removes it again', a
 	await dialog.getByRole('button', { name: 'Confirm with passkey' }).click();
 	await expect(passkeys.getByText('Not set up')).toBeVisible();
 });
+
+test('shows a scannable QR code and the manual key for the authenticator, and cancelling changes nothing', async ({ page, request }) => {
+	await request.post('/api/auth/bootstrap', { headers: { Origin: ORIGIN }, data: { password: OWNER_PASSWORD } });
+
+	let secret = '';
+	page.on('response', async (response) => {
+		if (response.url().endsWith('/api/admin/security/totp/prepare') && response.ok()) {
+			const uri = ((await response.json()) as { otpauthUri: string }).otpauthUri;
+			secret = new URL(uri).searchParams.get('secret') ?? '';
+		}
+	});
+
+	await page.goto('/upload/');
+	await page.getByLabel('Password', { exact: true }).fill(OWNER_PASSWORD);
+	await page.getByRole('button', { name: 'Sign in with password' }).click();
+	await page.getByRole('button', { name: 'Security settings' }).click();
+
+	const dialog = page.getByRole('dialog', { name: 'Security settings' });
+	const authenticator = dialog.locator('section', { hasText: 'Authenticator app' });
+	const before = await authenticator.innerText();
+
+	await authenticator.getByRole('button', { name: /Set up authenticator|Replace authenticator/ }).click();
+	await dialog.getByLabel('Password', { exact: true }).fill(OWNER_PASSWORD);
+	await dialog.getByRole('button', { name: 'Confirm with password' }).click();
+
+	const qr = authenticator.getByRole('img', { name: 'QR code for your authenticator app' });
+	await expect(qr).toBeVisible();
+	const box = await qr.boundingBox();
+	expect(box!.width).toBeGreaterThan(150);
+	await expect(authenticator.getByTestId('totp-secret')).toHaveText(/^([A-Z2-7]{4} ?)+$/);
+	expect(secret).toMatch(/^[A-Z2-7]{32}$/);
+	expect((await authenticator.getByTestId('totp-secret').innerText()).replace(/\s/g, '')).toBe(secret);
+
+	// The seed is not kept anywhere in the browser
+	const stored = (await page.evaluate(`JSON.stringify([window.localStorage, window.sessionStorage])`)) as string;
+	expect(stored).not.toContain(secret);
+
+	// Cancelling leaves the authenticator exactly as it was
+	await authenticator.getByRole('button', { name: /^Cancel/ }).click();
+	await expect(qr).toBeHidden();
+	expect(await authenticator.innerText()).toBe(before);
+});

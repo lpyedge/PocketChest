@@ -3,6 +3,8 @@ import { startRegistration, startAuthentication } from '@simplewebauthn/browser'
 import { authApi, AuthRequestError, Rotation, SecurityStatus } from '@/lib/auth-api';
 import { describeAuthError } from '@/components/AuthMethodPicker';
 import { useI18n } from '@/i18n/I18nProvider';
+import { QrCode } from '@/components/QrCode';
+import { totpSecretFrom } from '@/lib/qr';
 
 type Method = 'password' | 'totp' | 'passkey';
 
@@ -25,6 +27,36 @@ function statusLabel(
 ): string {
 	if (!item.configured) return t('security.notSetUp');
 	return item.enabled ? t('security.on') : t('security.offSetUp');
+}
+
+// The same seed as the QR code, for typing by hand. It only lives in this component's state: never stored.
+function ManualKey({ otpauthUri }: { otpauthUri: string }) {
+	const { t } = useI18n();
+	const [copied, setCopied] = useState(false);
+	const key = totpSecretFrom(otpauthUri);
+	if (!key) return null;
+	return (
+		<div className="space-y-1">
+			<p className="text-sm text-gray-700">{t('security.orTypeKey')}</p>
+			<div className="flex items-center gap-2">
+				<code data-testid="totp-secret" className="block bg-gray-100 p-2 rounded text-sm tracking-wider break-all">
+					{key.grouped}
+				</code>
+				<button
+					type="button"
+					onClick={() => {
+						navigator.clipboard
+							.writeText(key.secret)
+							.then(() => setCopied(true))
+							.catch(() => setCopied(false));
+					}}
+					className="text-sm text-gray-700 underline"
+				>
+					{copied ? t('security.keyCopied') : t('security.copyKey')}
+				</button>
+			</div>
+		</div>
+	);
 }
 
 export function SecuritySettingsModal({ csrfToken, onRotated, onClose, onSignedOut }: SecuritySettingsModalProps) {
@@ -273,8 +305,10 @@ export function SecuritySettingsModal({ csrfToken, onRotated, onClose, onSignedO
 					</button>
 				) : (
 					<div className="mt-3 space-y-2">
+						<p className="text-sm text-gray-700">{t('security.scanQr')}</p>
+						<QrCode value={totpSetup.otpauthUri} label={t('security.qrLabel')} />
+						<ManualKey otpauthUri={totpSetup.otpauthUri} />
 						<p className="text-sm text-gray-700">{t('security.addKey')}</p>
-						<code className="block break-all bg-gray-100 p-2 rounded text-xs">{totpSetup.otpauthUri}</code>
 						<form
 							className="flex gap-2"
 							onSubmit={(event) => {

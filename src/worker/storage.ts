@@ -375,7 +375,7 @@ export async function cleanupExpired(bucket: R2Bucket, now: number): Promise<Cle
 		const sessionId = markerKey.split('/')[2];
 		try {
 			const current = await getSessionRecord(bucket, sessionId).catch(() => null);
-			if (current?.record.status === 'OPEN') {
+			if (current?.record.status === 'OPEN' || current?.record.status === 'ABANDONED') {
 				result.deletedObjects += await removeSession(bucket, sessionId, current.record.multipartUploads);
 				result.abandonedSessions++;
 			} else if (current?.record.status === 'FINALIZING') {

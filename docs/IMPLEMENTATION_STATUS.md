@@ -13,7 +13,7 @@
 | TASK-06 | Complete 冪等與碼碰撞補償（P0） | PASS | 見 Git log |
 | TASK-07 | Multipart 狀態、Abort | PASS | 見 Git log |
 | TASK-08 | Cron 清理與故障自修復 | PASS | 見 Git log |
-| TASK-09 | 上傳配額與前端真取消 | TODO | |
+| TASK-09 | 上傳配額與前端真取消 | PASS | 見 Git log |
 | TASK-10 | POST 查碼 | TODO | |
 | TASK-11 | 下載授權 Cookie 與串流 | TODO | |
 | TASK-12 | Owner 原子資料與首次初始化 | TODO | |

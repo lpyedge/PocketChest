@@ -21,6 +21,8 @@ export default function UploadApp() {
 	const [showTOTPModal, setShowTOTPModal] = useState(false);
 	const [totpError, setTotpError] = useState<string>('');
 	const [sessionData, setSessionData] = useState<{ sessionId: string; uploadToken: string } | null>(null);
+	// Kept in memory only, so that a new session can be opened without asking again
+	const [totpToken, setTotpToken] = useState('');
 
 	// Config state
 	const [configLoaded, setConfigLoaded] = useState(false);
@@ -60,12 +62,13 @@ export default function UploadApp() {
 		initializeApp();
 	}, []);
 
-	const handleTOTPSubmit = async (totpToken: string) => {
+	const handleTOTPSubmit = async (code: string) => {
 		setTotpError('');
 		setIsAuthenticating(true);
 
 		try {
-			const session = await api.createChest(totpToken);
+			const session = await api.createChest(code);
+			setTotpToken(code);
 			setSessionData({ sessionId: session.sessionId, uploadToken: session.uploadToken });
 			setIsAuthenticated(true);
 			setShowTOTPModal(false);
@@ -87,14 +90,23 @@ export default function UploadApp() {
 		setTotpError('');
 	};
 
-	const handleUpload = async () => {
+	// Every upload runs in its own session: a session is closed by completing it, cancelling it or a failed attempt
+	const startSession = async (): Promise<{ sessionId: string; uploadToken: string } | null> => {
+		if (requireTOTP && !totpToken) {
+			// Ask for the code again; the upload continues from the modal's submit
+			setIsAuthenticated(false);
+			setShowTOTPModal(true);
+			return null;
+		}
+		const session = await api.createChest(requireTOTP ? totpToken : undefined);
+		const started = { sessionId: session.sessionId, uploadToken: session.uploadToken };
+		setSessionData(started);
+		return started;
+	};
+
+	const runUpload = async (retry: boolean) => {
 		if (files.length === 0 && textItems.length === 0) {
 			alert('Please add files or text to share');
-			return;
-		}
-
-		if (!sessionData) {
-			alert('Session not ready. Please try again.');
 			return;
 		}
 
@@ -106,33 +118,34 @@ export default function UploadApp() {
 			document.documentElement.scrollTop = 0;
 		}, 100);
 
+		// A previous attempt's session is abandoned on the server before a new one starts
+		if (retry && sessionData) {
+			await api.cancelSession(sessionData.sessionId, sessionData.uploadToken).catch(() => undefined);
+		}
+		setSessionData(null);
+
 		try {
-			const result = await uploadWithSession(sessionData.sessionId, sessionData.uploadToken, files, textItems, validityDays);
+			const session = await startSession();
+			if (!session) return;
+			const result = retry
+				? await retryUpload(session.sessionId, session.uploadToken, files, textItems, validityDays)
+				: await uploadWithSession(session.sessionId, session.uploadToken, files, textItems, validityDays);
 			setUploadResult(result.retrievalCode);
 			setFiles([]);
 			setTextItems([]);
 		} catch (error) {
 			console.error('Upload failed:', error);
-			// Error is handled by the uploadProgress component
+			// Errors are shown by the progress component; a cancelled upload is not an error
 		}
 	};
 
-	const handleRetry = async () => {
-		if (!sessionData) return;
+	const handleUpload = () => runUpload(false);
 
-		try {
-			const result = await retryUpload(sessionData.sessionId, sessionData.uploadToken, files, textItems, validityDays);
-			setUploadResult(result.retrievalCode);
-			setFiles([]);
-			setTextItems([]);
-		} catch (error) {
-			console.error('Retry failed:', error);
-		}
-	};
+	const handleRetry = () => runUpload(true);
 
 	const handleCancel = () => {
-		cancelUpload();
-		// Reset local page state
+		cancelUpload(sessionData?.sessionId, sessionData?.uploadToken);
+		setSessionData(null);
 		setUploadResult(null);
 	};
 

@@ -9,6 +9,7 @@
  * only proceeds when no unexpired lease exists, so a file can never appear in a chest while its
  * upload is still running.
  */
+import { LIMITS } from './limits';
 import type { ChestFile } from './types';
 
 export type SessionStatus = 'OPEN' | 'FINALIZING' | 'COMPLETED' | 'ABANDONED';
@@ -16,6 +17,9 @@ export type SessionStatus = 'OPEN' | 'FINALIZING' | 'COMPLETED' | 'ABANDONED';
 export interface SessionLease {
 	id: string;
 	expiresAt: number;
+	// Reserved against the session quota while the write runs
+	files: number;
+	bytes: number;
 }
 
 export type MultipartState = 'ACTIVE' | 'ABORTED' | 'COMPLETED';
@@ -27,6 +31,8 @@ export interface MultipartUploadEntry {
 	uploadId: string;
 	state: MultipartState;
 	createdAt: number;
+	// Declared size; reserved against the quota while the upload is ACTIVE
+	size: number;
 }
 
 export interface SessionRecord {
@@ -57,6 +63,8 @@ export type SessionErrorCode =
 	| 'INVALID_TRANSITION'
 	| 'LEASE_ACTIVE'
 	| 'LEASE_LOST'
+	| 'QUOTA_FILES'
+	| 'QUOTA_BYTES'
 	| 'COMPLETION_MISMATCH'
 	| 'CONFLICT'
 	| 'CORRUPT_RECORD';
@@ -111,12 +119,19 @@ export function parseSessionRecord(value: unknown): SessionRecord {
 			typeof entry?.fileId === 'string' &&
 			typeof entry.uploadId === 'string' &&
 			(entry.state === 'ACTIVE' || entry.state === 'ABORTED' || entry.state === 'COMPLETED') &&
-			typeof entry.createdAt === 'number'
+			typeof entry.createdAt === 'number' &&
+			typeof entry.size === 'number'
 		);
 	};
 	const isLease = (v: unknown): v is SessionLease => {
 		const lease = v as Record<string, unknown>;
-		return typeof lease?.id === 'string' && typeof lease.expiresAt === 'number' && Number.isInteger(lease.expiresAt);
+		return (
+			typeof lease?.id === 'string' &&
+			typeof lease.expiresAt === 'number' &&
+			Number.isInteger(lease.expiresAt) &&
+			typeof lease.files === 'number' &&
+			typeof lease.bytes === 'number'
+		);
 	};
 	const isFile = (v: unknown): v is ChestFile => {
 		const file = v as Record<string, unknown>;
@@ -270,12 +285,41 @@ export function transitionSession(
 	);
 }
 
-/** Reserves a write lease. Only OPEN sessions accept leases. Expired leases are dropped on the way. */
+// Everything the session already holds or has promised: stored files, live leases, unfinished multipart uploads
+function committedUsage(record: SessionRecord, at: number, excludeLeaseId?: string): { files: number; bytes: number } {
+	let files = record.files.length;
+	let bytes = record.files.reduce((sum, file) => sum + file.size, 0);
+	for (const lease of record.leases) {
+		if (lease.expiresAt > at && lease.id !== excludeLeaseId) {
+			files += lease.files;
+			bytes += lease.bytes;
+		}
+	}
+	for (const entry of record.multipartUploads) {
+		if (entry.state === 'ACTIVE') {
+			files += 1;
+			bytes += entry.size;
+		}
+	}
+	return { files, bytes };
+}
+
+function checkQuota(usage: { files: number; bytes: number }, limits: { maxFiles: number; maxBytes: number }): void {
+	if (usage.files > limits.maxFiles) {
+		throw new SessionError('QUOTA_FILES', 'Too many files in this upload session');
+	}
+	if (usage.bytes > limits.maxBytes) {
+		throw new SessionError('QUOTA_BYTES', 'This upload session has reached its size limit');
+	}
+}
+
+/** Reserves a write lease. Only OPEN sessions accept leases; the reservation must fit the session quota. */
 export function acquireLease(
 	bucket: R2Bucket,
 	sessionId: string,
 	lease: SessionLease,
 	now: number = Math.floor(Date.now() / 1000),
+	limits: { maxFiles: number; maxBytes: number } = QUOTA_LIMITS,
 ): Promise<SessionRecord> {
 	return updateSession(
 		bucket,
@@ -285,11 +329,64 @@ export function acquireLease(
 				throw new SessionError('NOT_OPEN', 'Session is no longer accepting uploads');
 			}
 			const live = current.leases.filter((existing) => existing.expiresAt > at);
-			return { ...current, leases: [...live, lease] };
+			const next = { ...current, leases: [...live, lease] };
+			checkQuota(committedUsage(next, at), limits);
+			return next;
 		},
 		now,
 	);
 }
+
+/** Sets the real file count and bytes of a lease once its request body has been read. */
+export function setLeaseUsage(
+	bucket: R2Bucket,
+	sessionId: string,
+	leaseId: string,
+	usage: { files: number; bytes: number },
+	now: number = Math.floor(Date.now() / 1000),
+	limits: { maxFiles: number; maxBytes: number } = QUOTA_LIMITS,
+): Promise<SessionRecord> {
+	return updateSession(
+		bucket,
+		sessionId,
+		(current, at) => {
+			const held = current.leases.find((lease) => lease.id === leaseId);
+			if (!held || held.expiresAt <= at || current.status !== 'OPEN') {
+				throw new SessionError('LEASE_LOST', 'Upload lease expired or was closed before the write finished');
+			}
+			const next = {
+				...current,
+				leases: current.leases.map((lease) => (lease.id === leaseId ? { ...lease, files: usage.files, bytes: usage.bytes } : lease)),
+			};
+			checkQuota(committedUsage(next, at), limits);
+			return next;
+		},
+		now,
+	);
+}
+
+/** Abandons an OPEN session: no further uploads, and its unfinished multipart uploads are returned for aborting. */
+export function abandonSession(bucket: R2Bucket, sessionId: string, now: number = Math.floor(Date.now() / 1000)): Promise<SessionRecord> {
+	return updateSession(
+		bucket,
+		sessionId,
+		(current) => {
+			if (current.status === 'ABANDONED') return current;
+			if (current.status !== 'OPEN') {
+				throw new SessionError('INVALID_TRANSITION', `Cannot cancel a session in state ${current.status}`);
+			}
+			return {
+				...current,
+				status: 'ABANDONED',
+				leases: [],
+				multipartUploads: current.multipartUploads.map((entry) => (entry.state === 'ACTIVE' ? { ...entry, state: 'ABORTED' } : entry)),
+			};
+		},
+		now,
+	);
+}
+
+export const QUOTA_LIMITS = { maxFiles: LIMITS.maxFilesPerSession, maxBytes: LIMITS.maxSessionBytes };
 
 /**
  * Ends a write. `files` are the verified files this write produced (empty for a part upload).
@@ -404,21 +501,24 @@ export function replaceCandidateCode(
 	);
 }
 
-/** Records a multipart upload that was just started. Only OPEN sessions accept one. */
+/** Records a multipart upload that was just started. Only OPEN sessions accept one, and it must fit the quota. */
 export function registerMultipartUpload(
 	bucket: R2Bucket,
 	sessionId: string,
 	entry: MultipartUploadEntry,
 	now: number = Math.floor(Date.now() / 1000),
+	limits: { maxFiles: number; maxBytes: number } = QUOTA_LIMITS,
 ): Promise<SessionRecord> {
 	return updateSession(
 		bucket,
 		sessionId,
-		(current) => {
+		(current, at) => {
 			if (current.status !== 'OPEN') {
 				throw new SessionError('NOT_OPEN', 'Session is no longer accepting uploads');
 			}
-			return { ...current, multipartUploads: [...current.multipartUploads, entry] };
+			const next = { ...current, multipartUploads: [...current.multipartUploads, entry] };
+			checkQuota(committedUsage(next, at), limits);
+			return next;
 		},
 		now,
 	);

@@ -10,7 +10,7 @@ interface UploadProgressProps {
 		total: number;
 	};
 	fileProgress?: FileUploadProgress[];
-	uploadStatus: 'idle' | 'uploading' | 'success' | 'error';
+	uploadStatus: 'idle' | 'uploading' | 'success' | 'error' | 'cancelled';
 	error?: string;
 	onRetry: () => void;
 	onCancel?: () => void;
@@ -27,7 +27,7 @@ export function UploadProgress({
 	onRetry,
 	onCancel,
 }: UploadProgressProps) {
-	if (uploadStatus === 'idle') return null;
+	if (uploadStatus === 'idle' || uploadStatus === 'cancelled') return null;
 
 	const totalItems = files.length + textItems.length;
 	const formatFileSize = (bytes: number): string => {

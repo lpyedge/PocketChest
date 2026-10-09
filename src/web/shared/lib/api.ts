@@ -16,6 +16,22 @@ import {
 // The API is served by the same Worker as the frontend
 const API_BASE_URL = '';
 
+function abortError(): DOMException {
+	return new DOMException('Upload cancelled', 'AbortError');
+}
+
+// Ties an XMLHttpRequest to an AbortSignal: aborting the signal aborts the request and rejects with AbortError
+function bindXhrAbort(xhr: XMLHttpRequest, signal: AbortSignal | undefined, reject: (reason: unknown) => void): void {
+	if (!signal) return;
+	const onAbort = () => xhr.abort();
+	if (signal.aborted) {
+		reject(abortError());
+		return;
+	}
+	signal.addEventListener('abort', onAbort, { once: true });
+	xhr.addEventListener('abort', () => reject(abortError()));
+}
+
 export class PocketChestAPI {
 	constructor(private baseUrl: string = API_BASE_URL) {}
 
@@ -55,7 +71,9 @@ export class PocketChestAPI {
 		textItems: TextItem[],
 		onProgress?: (progress: { loaded: number; total: number; percentage: number }) => void,
 		onFileProgress?: (progress: FileUploadProgress[]) => void,
+		signal?: AbortSignal,
 	): Promise<UploadResponse> {
+		signal?.throwIfAborted();
 		const CHUNK_SIZE = 20 * 1024 * 1024; // 20MB: larger files use multipart upload
 		const MAX_CONCURRENT_SMALL_FILES = 3;
 
@@ -117,7 +135,7 @@ export class PocketChestAPI {
 			});
 			emitFileProgress();
 
-			const result = await this.uploadContentRegular(sessionId, uploadToken, [], textItems);
+			const result = await this.uploadContentRegular(sessionId, uploadToken, [], textItems, undefined, signal);
 			if (result.uploadedFiles.length !== textItems.length) {
 				throw new Error('Unexpected response while uploading text items');
 			}
@@ -143,18 +161,26 @@ export class PocketChestAPI {
 		const resultNames: string[] = new Array(files.length);
 
 		await runWithConcurrency(smallIndexes, MAX_CONCURRENT_SMALL_FILES, async (index) => {
+			signal?.throwIfAborted();
 			const file = files[index];
 			const entry = fileEntry(index);
 			entry.status = 'starting';
 			emitFileProgress();
 
-			const result = await this.uploadContentRegular(sessionId, uploadToken, [file], [], (chunk) => {
-				entry.status = chunk.percentage === 100 ? 'finalizing' : 'uploading';
-				entry.uploadedBytes = Math.min(file.size, chunk.loaded);
-				entry.percentage = file.size === 0 ? 100 : Math.round((entry.uploadedBytes / file.size) * 100);
-				emitFileProgress();
-				emitOverallProgress();
-			});
+			const result = await this.uploadContentRegular(
+				sessionId,
+				uploadToken,
+				[file],
+				[],
+				(chunk) => {
+					entry.status = chunk.percentage === 100 ? 'finalizing' : 'uploading';
+					entry.uploadedBytes = Math.min(file.size, chunk.loaded);
+					entry.percentage = file.size === 0 ? 100 : Math.round((entry.uploadedBytes / file.size) * 100);
+					emitFileProgress();
+					emitOverallProgress();
+				},
+				signal,
+			);
 			if (result.uploadedFiles.length !== 1) {
 				throw new Error(`Unexpected response while uploading ${file.name}`);
 			}
@@ -177,14 +203,20 @@ export class PocketChestAPI {
 			entry.status = 'starting';
 			emitFileProgress();
 
-			const result = await this.uploadLargeFile(sessionId, uploadToken, file, (chunk) => {
-				entry.fileId = chunk.fileId;
-				entry.uploadedBytes = chunk.uploadedBytes;
-				entry.percentage = chunk.percentage;
-				entry.status = chunk.percentage === 100 ? 'finalizing' : 'uploading';
-				emitFileProgress();
-				emitOverallProgress();
-			});
+			const result = await this.uploadLargeFile(
+				sessionId,
+				uploadToken,
+				file,
+				(chunk) => {
+					entry.fileId = chunk.fileId;
+					entry.uploadedBytes = chunk.uploadedBytes;
+					entry.percentage = chunk.percentage;
+					entry.status = chunk.percentage === 100 ? 'finalizing' : 'uploading';
+					emitFileProgress();
+					emitOverallProgress();
+				},
+				signal,
+			);
 
 			fileIds[index] = result.fileId;
 			resultNames[index] = result.filename;
@@ -215,6 +247,7 @@ export class PocketChestAPI {
 		files: File[],
 		textItems: TextItem[],
 		onProgress?: (progress: { loaded: number; total: number; percentage: number }) => void,
+		signal?: AbortSignal,
 	): Promise<UploadResponse> {
 		const formData = new FormData();
 
@@ -265,6 +298,7 @@ export class PocketChestAPI {
 					reject(new Error('Network error during upload'));
 				});
 
+				bindXhrAbort(xhr, signal, reject);
 				xhr.open('POST', `${this.baseUrl}/api/chest/${sessionId}/upload`);
 				xhr.setRequestHeader('Authorization', `Bearer ${uploadToken}`);
 				xhr.send(formData);
@@ -278,6 +312,7 @@ export class PocketChestAPI {
 				Authorization: `Bearer ${uploadToken}`,
 			},
 			body: formData,
+			signal,
 		});
 
 		if (!response.ok) {
@@ -285,6 +320,20 @@ export class PocketChestAPI {
 		}
 
 		return response.json();
+	}
+
+	// Abandons an upload session on the server: its uploads stop and unfinished multipart uploads are aborted
+	async cancelSession(sessionId: string, uploadToken: string): Promise<void> {
+		const response = await fetch(`${this.baseUrl}/api/chest/${sessionId}/cancel`, {
+			method: 'POST',
+			headers: {
+				Authorization: `Bearer ${uploadToken}`,
+			},
+		});
+
+		if (!response.ok) {
+			throw new Error('Failed to cancel upload');
+		}
 	}
 
 	async completeUpload(
@@ -412,6 +461,7 @@ export class PocketChestAPI {
 		partNumber: number,
 		data: ArrayBuffer,
 		onPartProgress?: (loaded: number, total: number) => void,
+		signal?: AbortSignal,
 	): Promise<UploadPartResponse> {
 		// Use XMLHttpRequest for progress tracking
 		if (onPartProgress) {
@@ -441,6 +491,7 @@ export class PocketChestAPI {
 					reject(new Error(`Network error during part ${partNumber} upload`));
 				});
 
+				bindXhrAbort(xhr, signal, reject);
 				xhr.open('PUT', `${this.baseUrl}/api/chest/${sessionId}/multipart/${fileId}/part/${partNumber}`);
 				xhr.setRequestHeader('Authorization', `Bearer ${multipartToken}`);
 				xhr.setRequestHeader('Content-Type', 'application/octet-stream');
@@ -456,6 +507,7 @@ export class PocketChestAPI {
 				'Content-Type': 'application/octet-stream',
 			},
 			body: data,
+			signal,
 		});
 
 		if (!response.ok) {
@@ -492,6 +544,7 @@ export class PocketChestAPI {
 		uploadToken: string,
 		file: File,
 		onProgress?: (progress: MultipartUploadProgress) => void,
+		signal?: AbortSignal,
 	): Promise<{ fileId: string; filename: string }> {
 		const CHUNK_SIZE = 20 * 1024 * 1024; // 20MB chunks
 		const totalParts = Math.ceil(file.size / CHUNK_SIZE);
@@ -546,6 +599,7 @@ export class PocketChestAPI {
 
 		// Upload parts in batches of 3 (or less for small files)
 		for (let i = 0; i < totalParts; i += concurrencyLimit) {
+			signal?.throwIfAborted();
 			const batchPromises: Promise<void>[] = [];
 
 			// Create batch of up to 3 concurrent uploads
@@ -559,25 +613,33 @@ export class PocketChestAPI {
 				const uploadPromise = (async () => {
 					const arrayBuffer = await chunk.arrayBuffer();
 
-					const result = await this.uploadPart(sessionId, multipartToken, fileId, partNumber, arrayBuffer, (loaded, total) => {
-						// Update progress for this specific part
-						partProgress.set(partNumber, loaded);
+					const result = await this.uploadPart(
+						sessionId,
+						multipartToken,
+						fileId,
+						partNumber,
+						arrayBuffer,
+						(loaded, total) => {
+							// Update progress for this specific part
+							partProgress.set(partNumber, loaded);
 
-						// Calculate total progress atomically
-						const totalUploaded = calculateTotalProgress();
+							// Calculate total progress atomically
+							const totalUploaded = calculateTotalProgress();
 
-						if (onProgress) {
-							onProgress({
-								fileId,
-								filename: file.name,
-								uploadedParts: completedPartsCount,
-								totalParts,
-								uploadedBytes: totalUploaded,
-								totalBytes: file.size,
-								percentage: Math.round((totalUploaded / file.size) * 100),
-							});
-						}
-					});
+							if (onProgress) {
+								onProgress({
+									fileId,
+									filename: file.name,
+									uploadedParts: completedPartsCount,
+									totalParts,
+									uploadedBytes: totalUploaded,
+									totalBytes: file.size,
+									percentage: Math.round((totalUploaded / file.size) * 100),
+								});
+							}
+						},
+						signal,
+					);
 
 					uploadedParts.push({
 						partNumber,

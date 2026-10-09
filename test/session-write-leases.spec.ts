@@ -57,7 +57,7 @@ describe('write leases and the completion barrier', () => {
 	it('blocks completion while a lease is held, and allows it once the lease is released', async () => {
 		const sessionId = await newOpenSession();
 		const now = getCurrentTimestamp();
-		await acquireLease(bucket(), sessionId, { id: 'lease-1', expiresAt: now + LEASE_SECONDS }, now);
+		await acquireLease(bucket(), sessionId, { id: 'lease-1', expiresAt: now + LEASE_SECONDS, files: 0, bytes: 0 }, now);
 
 		expect(await errorCodeOf(beginFinalize(bucket(), sessionId, 'fp', now))).toBe('LEASE_ACTIVE');
 		expect((await getSessionRecord(bucket(), sessionId))?.record.status).toBe('OPEN');
@@ -70,7 +70,7 @@ describe('write leases and the completion barrier', () => {
 	it('drops an expired lease at completion, and its late release cannot register a file', async () => {
 		const sessionId = await newOpenSession();
 		const now = getCurrentTimestamp();
-		await acquireLease(bucket(), sessionId, { id: 'slow', expiresAt: now - 1 }, now - LEASE_SECONDS - 10);
+		await acquireLease(bucket(), sessionId, { id: 'slow', expiresAt: now - 1, files: 0, bytes: 0 }, now - LEASE_SECONDS - 10);
 
 		await beginFinalize(bucket(), sessionId, 'fp', now);
 		const late = {
@@ -90,17 +90,19 @@ describe('write leases and the completion barrier', () => {
 		const now = getCurrentTimestamp();
 		await beginFinalize(bucket(), sessionId, 'fp', now);
 
-		expect(await errorCodeOf(acquireLease(bucket(), sessionId, { id: 'x', expiresAt: now + 60 }, now))).toBe('NOT_OPEN');
+		expect(await errorCodeOf(acquireLease(bucket(), sessionId, { id: 'x', expiresAt: now + 60, files: 0, bytes: 0 }, now))).toBe(
+			'NOT_OPEN',
+		);
 	});
 
 	it('registers a verified file once and dedupes repeated registration', async () => {
 		const sessionId = await newOpenSession();
 		const now = getCurrentTimestamp();
 		const file = { fileId: crypto.randomUUID(), filename: 'a.txt', size: 3, mimeType: 'text/plain', isText: false, fileExtension: 'txt' };
-		await acquireLease(bucket(), sessionId, { id: 'w', expiresAt: now + 60 }, now);
+		await acquireLease(bucket(), sessionId, { id: 'w', expiresAt: now + 60, files: 0, bytes: 0 }, now);
 		await releaseLease(bucket(), sessionId, 'w', [file], now);
 
-		await acquireLease(bucket(), sessionId, { id: 'w2', expiresAt: now + 60 }, now);
+		await acquireLease(bucket(), sessionId, { id: 'w2', expiresAt: now + 60, files: 0, bytes: 0 }, now);
 		const record = await releaseLease(bucket(), sessionId, 'w2', [file], now);
 		expect(record.files).toHaveLength(1);
 	});
@@ -111,7 +113,7 @@ describe('write leases and the completion barrier', () => {
 		const fileId = ((await first.json()) as any).uploadedFiles[0].fileId;
 
 		// Simulate a write that still holds its lease
-		await acquireLease(bucket(), sessionId, { id: 'stuck', expiresAt: getCurrentTimestamp() + LEASE_SECONDS });
+		await acquireLease(bucket(), sessionId, { id: 'stuck', expiresAt: getCurrentTimestamp() + LEASE_SECONDS, files: 0, bytes: 0 });
 		const response = await complete(sessionId, uploadToken, [fileId]);
 		expect(response.status).toBe(409);
 		expect(((await response.json()) as any).code).toBe('UPLOAD_IN_PROGRESS');

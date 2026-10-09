@@ -7,7 +7,7 @@ export function usePocketChest() {
 	const [isRetrieving, setIsRetrieving] = useState(false);
 	const [error, setError] = useState<string | null>(null);
 	const [uploadProgress, setUploadProgress] = useState({ percentage: 0, loaded: 0, total: 0 });
-	const [uploadStatus, setUploadStatus] = useState<'idle' | 'uploading' | 'success' | 'error'>('idle');
+	const [uploadStatus, setUploadStatus] = useState<'idle' | 'uploading' | 'success' | 'error' | 'cancelled'>('idle');
 	const [fileProgress, setFileProgress] = useState<FileUploadProgress[]>([]);
 	const [abortController, setAbortController] = useState<AbortController | null>(null);
 
@@ -118,6 +118,8 @@ export function usePocketChest() {
 					(fileProgressList) => {
 						setFileProgress(fileProgressList);
 					},
+
+					controller.signal,
 				);
 
 				// Upload complete, now finalizing
@@ -134,10 +136,15 @@ export function usePocketChest() {
 					uploadedFiles,
 				};
 			} catch (err) {
+				setAbortController(null);
+				if (err instanceof DOMException && err.name === 'AbortError') {
+					// The user cancelled: not an error, nothing was completed
+					setUploadStatus('cancelled');
+					throw err;
+				}
 				const message = err instanceof Error ? err.message : 'Upload failed';
 				setError(message);
 				setUploadStatus('error');
-				setAbortController(null); // Clear abort controller on error
 				throw new Error(message, { cause: err });
 			} finally {
 				setIsUploading(false);
@@ -164,20 +171,25 @@ export function usePocketChest() {
 		[uploadWithSession, abortController],
 	);
 
-	const cancelUpload = useCallback(() => {
-		// Abort any ongoing requests
-		if (abortController) {
-			abortController.abort();
-			setAbortController(null);
-		}
+	const cancelUpload = useCallback(
+		(sessionId?: string, uploadToken?: string) => {
+			// Stop the requests in flight, then tell the server to abandon the session
+			if (abortController) {
+				abortController.abort();
+				setAbortController(null);
+			}
+			if (sessionId && uploadToken) {
+				api.cancelSession(sessionId, uploadToken).catch((error) => console.error('Cancel failed:', error));
+			}
 
-		// Reset all state
-		setIsUploading(false);
-		setUploadStatus('idle');
-		setUploadProgress({ percentage: 0, loaded: 0, total: 0 });
-		setFileProgress([]);
-		setError(null);
-	}, [abortController]);
+			setIsUploading(false);
+			setUploadStatus('cancelled');
+			setUploadProgress({ percentage: 0, loaded: 0, total: 0 });
+			setFileProgress([]);
+			setError(null);
+		},
+		[abortController, api],
+	);
 
 	return {
 		upload,

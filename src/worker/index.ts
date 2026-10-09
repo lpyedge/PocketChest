@@ -1,15 +1,18 @@
 import {
+	abandonSession,
 	acquireLease,
 	assertSameCompletion,
-	MultipartUploadEntry,
-	registerMultipartUpload,
 	beginFinalize,
 	getSessionRecord,
+	MultipartUploadEntry,
+	registerMultipartUpload,
 	releaseLease,
+	setLeaseUsage,
 	SessionError,
 	SessionRecord,
 	transitionSession,
 } from './session';
+import { LIMITS, utf8ByteLength } from './limits';
 import {
 	Env,
 	CreateChestRequest,
@@ -86,6 +89,10 @@ function sessionErrorToApi(error: SessionError): ApiError {
 			return new ApiError(404, 'SESSION_NOT_FOUND', 'Session not found or already completed');
 		case 'LEASE_ACTIVE':
 			return new ApiError(409, 'UPLOAD_IN_PROGRESS', 'Uploads are still in progress; try again shortly');
+		case 'QUOTA_FILES':
+			return new ApiError(413, 'TOO_MANY_FILES', 'This upload session has reached its file limit');
+		case 'QUOTA_BYTES':
+			return new ApiError(413, 'SESSION_QUOTA_EXCEEDED', 'This upload session has reached its size limit');
 		case 'COMPLETION_MISMATCH':
 			return new ApiError(409, 'COMPLETION_MISMATCH', 'This upload was already completed with different files or validity');
 		case 'LEASE_LOST':
@@ -142,6 +149,10 @@ export default {
 
 			if (path.match(/^\/api\/chest\/[^\/]+\/multipart\/[^\/]+\/complete$/) && method === 'POST') {
 				return await handleCompleteMultipartUpload(request, env, segments[3], segments[5]);
+			}
+
+			if (path.match(/^\/api\/chest\/[^\/]+\/cancel$/) && method === 'POST') {
+				return await handleCancelUpload(request, env, segments[3]);
 			}
 
 			if (path.match(/^\/api\/chest\/[^\/]+\/complete$/) && method === 'POST') {
@@ -304,9 +315,17 @@ async function handleCreateChest(request: Request, env: Env): Promise<Response> 
 async function handleUploadFiles(request: Request, env: Env, sessionId: string): Promise<Response> {
 	await authorizeUpload(request, env, sessionId);
 
+	// A declared body size is checked before anything is read; the real size is checked after parsing
+	const declaredBytes = declaredLength(request, LIMITS.maxUploadRequestBytes);
+
 	// Reserve the session for this write before anything is stored, so Complete cannot race it
 	const leaseId = generateUUID();
-	await acquireLease(env.R2_STORAGE, sessionId, { id: leaseId, expiresAt: getCurrentTimestamp() + UPLOAD_LEASE_SECONDS });
+	await acquireLease(env.R2_STORAGE, sessionId, {
+		id: leaseId,
+		expiresAt: getCurrentTimestamp() + UPLOAD_LEASE_SECONDS,
+		files: 0,
+		bytes: declaredBytes,
+	});
 
 	try {
 		const formData = await request.formData();
@@ -318,6 +337,10 @@ async function handleUploadFiles(request: Request, env: Env, sessionId: string):
 			if (value instanceof File) {
 				const fileId = generateUUID();
 				const filename = value.name || 'unnamed-file';
+				checkFilename(filename);
+				if (value.size > LIMITS.maxSmallFileBytes) {
+					throw new ApiError(413, 'FILE_TOO_LARGE', 'File is larger than the single-upload limit; use multipart upload');
+				}
 				const mimeType = value.type || 'application/octet-stream';
 				writes.push(
 					env.R2_STORAGE.put(fileKey(sessionId, fileId), value.stream(), fileUploadOptions({ filename, mimeType, isText: false })),
@@ -338,9 +361,14 @@ async function handleUploadFiles(request: Request, env: Env, sessionId: string):
 				if (typeof textData.content !== 'string') {
 					throw new ApiError(400, 'INVALID_REQUEST', 'Invalid text item');
 				}
+				const size = utf8ByteLength(textData.content);
+				if (size > LIMITS.maxTextBytes) {
+					throw new ApiError(413, 'TEXT_TOO_LARGE', 'Text is larger than the limit');
+				}
 
 				const fileId = generateUUID();
 				const filename = typeof textData.filename === 'string' && textData.filename ? textData.filename : `text-${Date.now()}.txt`;
+				checkFilename(filename);
 				writes.push(
 					env.R2_STORAGE.put(
 						fileKey(sessionId, fileId),
@@ -348,10 +376,16 @@ async function handleUploadFiles(request: Request, env: Env, sessionId: string):
 						fileUploadOptions({ filename, mimeType: 'text/plain', isText: true }),
 					),
 				);
-				expected.push({ fileId, size: new TextEncoder().encode(textData.content).length, filename, mimeType: 'text/plain', isText: true });
+				expected.push({ fileId, size, filename, mimeType: 'text/plain', isText: true });
 				uploadedFiles.push({ fileId, filename, isText: true });
 			}
 		}
+
+		// The real count and size replace the reservation; over-quota uploads are refused before anything is written
+		await setLeaseUsage(env.R2_STORAGE, sessionId, leaseId, {
+			files: expected.length,
+			bytes: expected.reduce((sum, file) => sum + file.size, 0),
+		});
 
 		await Promise.all(writes);
 
@@ -368,7 +402,42 @@ async function handleUploadFiles(request: Request, env: Env, sessionId: string):
 	}
 }
 
+// Declared Content-Length of a request. Missing is allowed (the body is checked after reading), too large is refused.
+function declaredLength(request: Request, max: number): number {
+	const header = request.headers.get('Content-Length');
+	if (header === null) {
+		return 0;
+	}
+	const bytes = Number(header);
+	if (!Number.isInteger(bytes) || bytes < 0) {
+		throw new ApiError(400, 'INVALID_REQUEST', 'Invalid Content-Length');
+	}
+	if (bytes > max) {
+		throw new ApiError(413, 'PAYLOAD_TOO_LARGE', 'Request body is larger than the limit');
+	}
+	return bytes;
+}
+
+function checkFilename(filename: string): void {
+	if (utf8ByteLength(filename) > LIMITS.maxFilenameBytes) {
+		throw new ApiError(400, 'FILENAME_TOO_LONG', 'File name is too long');
+	}
+}
+
 // POST /api/chest/:sessionId/complete - Complete upload and generate retrieval code
+// POST /api/chest/:sessionId/cancel - Abandon an upload session; its unfinished multipart uploads are aborted
+async function handleCancelUpload(request: Request, env: Env, sessionId: string): Promise<Response> {
+	const token = await authorizeUploadToken(request, env, sessionId);
+	// Read the uploads before abandoning: abandoning marks them closed, and they still have to be aborted in R2
+	const before = await getSessionRecord(env.R2_STORAGE, sessionId);
+	if (!before) {
+		throw new ApiError(404, 'SESSION_NOT_FOUND', 'Session not found or already completed');
+	}
+	await abandonSession(env.R2_STORAGE, sessionId);
+	await abortActiveMultipart(env.R2_STORAGE, sessionId, before.record.multipartUploads);
+	return json({ cancelled: true, createdAt: token.iat });
+}
+
 // Completion requests are fingerprinted, so a repeat with the same files and validity returns the same result
 function completionFingerprint(fileIds: string[], validityDays: number): string {
 	return `${[...fileIds].sort().join(',')}|${validityDays}`;
@@ -435,6 +504,12 @@ async function handleCompleteUpload(request: Request, env: Env, sessionId: strin
 		if (files.some((file) => file === undefined)) {
 			await transitionSession(bucket, sessionId, 'OPEN', { completionFingerprint: null, candidateCode: null });
 			throw new ApiError(400, 'FILE_NOT_IN_SESSION', 'Some files do not belong to this session');
+		}
+
+		if (files.every((file) => (file as ChestFile).size === 0)) {
+			// Nothing to share: undo the completion and refuse it
+			await transitionSession(bucket, sessionId, 'OPEN', { completionFingerprint: null, candidateCode: null, finalizeStartedAt: null });
+			throw new ApiError(400, 'EMPTY_CHEST', 'Nothing to share: all files are empty');
 		}
 
 		const code = await finalizeChest(bucket, sessionId, {
@@ -533,8 +608,12 @@ async function handleCreateMultipartUpload(request: Request, env: Env, sessionId
 	await authorizeUpload(request, env, sessionId);
 	const { filename, mimeType, fileSize } = await readJson<CreateMultipartUploadRequest>(request);
 
-	if (!filename || !mimeType || !fileSize || fileSize <= 0) {
+	if (!filename || !mimeType || !fileSize || fileSize <= 0 || !Number.isInteger(fileSize)) {
 		throw new ApiError(400, 'INVALID_REQUEST', 'Invalid multipart upload parameters');
+	}
+	checkFilename(filename);
+	if (fileSize > LIMITS.maxMultipartFileBytes) {
+		throw new ApiError(413, 'FILE_TOO_LARGE', 'File is larger than the limit');
 	}
 
 	const fileId = generateUUID();
@@ -543,13 +622,14 @@ async function handleCreateMultipartUpload(request: Request, env: Env, sessionId
 		fileUploadOptions({ filename, mimeType, isText: false }),
 	);
 
-	// Record the upload before handing out its token; if the session cannot take it, drop the R2 upload
+	// Record the upload before handing out its token; if the session cannot take it (state or quota), drop the R2 upload
 	try {
 		await registerMultipartUpload(env.R2_STORAGE, sessionId, {
 			fileId,
 			uploadId: multipartUpload.uploadId,
 			state: 'ACTIVE',
 			createdAt: getCurrentTimestamp(),
+			size: fileSize,
 		});
 	} catch (error) {
 		await multipartUpload.abort().catch(() => undefined);
@@ -576,7 +656,12 @@ async function withActiveMultipart<T>(
 	alreadyInState?: { state: 'ABORTED'; result: T },
 ): Promise<T> {
 	const leaseId = generateUUID();
-	const record = await acquireLease(env.R2_STORAGE, sessionId, { id: leaseId, expiresAt: getCurrentTimestamp() + UPLOAD_LEASE_SECONDS });
+	const record = await acquireLease(env.R2_STORAGE, sessionId, {
+		id: leaseId,
+		expiresAt: getCurrentTimestamp() + UPLOAD_LEASE_SECONDS,
+		files: 0,
+		bytes: 0,
+	});
 	const entry = record.multipartUploads.find((candidate) => candidate.fileId === fileId);
 
 	try {
@@ -615,13 +700,17 @@ async function withActiveMultipart<T>(
 async function handleUploadPart(request: Request, env: Env, sessionId: string, fileId: string, partNumber: number): Promise<Response> {
 	const payload = await authorizeMultipart(request, env, sessionId, fileId);
 
-	if (!(partNumber >= 1 && partNumber <= 10000)) {
+	if (!(partNumber >= 1 && partNumber <= LIMITS.maxPartsPerUpload)) {
 		throw new ApiError(400, 'INVALID_REQUEST', 'Invalid part number');
 	}
+	declaredLength(request, LIMITS.maxPartBytes);
 
 	const body = await request.arrayBuffer();
 	if (body.byteLength === 0) {
 		throw new ApiError(400, 'INVALID_REQUEST', 'Empty part body');
+	}
+	if (body.byteLength > LIMITS.maxPartBytes) {
+		throw new ApiError(413, 'PAYLOAD_TOO_LARGE', 'Part is larger than the limit');
 	}
 
 	const uploadedPart = await withActiveMultipart(env, sessionId, fileId, payload.uploadId, async () => {
@@ -638,13 +727,13 @@ async function handleUploadPart(request: Request, env: Env, sessionId: string, f
 
 // Validates the part list before it reaches R2
 function validateParts(parts: unknown): { partNumber: number; etag: string }[] {
-	if (!Array.isArray(parts) || parts.length === 0 || parts.length > 10000) {
+	if (!Array.isArray(parts) || parts.length === 0 || parts.length > LIMITS.maxPartsPerUpload) {
 		throw new ApiError(400, 'INVALID_REQUEST', 'Invalid parts array');
 	}
 	const seen = new Set<number>();
 	for (const part of parts) {
 		const { partNumber, etag } = part as { partNumber?: unknown; etag?: unknown };
-		if (!Number.isInteger(partNumber) || (partNumber as number) < 1 || (partNumber as number) > 10000) {
+		if (!Number.isInteger(partNumber) || (partNumber as number) < 1 || (partNumber as number) > LIMITS.maxPartsPerUpload) {
 			throw new ApiError(400, 'INVALID_REQUEST', 'Invalid part number');
 		}
 		if (typeof etag !== 'string' || etag.length === 0 || etag.length > 256) {

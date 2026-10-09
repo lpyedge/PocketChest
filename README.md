@@ -14,7 +14,7 @@ A **chest** is simply a collection of files and text that you upload together. E
 - 📦 **Large File Support** - Handles files up to about 195GB (10,000 parts of 20MB) using multipart uploads to Cloudflare R2
 - 🔐 **Secure Codes** - 6-character retrieval codes for access
 - 🔗 **Ready-to-send Links** - After uploading, copy a direct link (`/retrieve/#ABC123`) or the page address plus code
-- ⏰ **Auto Expiry** - Files expire after 1, 3, 7, or 15 days (or permanent)
+- ⏰ **Auto Expiry** - Files expire after 1, 3, 7, or 14 days (or permanent)
 - 🚀 **No Registration** - No accounts, just upload and share
 - 🔐 **Owner Sign-in, three methods** - Password, authenticator app (TOTP) and passkey; any one that is switched on is enough
 - 🌐 **Three languages** - 繁體中文, 日本語 and English, switchable without reloading

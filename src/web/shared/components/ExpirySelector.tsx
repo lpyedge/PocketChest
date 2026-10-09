@@ -10,7 +10,7 @@ const expiryOptions: { value: ValidityDays; label: MessageKey; description: Mess
 	{ value: 1, label: 'expiry.1d', description: 'expiry.1d.desc' },
 	{ value: 3, label: 'expiry.3d', description: 'expiry.3d.desc' },
 	{ value: 7, label: 'expiry.1w', description: 'expiry.1w.desc' },
-	{ value: 15, label: 'expiry.2w', description: 'expiry.2w.desc' },
+	{ value: 14, label: 'expiry.2w', description: 'expiry.2w.desc' },
 	{ value: -1, label: 'expiry.permanent', description: 'expiry.permanent.desc' },
 ];
 

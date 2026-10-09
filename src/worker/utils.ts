@@ -216,7 +216,7 @@ export function isValidRetrievalCode(code: string): boolean {
 	return codeRegex.test(code);
 }
 
-export const VALIDITY_DAYS_OPTIONS = [1, 3, 7, 15, -1] as const;
+export const VALIDITY_DAYS_OPTIONS = [1, 3, 7, 14, -1] as const;
 
 export function isValidValidityDays(value: unknown): value is (typeof VALIDITY_DAYS_OPTIONS)[number] {
 	return VALIDITY_DAYS_OPTIONS.includes(value as (typeof VALIDITY_DAYS_OPTIONS)[number]);

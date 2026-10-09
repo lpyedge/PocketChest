@@ -103,6 +103,8 @@
 
 ### POST /api/upload-sessions/{id}/complete
 
+請求：`{"fileIds":["…"],"validityDays":7}`。`validityDays` 只接受 `1`、`3`、`7`、`14`（兩週）或 `-1`（永久）；其他值回 `400 INVALID_REQUEST`。永久分享的 `expiryDate` 為 `null`。
+
 ```http
 200 OK
 {"retrievalCode":"ABC123","expiryDate":"2026-10-16T00:00:00.000Z"}

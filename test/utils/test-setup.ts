@@ -33,7 +33,7 @@ export async function testFetch(url: string, init?: RequestInit): Promise<Respon
 	const worker = (await import('../../src/worker/index')).default;
 
 	const IncomingRequest = Request<unknown, IncomingRequestCfProperties>;
-	const request = new IncomingRequest(url, init);
+	const request = new IncomingRequest(url, init as RequestInit<IncomingRequestCfProperties>);
 
 	const ctx = createExecutionContext();
 	const response = await worker.fetch(request, env, ctx);

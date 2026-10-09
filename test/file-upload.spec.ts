@@ -122,7 +122,7 @@ describe('POST /api/chest/:sessionId/upload - Upload Files', () => {
 		expect(response.status).toBe(200);
 		const data = (await response.json()) as any;
 		expect(data.uploadedFiles).toHaveLength(2);
-		expect(data.uploadedFiles.every((f) => f.isText)).toBe(true);
+		expect(data.uploadedFiles.every((f: { isText: boolean }) => f.isText)).toBe(true);
 	});
 
 	it('should handle large file uploads within limits', async () => {

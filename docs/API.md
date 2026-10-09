@@ -1,235 +1,201 @@
-# PocketChest API
+# PocketChest API 合約（新協定 v2）
 
-The `/api/*` routes of the PocketChest Worker. The frontend calls them on the same origin; the API sends no CORS headers.
+> 狀態：**TASK-00 凍結稿**。本文件是唯一的 API 合約。
+> 欄位標記：`[已實作]` 目前程式已提供；`[TODO-TASK-xx]` 尚未實作，由指定 Task 交付。
+> 目前程式仍是舊協定（見 `docs/API-legacy-v1.md`，僅作基準記錄，TASK-28 後刪除）。
 
-## Architecture
+## 共通規則
 
-- **Cloudflare Workers**: Edge computing for API endpoints
-- **R2 Storage**: Files, text content and per-chest JSON manifests (no database)
-- **JWT Authentication**: Token-based security for uploads and downloads
-- **TOTP Authentication**: Optional two-factor authentication for enhanced security
+- **同源**：前端與 API 同一網域，**不設定任何 CORS 標頭**。
+- **錯誤格式**（所有 4xx/5xx）：
 
-## API Endpoints
+  ```json
+  { "error": "safe message", "code": "FIXED_CODE" }
+  ```
 
-### 1. Get Configuration
+  `error` 只供除錯，前端只依 `code` 映射翻譯。不得含 Stack、R2 Key、Secret、SQL。
+- **敏感端點**（認證、取件、下載授權）回 `Cache-Control: no-store`；所有 API 回 `X-Content-Type-Options: nosniff`、`Referrer-Policy: no-referrer`。 `[TODO-TASK-13]`
+- **URL 不得含** JWT、取件碼、Cookie、Password、OTP。 `[TODO-TASK-10/11]`
+- **修改型 Cookie 端點**：必須通過 Origin 檢查，並帶 `X-PocketChest-CSRF`。 `[TODO-TASK-13]`
+- **狀態碼**：400 格式錯誤 · 401 未認證 · 403 權限／CSRF／Origin · 404 不存在或已過期（統一，避免枚舉） · 409 狀態衝突／CAS 衝突 · 413 超過上限 · 429 限流 · 500 內部錯誤（固定訊息）。
+
+## 錯誤代碼表
+
+| code | HTTP | 含義 |
+|---|---|---|
+| `INVALID_REQUEST` | 400 | 請求格式或欄位不合法 |
+| `INVALID_CODE` | 400 | 取件碼格式不合法 |
+| `INVALID_SESSION` | 400 | 上傳 Session ID 與 Token 不符 |
+| `AUTH_REQUIRED` | 401 | 缺少認證 |
+| `AUTH_INVALID` | 401 | 認證失敗（Token／Cookie 無效或過期） |
+| `AUTH_INVALID_CREDENTIALS` | 401 | Password／TOTP／Passkey 驗證失敗 `[TODO-TASK-14]` |
+| `TOKEN_MISMATCH` | 403 | Token 與 Session／檔案不屬於同一組 |
+| `CSRF_REJECTED` | 403 | Origin 或 CSRF Header 不符 `[TODO-TASK-13]` |
+| `REAUTH_REQUIRED` | 403 | 需近期重新驗證（5 分鐘）`[TODO-TASK-14]` |
+| `AUTH_METHOD_DISABLED` | 403 | 該登入方式已停用 `[TODO-TASK-14]` |
+| `AUTH_METHOD_NOT_CONFIGURED` | 409 | 方式未設定卻要求啟用 `[TODO-TASK-19]` |
+| `LAST_AUTH_METHOD` | 409 | 不可停用最後一種可用方式 `[TODO-TASK-19]` |
+| `CONFLICT` | 409 | R2 CAS 衝突，請重新讀取後再試 `[TODO-TASK-04]` |
+| `SESSION_NOT_FOUND` | 404 | 上傳 Session 不存在或已完成 |
+| `FILE_NOT_IN_SESSION` | 400 | 提交的檔案不屬於此 Session |
+| `FILE_NOT_FOUND` | 404 | 檔案不存在或不在此分享中 |
+| `CHEST_NOT_FOUND` | 404 | 取件碼不存在、已過期 |
+| `TOTP_REQUIRED` / `TOTP_INVALID` / `TOTP_NOT_CONFIGURED` | 401/500 | **舊協定**，TASK-28 刪除 |
+| `AUTH_TEMPORARILY_LOCKED` | 429 | 方法暫停，附 `Retry-After` `[TODO-TASK-16]` |
+| `RATE_LIMITED` | 429 | 來源超出限流，附 `Retry-After` `[TODO-TASK-16]` |
+| `PAYLOAD_TOO_LARGE` | 413 | 超過檔數／容量／大小上限 `[TODO-TASK-09]` |
+| `CODE_GENERATION_FAILED` | 500 | 多次撞碼仍無法分配取件碼 |
+| `INTERNAL_ERROR` | 500 | 其他錯誤 |
+
+## Endpoint 清單
+
+### 公開與登入
+
+| # | Method | Path | 權限 | 狀態 | 說明 |
+|---|---|---|---|---|---|
+| 1 | GET | `/api/config` | 公開 | [已實作，舊] | 回 `{requireTOTP}`。TASK-28 移除。 |
+| 2 | GET | `/api/auth/methods` | 公開 | [TODO-TASK-14] | 回三種方式的啟用旗標與 `setupRequired`。 |
+| 3 | POST | `/api/auth/bootstrap` | 公開，需 Bootstrap 條件 | [TODO-TASK-12] | 僅首次初始化。 |
+| 4 | POST | `/api/auth/login/password` | 公開 | [TODO-TASK-14] | 成功發出 Owner Cookie。 |
+| 5 | POST | `/api/auth/login/totp` | 公開 | [TODO-TASK-15] | 同上。 |
+| 6 | POST | `/api/auth/passkey/login/options` | 公開 | [TODO-TASK-18] | 一次性 Challenge。 |
+| 7 | POST | `/api/auth/passkey/login/verify` | 公開 | [TODO-TASK-18] | 成功發出 Owner Cookie。 |
+| 8 | GET | `/api/auth/session` | Cookie | [TODO-TASK-13] | 回 `{authenticated, csrfToken?}`。 |
+| 9 | POST | `/api/auth/logout` | Cookie + CSRF | [TODO-TASK-13] | 撤銷 Session。 |
+| 10 | POST | `/api/auth/reauth/password` | Cookie + CSRF | [TODO-TASK-14] | 更新 `reauthenticatedAt`。 |
+| 11 | POST | `/api/auth/reauth/totp` | Cookie + CSRF | [TODO-TASK-15] | 同上。 |
+| 12 | POST | `/api/auth/reauth/passkey/options` `…/verify` | Cookie + CSRF | [TODO-TASK-18] | 同上。 |
+
+### Owner 安全設定
+
+| # | Method | Path | 權限 | 狀態 | 說明 |
+|---|---|---|---|---|---|
+| 13 | GET | `/api/admin/security` | Cookie | [TODO-TASK-19] | 只回摘要，不回 Hash／Seed／公鑰。 |
+| 14 | PATCH | `/api/admin/security/methods` | Cookie + CSRF + 近期 reauth | [TODO-TASK-19] | `{method, enabled}`，單一方式。 |
+| 15 | POST | `/api/admin/security/password` | Cookie + CSRF + 近期 reauth | [TODO-TASK-20] | 修改密碼，輪替 Session。 |
+| 16 | POST | `/api/admin/security/totp/prepare` | Cookie + CSRF + 近期 reauth | [TODO-TASK-21] | 產生新 Seed 與 Challenge。 |
+| 17 | POST | `/api/admin/security/totp/confirm` | Cookie + CSRF + 近期 reauth | [TODO-TASK-21] | 驗證新 OTP 後切換。 |
+| 18 | POST | `/api/admin/passkeys/register/options` | Cookie + CSRF + 近期 reauth | [TODO-TASK-17] | 註冊 Challenge。 |
+| 19 | POST | `/api/admin/passkeys/register/verify` | Cookie + CSRF + 近期 reauth | [TODO-TASK-17] | 新增 Credential。 |
+| 20 | DELETE | `/api/admin/passkeys/{id}` | Cookie + CSRF + 近期 reauth | [TODO-TASK-19] | 不得刪最後一個有效方式。 |
+
+### 上傳
+
+| # | Method | Path | 權限 | 狀態 | 說明 |
+|---|---|---|---|---|---|
+| 21 | POST | `/api/chest` | 舊 | [已實作，舊] | TASK-28 移除，由 #22 取代。 |
+| 22 | POST | `/api/upload-sessions` | Owner Cookie + CSRF | [TODO-TASK-14] | 回 `{sessionId, uploadToken, expiresIn}`。 |
+| 23 | POST | `/api/upload-sessions/{id}/files` | Upload Token | [TODO-TASK-05] | 目前實作路徑為 `/api/chest/{id}/upload`。 |
+| 24 | POST | `/api/upload-sessions/{id}/multipart/create` | Upload Token | [TODO-TASK-07] | 目前：`/api/chest/{id}/multipart/create`。 |
+| 25 | PUT | `/api/upload-sessions/{id}/multipart/{fileId}/parts/{n}` | Multipart Token | [TODO-TASK-07] | 目前：`…/part/{n}`。 |
+| 26 | POST | `/api/upload-sessions/{id}/multipart/{fileId}/complete` | Multipart Token | [TODO-TASK-07] | |
+| 27 | POST | `/api/upload-sessions/{id}/multipart/{fileId}/abort` | Multipart Token | [TODO-TASK-07] | 新增。 |
+| 28 | POST | `/api/upload-sessions/{id}/complete` | Upload Token | [TODO-TASK-06] | 目前：`/api/chest/{id}/complete`。 |
+
+### 取件與下載
+
+| # | Method | Path | 權限 | 狀態 | 說明 |
+|---|---|---|---|---|---|
+| 29 | POST | `/api/retrieve` | 公開（Body 含取件碼） | [TODO-TASK-10] | `{"code":"ABC123"}`，回檔案清單與取件憑證。 |
+| 30 | GET | `/api/retrieve/{code}` | 舊 | [已實作，舊] | TASK-10 直接移除。 |
+| 31 | POST | `/api/download/authorize` | `Authorization: Bearer <取件憑證>` | [TODO-TASK-11] | Body `{"fileId"}`；下發 60 秒、限 Path 的 Cookie。 |
+| 32 | GET | `/api/download/{fileId}` | 下載 Cookie | [TODO-TASK-11] | 原生串流；不接受 `?token=`、`?filename=`。 |
+
+## 成功與失敗樣本
+
+### GET /api/config（舊，待刪除）
+
+```http
+200 OK
+{"requireTOTP": true}
 ```
-GET /api/config
-```
-Returns server configuration including TOTP requirements.
 
-**Response:**
-```json
-{
-  "requireTOTP": true
-}
+### POST /api/chest（舊，待刪除）
+
+```http
+200 OK
+{"sessionId":"<uuid>","uploadToken":"<jwt>","expiresIn":86400}
 ```
 
-### 2. Create Chest
-```
-POST /api/chest
-```
-Creates a new upload session and returns an upload token.
+失敗：`401 {"error":"TOTP token required","code":"TOTP_REQUIRED"}`
 
-**Body (when TOTP is enabled):**
-```json
-{
-  "totpToken": "123456"
-}
+### POST /api/chest/{id}/complete（目前實作）
+
+```http
+200 OK
+{"retrievalCode":"ABC123","expiryDate":"2026-10-16T00:00:00.000Z"}
 ```
 
-**Response:**
-```json
-{
-  "sessionId": "uuid-v4",
-  "uploadToken": "jwt-token",
-  "expiresIn": 86400
-}
+失敗：`404 {"error":"Session not found or already completed","code":"SESSION_NOT_FOUND"}`
+
+### GET /api/retrieve/{code}（舊，待刪除）
+
+```http
+200 OK
+{"files":[{"fileId":"<uuid>","filename":"a.txt","size":12,"mimeType":"text/plain","isText":true,"fileExtension":"txt"}],"chestToken":"<jwt>","expiryDate":null}
 ```
 
-### 3. Upload Files
-```
-POST /api/chest/:sessionId/upload
-Authorization: Bearer {uploadToken}
-Content-Type: multipart/form-data
-```
+失敗：`404 {"error":"Retrieval code not found or expired","code":"CHEST_NOT_FOUND"}`
 
-**Body:**
-- `files`: File objects
-- `textItems`: JSON strings with `{content, filename?}` format
+### GET /api/auth/methods（目標，TASK-14）
 
-**Response:**
-```json
-{
-  "uploadedFiles": [
-    {
-      "fileId": "uuid",
-      "filename": "example.txt",
-      "isText": false
-    }
-  ]
-}
+```http
+200 OK
+Cache-Control: no-store
+
+{"setupRequired":false,"password":true,"totp":false,"passkey":false}
 ```
 
-### 4. Multipart Upload (Large Files)
+不得回傳 `passwordHash`、`encryptedSecret`、`credentials`、`seed`。
 
-#### 4a. Create Multipart Upload
+### POST /api/auth/login/password（目標，TASK-14）
+
+```http
+200 OK
+Set-Cookie: __Host-pc_owner=<opaque>; HttpOnly; Secure; SameSite=Strict; Path=/
+
+{"authenticated":true}
 ```
-POST /api/chest/:sessionId/multipart/create
-Authorization: Bearer {uploadToken}
+
+失敗：`401 {"error":"Invalid credentials","code":"AUTH_INVALID_CREDENTIALS"}`；鎖定：`429 {"error":"Please try again later","code":"AUTH_TEMPORARILY_LOCKED"}` 並附正數 `Retry-After`。
+
+### POST /api/retrieve（目標，TASK-10）
+
+```http
+POST /api/retrieve
 Content-Type: application/json
+
+{"code":"ABC123"}
+
+200 OK
+{"files":[{"fileId":"<uuid>","filename":"a.txt","size":12}],"chestToken":"<短效取件憑證>","expiryDate":null}
 ```
 
-**Body:**
-```json
-{
-  "filename": "large-file.zip",
-  "mimeType": "application/zip",
-  "fileSize": 104857600
-}
+失敗：`400 {"error":"Invalid retrieval code format","code":"INVALID_CODE"}`；不存在或過期：`404 {"error":"Retrieval code not found or expired","code":"CHEST_NOT_FOUND"}`。
+
+### POST /api/download/authorize（目標，TASK-11）
+
+```http
+POST /api/download/authorize
+Authorization: Bearer <取件憑證>
+Content-Type: application/json
+
+{"fileId":"<uuid>"}
+
+200 OK
+Set-Cookie: pc_dl_<fileId>=<短效>; HttpOnly; Secure; SameSite=Strict; Path=/api/download/<fileId>; Max-Age=60
 ```
 
-**Response:**
-```json
-{
-  "fileId": "uuid",
-  "uploadId": "multipart-upload-id",
-  "multipartToken": "jwt-token"
-}
-```
+### GET /api/download/{fileId}（目標，TASK-11）
 
-#### 4b. Upload Part
-```
-PUT /api/chest/:sessionId/multipart/:fileId/part/:partNumber
-Authorization: Bearer {multipartToken}
+```http
+200 OK
+Cookie: pc_dl_<fileId>=<短效>
+Content-Disposition: attachment; filename="safe.txt"; filename*=UTF-8''...
 Content-Type: application/octet-stream
 ```
 
-**Response:**
-```json
-{
-  "etag": "part-etag",
-  "partNumber": 1
-}
-```
+## 驗收對照（AC-00-1、AC-00-2）
 
-#### 4c. Complete Multipart Upload
-```
-POST /api/chest/:sessionId/multipart/:fileId/complete
-Authorization: Bearer {multipartToken}
-Content-Type: application/json
-```
-
-**Body:**
-```json
-{
-  "parts": [
-    {
-      "partNumber": 1,
-      "etag": "part-etag"
-    }
-  ]
-}
-```
-
-**Response:**
-```json
-{
-  "fileId": "uuid"
-}
-```
-
-### 5. Complete Upload
-```
-POST /api/chest/:sessionId/complete
-Authorization: Bearer {uploadToken}
-Content-Type: application/json
-```
-
-**Body:**
-```json
-{
-  "fileIds": ["uuid1", "uuid2"],
-  "validityDays": 7
-}
-```
-
-`validityDays` must be one of `1`, `3`, `7`, `15` or `-1` (permanent).
-
-**Response:**
-```json
-{
-  "retrievalCode": "A1B2C3",
-  "expiryDate": "2024-01-01T00:00:00Z"
-}
-```
-
-### 6. Retrieve Chest Contents
-```
-GET /api/retrieve/:retrievalCode
-```
-
-**Response:**
-```json
-{
-  "files": [
-    {
-      "fileId": "uuid",
-      "filename": "example.txt",
-      "size": 1024,
-      "mimeType": "text/plain",
-      "isText": false,
-      "fileExtension": "txt"
-    }
-  ],
-  "chestToken": "jwt-token",
-  "expiryDate": "2024-01-01T00:00:00Z"
-}
-```
-
-### 7. Download File
-```
-GET /api/download/:fileId
-Authorization: Bearer {chestToken}
-```
-
-Returns the file content with appropriate headers.
-
-The token can also be passed as `?token={chestToken}` (used for direct browser downloads). An optional `?filename=` overrides the download name; it is sanitized and sent as an RFC 6266 `Content-Disposition` header.
-
-Setup, configuration and deployment are covered in the [README](../README.md) and [DEPLOYMENT.md](../DEPLOYMENT.md).
-
-## Errors
-
-Error responses are JSON with a human-readable message and a stable code:
-
-```json
-{ "error": "Retrieval code not found or expired", "code": "CHEST_NOT_FOUND" }
-```
-
-Codes: `NOT_FOUND`, `INVALID_REQUEST`, `INVALID_CODE`, `INVALID_SESSION`, `AUTH_REQUIRED`, `AUTH_INVALID`, `TOKEN_MISMATCH`, `TOTP_REQUIRED`, `TOTP_INVALID`, `TOTP_NOT_CONFIGURED`, `SESSION_NOT_FOUND`, `FILE_NOT_IN_SESSION`, `FILE_NOT_FOUND`, `CHEST_NOT_FOUND`, `CODE_GENERATION_FAILED`, `INTERNAL_ERROR`.
-
-## Security Features
-
-- JWT-based authentication for uploads and downloads
-- Session-based access control
-- File ownership validation
-- Expiry-based cleanup
-- Same-origin only (no CORS headers)
-- Retrieval codes generated with `crypto.getRandomValues`
-- Optional TOTP two-factor authentication
-- Multipart upload support for large files (with separate JWT tokens)
-
-## Storage
-
-All state lives in R2 (see the storage layout in [DEPLOYMENT.md](../DEPLOYMENT.md#storage-layout)). File content is stored at `{sessionId}/{fileId}`; completing an upload writes a JSON manifest at `codes/{CODE}`, which `/api/retrieve` and `/api/download` read. Text content is stored as plain text files, and the frontend can differentiate using the `isText` flag.
-
-## Multipart Upload Flow
-
-For large files (typically >100MB), use the multipart upload flow:
-
-1. Create multipart upload session
-2. Upload file in parts (5MB - 5GB per part)
-3. Complete multipart upload with part ETags
-4. File is automatically added to the session
-
-This approach provides better reliability for large file uploads and allows for upload resumption.
+- AC-00-1：每條新 API 均有 Method／Path／權限／錯誤碼與樣本（上表與本節）。
+- AC-00-2：新協定沒有 `?code=`、`?token=`、`/api/chest`、`/api/retrieve/{code}` 的相容要求；上表所有 `舊` 標記項在 TASK-28 前必須刪除，不新增別名。

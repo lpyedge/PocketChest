@@ -15,8 +15,9 @@ export function ShareResult({ code }: ShareResultProps) {
 
 	const shareLink = getShareLink(code);
 	const retrievePageUrl = getRetrievePageUrl();
-	// The message is written in the current language around the direct link, which always has the /retrieve/#CODE form
-	const shareMessage = t('share.message', { url: shareLink });
+	// The message is written in the current language and names the retrieval page and the code separately.
+	// The direct link keeps its own /retrieve/#CODE form and has its own copy button.
+	const shareMessage = t('share.message', { page: retrievePageUrl, code });
 
 	const copy = async (target: CopyTarget, text: string) => {
 		try {

@@ -11,7 +11,8 @@ interface Language {
 	submit: string;
 	addText: string;
 	copyMessage: string;
-	messageStart: string;
+	// The wording around the retrieval page address and code
+	message: (page: string, code: string) => string;
 	textPlaceholderStart: string;
 	retrieveHeading: string;
 	languageOption: string;
@@ -28,7 +29,7 @@ const LANGUAGES: Language[] = [
 		submit: 'アップロードしてコードを作成',
 		addText: 'テキストを追加',
 		copyMessage: 'メッセージとしてコピー',
-		messageStart: 'PocketChest で共有されたファイル：',
+		message: (page, code) => `${page} を開き、取り出しコード「${code}」を入力してください。`,
 		textPlaceholderStart: 'テキスト、コードの断片',
 		retrieveHeading: '📝 テキスト',
 		languageOption: '日本語',
@@ -43,7 +44,7 @@ const LANGUAGES: Language[] = [
 		submit: '上傳並產生取件碼',
 		addText: '加入文字',
 		copyMessage: '複製為訊息',
-		messageStart: 'PocketChest 分享的檔案：',
+		message: (page, code) => `請開啟 ${page}，輸入取件碼 ${code} 取得分享的檔案。`,
 		textPlaceholderStart: '輸入文字',
 		retrieveHeading: '📝 文字內容',
 		languageOption: '繁體中文',
@@ -58,7 +59,7 @@ const LANGUAGES: Language[] = [
 		submit: 'Upload & Generate Code',
 		addText: 'Add Text',
 		copyMessage: 'Copy as message',
-		messageStart: 'Files shared with PocketChest: ',
+		message: (page, code) => `Open ${page} and enter retrieval code ${code} to access the shared files.`,
 		textPlaceholderStart: 'Enter text content',
 		retrieveHeading: '📝 Text Content',
 		languageOption: 'English',
@@ -93,11 +94,22 @@ for (const language of LANGUAGES) {
 			const shareUrl = (await link.textContent()) ?? '';
 			expect(shareUrl).toMatch(/\/retrieve\/#[A-Z0-9]{6}$/);
 
-			// The copied message is written in the current language, and its link is still the plain /retrieve/#CODE form
+			// The copied message is written in the current language and gives the retrieval page and the code
+			// separately; it does not carry the #CODE form of the direct link
 			await page.getByRole('button', { name: language.copyMessage }).click();
-			const message = await page.evaluate('navigator.clipboard.readText()');
-			expect(message).toContain(language.messageStart);
-			expect(message).toBe(`${language.messageStart}${shareUrl}`);
+			const message = (await page.evaluate('navigator.clipboard.readText()')) as string;
+			const code = shareUrl.slice(-6);
+			const retrievePage = shareUrl.slice(0, shareUrl.indexOf('#'));
+			expect(retrievePage).toMatch(/\/retrieve\/$/);
+			expect(message).toBe(language.message(retrievePage, code));
+			expect(message).not.toContain('#');
+
+			// The direct-link button still copies the plain /retrieve/#CODE link
+			await page
+				.getByRole('button', { name: /^(Copy|コピー|複製)$/ })
+				.first()
+				.click();
+			expect(await page.evaluate('navigator.clipboard.readText()')).toBe(shareUrl);
 
 			await page.goto(shareUrl);
 			await expect(page.getByRole('heading', { level: 2, name: language.retrieveHeading })).toBeVisible();

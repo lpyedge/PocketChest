@@ -19,8 +19,26 @@ export function mapBrowserLanguage(tag: string): Locale | null {
 	return null;
 }
 
-/** Stored choice first, then the browser's languages in order, then the default. Never trusts stored values blindly. */
-export function resolveLocale(stored: unknown, languages: readonly string[]): Locale {
+/**
+ * The language a link asks for, from a URL search string such as `?lang=ja`. Only an exact, single value of
+ * one of the supported locales counts; anything else is ignored rather than guessed at.
+ */
+export function localeFromSearch(search: string): Locale | null {
+	const values = new URLSearchParams(search).getAll('lang');
+	return values.length === 1 && isLocale(values[0]) ? values[0] : null;
+}
+
+/** The same search string with its `lang` value replaced; a search without `lang` is returned unchanged. */
+export function withLocaleParam(search: string, locale: Locale): string {
+	const params = new URLSearchParams(search);
+	if (!params.has('lang')) return search;
+	params.set('lang', locale);
+	return `?${params.toString()}`;
+}
+
+/** A language asked for by the link, then the stored choice, then the browser's languages in order, then the default. */
+export function resolveLocale(stored: unknown, languages: readonly string[], requested: Locale | null = null): Locale {
+	if (requested) return requested;
 	if (isLocale(stored)) return stored;
 	for (const tag of languages) {
 		const mapped = mapBrowserLanguage(tag);

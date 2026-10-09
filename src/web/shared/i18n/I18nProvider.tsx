@@ -1,5 +1,16 @@
 import { createContext, ReactNode, useCallback, useContext, useEffect, useMemo, useState } from 'react';
-import { DEFAULT_LOCALE, isLocale, loaders, LOCALE_STORAGE_KEY, Locale, MessageKey, Messages, resolveLocale } from './index';
+import {
+	DEFAULT_LOCALE,
+	isLocale,
+	loaders,
+	LOCALE_STORAGE_KEY,
+	localeFromSearch,
+	Locale,
+	MessageKey,
+	Messages,
+	resolveLocale,
+	withLocaleParam,
+} from './index';
 
 export type { MessageKey };
 
@@ -35,7 +46,11 @@ function writeStoredLocale(locale: Locale): void {
 export function I18nProvider({ children }: { children: ReactNode }) {
 	const [locale, setLocaleState] = useState<Locale>(() => {
 		const languages = navigator.languages?.length ? navigator.languages : [navigator.language ?? DEFAULT_LOCALE];
-		return resolveLocale(readStoredLocale(), languages);
+		// A link from a static home page names its language (?lang=ja). Following it is a choice, so it is remembered.
+		const requested = localeFromSearch(window.location.search);
+		const chosen = resolveLocale(readStoredLocale(), languages, requested);
+		if (requested) writeStoredLocale(requested);
+		return chosen;
 	});
 	// The messages for the last locale that finished loading; the old ones stay on screen until the new ones arrive
 	const [loaded, setLoaded] = useState<{ locale: Locale; messages: Messages } | null>(null);
@@ -57,6 +72,11 @@ export function I18nProvider({ children }: { children: ReactNode }) {
 	const setLocale = useCallback((next: Locale) => {
 		if (!isLocale(next)) return;
 		writeStoredLocale(next);
+		// Keep a ?lang= in the address in step, so a reload does not bring the old language back (the #fragment is untouched)
+		const search = withLocaleParam(window.location.search, next);
+		if (search !== window.location.search) {
+			window.history.replaceState(window.history.state, '', `${window.location.pathname}${search}${window.location.hash}`);
+		}
 		setLocaleState(next);
 	}, []);
 

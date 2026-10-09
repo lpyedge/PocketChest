@@ -41,8 +41,8 @@ test.describe('static home pages without JavaScript', () => {
 		const retrieve = await page.request.get('/retrieve/');
 		expect(upload.status()).toBe(200);
 		expect(retrieve.status()).toBe(200);
-		await expect(page.getByRole('link', { name: /Start Sharing/ })).toHaveAttribute('href', '/upload/');
-		await expect(page.getByRole('link', { name: /Enter Code/ })).toHaveAttribute('href', '/retrieve/');
+		await expect(page.getByRole('link', { name: /Start Sharing/ })).toHaveAttribute('href', '/upload/?lang=en');
+		await expect(page.getByRole('link', { name: /Enter Code/ })).toHaveAttribute('href', '/retrieve/?lang=en');
 	});
 
 	test('an unknown path gets the 404 page, not the home page', async ({ page }) => {

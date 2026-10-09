@@ -15,6 +15,7 @@ import { changePassword, confirmTotp, prepareTotp, removePasskey, Rotated, secur
 import type { Method } from './auth/owner';
 import { ApiError } from './errors';
 import { enforceRateLimit } from './ratelimit';
+import { configurationProblem } from './config';
 import {
 	abandonSession,
 	acquireLease,
@@ -127,6 +128,17 @@ export default {
 		// Static assets normally never reach the Worker (run_worker_first only covers /api/*)
 		if (path !== '/api' && !path.startsWith('/api/')) {
 			return env.ASSETS.fetch(request);
+		}
+
+		// A deployment that kept an example secret answers nothing: tokens signed with a public value protect nothing
+		const problem = configurationProblem(env);
+		if (problem) {
+			console.error(`Misconfigured deployment: ${problem}`);
+			return withApiHeaders(
+				errorResponse(
+					new ApiError(500, 'SERVER_MISCONFIGURED', 'This deployment is not configured: set the secrets listed in DEPLOYMENT.md'),
+				),
+			);
 		}
 
 		return withApiHeaders(await routeApi(request, env, path));

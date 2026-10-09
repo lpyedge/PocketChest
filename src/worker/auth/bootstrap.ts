@@ -6,6 +6,7 @@
  * If step 2 fails, the marker stays: setup never reopens by itself (recovery goes through the CLI).
  */
 import { ApiError } from '../errors';
+import { isPlaceholder } from '../config';
 import { constantTimeEqual } from './encoding';
 import { createOwnerOnce, OWNER_KEY } from './owner';
 
@@ -25,7 +26,7 @@ export async function bootstrapOwner(env: BootstrapEnv, submitted: string): Prom
 		throw new ApiError(403, 'BOOTSTRAP_DISABLED', 'Initial setup is not enabled on this deployment');
 	}
 
-	if (configured.length < MIN_BOOTSTRAP_PASSWORD_LENGTH) {
+	if (configured.length < MIN_BOOTSTRAP_PASSWORD_LENGTH || isPlaceholder(configured)) {
 		// The setup secret is the only thing between the internet and the owner account while setup is open
 		throw new ApiError(500, 'BOOTSTRAP_MISCONFIGURED', 'The setup password configured on this deployment is too short');
 	}

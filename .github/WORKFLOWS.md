@@ -2,7 +2,7 @@
 
 ## CI (`ci.yml`)
 
-Runs on pushes and pull requests to `master`, `main` and `develop`.
+Runs on pushes to `master`, `dev` and `claude/**`, and on pull requests to `master` and `dev`. `dev` is the development branch; `master` is the released branch.
 
 **Jobs:**
 

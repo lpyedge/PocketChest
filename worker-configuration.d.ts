@@ -10,7 +10,7 @@ interface __BaseEnv_Env {
 	PART_TOTAL_LIMITER: RateLimit;
 	DOWNLOAD_LIMITER: RateLimit;
 	ASSETS: Fetcher;
-	BOOTSTRAP_ENABLED: "false";
+	BOOTSTRAP_ENABLED: "true";
 	JWT_SECRET: string;
 }
 declare namespace Cloudflare {

@@ -1,7 +1,6 @@
-# Local development only. Copy this file to .dev.vars. Never use these values in production.
-JWT_SECRET=local-dev-only-jwt-secret-change-me
-# 32 bytes, base64. This placeholder decodes to a known test value; generate your own with: openssl rand -base64 32
-AUTH_ENCRYPTION_KEY=MDEyMzQ1Njc4OWFiY2RlZjAxMjM0NTY3ODlhYmNkZWY=
-# First-time setup: the owner's password. Remove BOOTSTRAP_ENABLED once the owner exists.
-ADMIN_BOOTSTRAP_PASSWORD=local-dev-only-bootstrap-password
+# LOCAL DEVELOPMENT ONLY. All three values MUST be replaced before use.
+# Deploy Button may display these as defaults: NEVER deploy these values.
+JWT_SECRET=REPLACE_WITH_UNIQUE_RANDOM_SECRET
+AUTH_ENCRYPTION_KEY=REPLACE_WITH_BASE64_OF_32_RANDOM_BYTES
+ADMIN_BOOTSTRAP_PASSWORD=REPLACE_WITH_UNIQUE_PASSWORD_16_CHARS_MINIMUM
 BOOTSTRAP_ENABLED=true

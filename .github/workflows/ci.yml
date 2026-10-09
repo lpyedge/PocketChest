@@ -2,11 +2,11 @@ name: CI
 
 on:
   push:
-    # claude/** are the working branches: every push to one runs the full pipeline, so a branch is never
-    # reported as pushed without its tests having run on that exact commit
-    branches: [master, main, develop, 'claude/**']
+    # dev is the development branch and master the released one; claude/** are working branches. Every push to one
+    # runs the full pipeline, so a branch is never reported as pushed without its tests having run on that exact commit
+    branches: [master, dev, 'claude/**']
   pull_request:
-    branches: [master, main, develop]
+    branches: [master, dev]
   # A manual run is possible too, but it does not replace the automatic run for a push
   workflow_dispatch:
 

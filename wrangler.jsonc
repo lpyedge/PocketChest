@@ -36,7 +36,8 @@
 		{ "name": "DOWNLOAD_LIMITER", "namespace_id": "1006", "simple": { "limit": 120, "period": 60 } },
 	],
 	"vars": {
-		"BOOTSTRAP_ENABLED": "false",
+		// One-time setup only. After creating the Owner, change to false and redeploy.
+		"BOOTSTRAP_ENABLED": "true",
 	},
 	// Uncomment and configure for custom domain:
 	// "routes": [

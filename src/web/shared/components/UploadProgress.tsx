@@ -12,7 +12,9 @@ interface UploadProgressProps {
 		total: number;
 	};
 	fileProgress?: FileUploadProgress[];
-	uploadStatus: 'idle' | 'uploading' | 'success' | 'error' | 'cancelled';
+	uploadStatus: 'idle' | 'uploading' | 'cancelling' | 'success' | 'error' | 'cancelled';
+	// The share is being completed: it can no longer be cancelled
+	isFinalizing?: boolean;
 	error?: string;
 	onRetry: () => void;
 	onCancel?: () => void;
@@ -22,6 +24,7 @@ export function UploadProgress({
 	files,
 	textItems,
 	isUploading,
+	isFinalizing = false,
 	progress,
 	fileProgress = [],
 	uploadStatus,
@@ -83,11 +86,12 @@ export function UploadProgress({
 		<div className="bg-white rounded-lg shadow-md p-6 mb-6">
 			<div className="flex items-center justify-between mb-4">
 				<h3 className="text-lg font-semibold text-gray-900">
-					{uploadStatus === 'uploading' && t('progress.uploading')}
+					{uploadStatus === 'uploading' && (isFinalizing ? t('progress.finishing') : t('progress.uploading'))}
+					{uploadStatus === 'cancelling' && t('progress.cancelling')}
 					{uploadStatus === 'success' && t('progress.complete')}
 					{uploadStatus === 'error' && t('progress.failed')}
 				</h3>
-				{onCancel && uploadStatus === 'uploading' && (
+				{onCancel && uploadStatus === 'uploading' && !isFinalizing && (
 					<button onClick={onCancel} className="text-gray-500 hover:text-gray-700 text-sm">
 						{t('common.cancel')}
 					</button>
@@ -95,7 +99,7 @@ export function UploadProgress({
 			</div>
 
 			{/* Progress Bar */}
-			{(uploadStatus === 'uploading' || uploadStatus === 'success') && (
+			{(uploadStatus === 'uploading' || uploadStatus === 'cancelling' || uploadStatus === 'success') && (
 				<div className="mb-4">
 					<div className="flex justify-between text-sm text-gray-600 mb-2">
 						<span>{t('progress.items', { count: totalItems })}</span>

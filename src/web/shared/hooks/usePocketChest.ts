@@ -1,4 +1,4 @@
-import { useState, useCallback } from 'react';
+import { useState, useCallback, useRef } from 'react';
 import { PocketChestAPI } from '@/lib/api';
 import { TextItem, ValidityDays, FileUploadProgress } from '@/lib/types';
 import { messageKeyFor } from '@/lib/errors';
@@ -10,7 +10,12 @@ export function usePocketChest() {
 	const [isRetrieving, setIsRetrieving] = useState(false);
 	const [error, setError] = useState<string | null>(null);
 	const [uploadProgress, setUploadProgress] = useState({ percentage: 0, loaded: 0, total: 0 });
-	const [uploadStatus, setUploadStatus] = useState<'idle' | 'uploading' | 'success' | 'error' | 'cancelled'>('idle');
+	const [uploadStatus, setUploadStatus] = useState<'idle' | 'uploading' | 'cancelling' | 'success' | 'error' | 'cancelled'>('idle');
+	// True from the moment the share is being completed: it cannot be taken back from then on
+	const [isFinalizing, setIsFinalizing] = useState(false);
+	// Everything uploaded, Complete not answered yet. Asking again for the same session is safe and gives the same code;
+	// uploading again under a new session would make a second share.
+	const pendingCompletion = useRef<{ sessionId: string; uploadToken: string; fileIds: string[]; validityDays: ValidityDays } | null>(null);
 	const [fileProgress, setFileProgress] = useState<FileUploadProgress[]>([]);
 	const [abortController, setAbortController] = useState<AbortController | null>(null);
 
@@ -65,6 +70,21 @@ export function usePocketChest() {
 		[api],
 	);
 
+	// Completing is not abortable: once it is sent, only its answer can say whether the share exists
+	const finishCompletion = useCallback(
+		async (pending: { sessionId: string; uploadToken: string; fileIds: string[]; validityDays: ValidityDays }) => {
+			setIsFinalizing(true);
+			try {
+				const result = await api.completeUpload(pending.sessionId, pending.uploadToken, pending.fileIds, pending.validityDays);
+				pendingCompletion.current = null;
+				return result;
+			} finally {
+				setIsFinalizing(false);
+			}
+		},
+		[api],
+	);
+
 	const uploadWithSession = useCallback(
 		async (sessionId: string, uploadToken: string, files: File[], textItems: TextItem[], validityDays: ValidityDays = 7) => {
 			// Create new abort controller for this upload session
@@ -100,7 +120,8 @@ export function usePocketChest() {
 				setUploadProgress({ percentage: 100, loaded: finalProgress.total, total: finalProgress.total });
 
 				const fileIds = uploadedFiles.map((f) => f.fileId);
-				const result = await api.completeUpload(sessionId, uploadToken, fileIds, validityDays);
+				pendingCompletion.current = { sessionId, uploadToken, fileIds, validityDays };
+				const result = await finishCompletion(pendingCompletion.current);
 
 				setUploadStatus('success');
 				setAbortController(null); // Clear abort controller on success
@@ -112,8 +133,8 @@ export function usePocketChest() {
 			} catch (err) {
 				setAbortController(null);
 				if (err instanceof DOMException && err.name === 'AbortError') {
-					// The user cancelled: not an error, nothing was completed
-					setUploadStatus('cancelled');
+					// Stopped on purpose: not an error. What the page shows is decided by cancelUpload, once the
+					// server has answered, so that "cancelled" is never shown before it is true
 					throw err;
 				}
 				setError(t(messageKeyFor(err)));
@@ -134,6 +155,25 @@ export function usePocketChest() {
 				setAbortController(null);
 			}
 
+			// Everything is already uploaded and only the answer to Complete is missing: ask again, same session
+			const waiting = pendingCompletion.current;
+			if (waiting && waiting.sessionId === sessionId) {
+				setError(null);
+				setUploadStatus('uploading');
+				setIsUploading(true);
+				try {
+					const result = await finishCompletion(waiting);
+					setUploadStatus('success');
+					return { ...result, uploadedFiles: waiting.fileIds.map((fileId) => ({ fileId, filename: '', isText: false })) };
+				} catch (err) {
+					setError(t(messageKeyFor(err)));
+					setUploadStatus('error');
+					throw err;
+				} finally {
+					setIsUploading(false);
+				}
+			}
+
 			setUploadStatus('idle');
 			setError(null);
 			setUploadProgress({ percentage: 0, loaded: 0, total: 0 });
@@ -141,28 +181,44 @@ export function usePocketChest() {
 
 			return uploadWithSession(sessionId, uploadToken, files, textItems, validityDays);
 		},
-		[uploadWithSession, abortController],
+		[uploadWithSession, finishCompletion, abortController],
 	);
 
+	// Resolves true only when the server has confirmed that the session is abandoned. A share that is being
+	// completed cannot be cancelled, and a cancel the server refuses is reported instead of shown as done.
 	const cancelUpload = useCallback(
-		(sessionId?: string, uploadToken?: string) => {
-			// Stop the requests in flight, then tell the server to abandon the session
+		async (sessionId?: string, uploadToken?: string): Promise<boolean> => {
+			if (isFinalizing) return false;
+			// Stop the requests in flight, then ask the server to abandon the session
 			if (abortController) {
 				abortController.abort();
 				setAbortController(null);
 			}
-			if (sessionId && uploadToken) {
-				api.cancelSession(sessionId, uploadToken).catch((error) => console.error('Cancel failed:', error));
+			setUploadStatus('cancelling');
+			try {
+				if (sessionId && uploadToken) {
+					await api.cancelSession(sessionId, uploadToken);
+				}
+			} catch (err) {
+				console.error('Cancel failed:', err);
+				// Not cancelled for certain: the upload may still be completed, so it is offered again (same session)
+				setError(t('progress.cancelFailed'));
+				setUploadStatus('error');
+				setIsUploading(false);
+				return false;
 			}
-
+			pendingCompletion.current = null;
 			setIsUploading(false);
 			setUploadStatus('cancelled');
 			setUploadProgress({ percentage: 0, loaded: 0, total: 0 });
 			setFileProgress([]);
 			setError(null);
+			return true;
 		},
-		[abortController, api],
+		[abortController, api, isFinalizing],
 	);
+
+	const hasPendingCompletion = useCallback((sessionId: string) => pendingCompletion.current?.sessionId === sessionId, []);
 
 	return {
 		uploadWithSession,
@@ -176,6 +232,8 @@ export function usePocketChest() {
 		error,
 		uploadProgress,
 		uploadStatus,
+		isFinalizing,
+		hasPendingCompletion,
 		fileProgress,
 		clearError: () => setError(null),
 	};

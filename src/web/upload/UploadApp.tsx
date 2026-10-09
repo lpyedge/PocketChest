@@ -35,8 +35,19 @@ export default function UploadApp() {
 		document.title = t('upload.docTitle');
 	}, [t]);
 
-	const { uploadWithSession, retryUpload, cancelUpload, isUploading, uploadProgress, uploadStatus, fileProgress, error, clearError } =
-		usePocketChest();
+	const {
+		uploadWithSession,
+		retryUpload,
+		cancelUpload,
+		isUploading,
+		isFinalizing,
+		hasPendingCompletion,
+		uploadProgress,
+		uploadStatus,
+		fileProgress,
+		error,
+		clearError,
+	} = usePocketChest();
 	const api = new PocketChestAPI();
 
 	// Check the owner session and which sign-in methods are on, once on load
@@ -96,6 +107,19 @@ export default function UploadApp() {
 			document.documentElement.scrollTop = 0;
 		}, 100);
 
+		// Only the answer to Complete was missing: ask again in the same session (it gives the same share), do not start over
+		if (retry && sessionData && hasPendingCompletion(sessionData.sessionId)) {
+			try {
+				const result = await retryUpload(sessionData.sessionId, sessionData.uploadToken, files, textItems, validityDays);
+				setUploadResult(result.retrievalCode);
+				setFiles([]);
+				setTextItems([]);
+			} catch (error) {
+				console.error('Completing again failed:', error);
+			}
+			return;
+		}
+
 		// A previous attempt's session is abandoned on the server before a new one starts
 		if (retry && sessionData) {
 			await api.cancelSession(sessionData.sessionId, sessionData.uploadToken).catch(() => undefined);
@@ -128,10 +152,12 @@ export default function UploadApp() {
 
 	const handleRetry = () => runUpload(true);
 
-	const handleCancel = () => {
-		cancelUpload(sessionData?.sessionId, sessionData?.uploadToken);
-		setSessionData(null);
-		setUploadResult(null);
+	const handleCancel = async () => {
+		const cancelled = await cancelUpload(sessionData?.sessionId, sessionData?.uploadToken);
+		if (cancelled) {
+			setSessionData(null);
+			setUploadResult(null);
+		}
 	};
 
 	// Until the sign-in check finishes, the page shows nothing to upload with
@@ -272,6 +298,7 @@ export default function UploadApp() {
 					files={files}
 					textItems={textItems}
 					isUploading={isUploading}
+					isFinalizing={isFinalizing}
 					progress={uploadProgress}
 					fileProgress={fileProgress}
 					uploadStatus={uploadStatus}

@@ -16,6 +16,8 @@ export const ABSOLUTE_SECONDS = 7 * 24 * 60 * 60;
 // Activity is written back at most this often, to keep writes low
 const TOUCH_SECONDS = 5 * 60;
 
+export type ReauthMethod = 'password' | 'totp' | 'passkey';
+
 export interface OwnerSessionRecord {
 	version: 1;
 	createdAt: number;
@@ -23,6 +25,8 @@ export interface OwnerSessionRecord {
 	absoluteExpiresAt: number;
 	ownerAuthVersion: number;
 	reauthenticatedAt: number | null;
+	// Which sign-in method the last re-entry used; enabling a method needs proof of that same method
+	reauthMethod: ReauthMethod | null;
 }
 
 export interface LoadedSession {
@@ -81,7 +85,8 @@ function isRecord(value: unknown): value is OwnerSessionRecord {
 		typeof r.lastSeenAt === 'number' &&
 		typeof r.absoluteExpiresAt === 'number' &&
 		typeof r.ownerAuthVersion === 'number' &&
-		(r.reauthenticatedAt === null || typeof r.reauthenticatedAt === 'number')
+		(r.reauthenticatedAt === null || typeof r.reauthenticatedAt === 'number') &&
+		(r.reauthMethod === null || r.reauthMethod === 'password' || r.reauthMethod === 'totp' || r.reauthMethod === 'passkey')
 	);
 }
 
@@ -101,6 +106,7 @@ export async function issueOwnerSession(
 		absoluteExpiresAt: now + ABSOLUTE_SECONDS,
 		ownerAuthVersion,
 		reauthenticatedAt: null,
+		reauthMethod: null,
 	};
 	await bucket.put(sessionKey(await sha256Hex(sid)), JSON.stringify(record), {
 		httpMetadata: { contentType: 'application/json' },
@@ -153,7 +159,13 @@ export async function loadOwnerSession(
  * Records that the owner just entered their password again. Only the session record changes, and
  * only if it is still the one that was read, so a logout that lands meanwhile is not undone.
  */
-export async function markReauthenticated(bucket: R2Bucket, sid: string, now: number): Promise<void> {
+export async function markReauthenticated(
+	bucket: R2Bucket,
+	sid: string,
+	now: number,
+	method: ReauthMethod,
+	at: number = now,
+): Promise<void> {
 	const key = sessionKey(await sha256Hex(sid));
 	for (let attempt = 0; attempt < 3; attempt++) {
 		const object = await bucket.get(key);
@@ -161,7 +173,7 @@ export async function markReauthenticated(bucket: R2Bucket, sid: string, now: nu
 		if (!object || !parsed) {
 			throw new ApiError(401, 'AUTH_INVALID', 'Sign in required');
 		}
-		if (await replaceRecord(bucket, key, object.etag, { ...parsed, reauthenticatedAt: now })) {
+		if (await replaceRecord(bucket, key, object.etag, { ...parsed, reauthenticatedAt: at, reauthMethod: method })) {
 			return;
 		}
 	}
@@ -171,10 +183,13 @@ export async function markReauthenticated(bucket: R2Bucket, sid: string, now: nu
 // Enforces the short window after a password re-entry that sensitive changes require
 export const REAUTH_SECONDS = 5 * 60;
 
-export function assertRecentReauth(session: LoadedSession, now: number): void {
-	const at = session.record.reauthenticatedAt;
+export function assertRecentReauth(session: LoadedSession, now: number, method?: ReauthMethod): void {
+	const { reauthenticatedAt: at, reauthMethod } = session.record;
 	if (at === null || now - at >= REAUTH_SECONDS || at > now) {
-		throw new ApiError(403, 'REAUTH_REQUIRED', 'Confirm your password to continue');
+		throw new ApiError(403, 'REAUTH_REQUIRED', 'Confirm your sign-in to continue');
+	}
+	if (method !== undefined && reauthMethod !== method) {
+		throw new ApiError(403, 'REAUTH_METHOD_REQUIRED', `Confirm with ${method} to continue`);
 	}
 }
 

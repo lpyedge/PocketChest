@@ -3,6 +3,8 @@ import { bootstrapOwner } from './auth/bootstrap';
 import type { AuthenticationResponseJSON, RegistrationResponseJSON } from '@simplewebauthn/server';
 import { authMethods, loginWithPassword, loginWithTotp, reauthWithPassword, reauthWithTotp } from './auth/login';
 import { assertionOptions, loginVerify, registrationOptions, registrationVerify, reauthVerify } from './auth/passkeys';
+import { changePassword, confirmTotp, prepareTotp, removePasskey, Rotated, securityStatus, setMethodEnabled } from './auth/security';
+import type { Method } from './auth/owner';
 import { ApiError } from './errors';
 import { enforceRateLimit } from './ratelimit';
 import {
@@ -174,6 +176,30 @@ async function routeApi(request: Request, env: Env, path: string): Promise<Respo
 
 		if (path === '/api/auth/reauth/password' && method === 'POST') {
 			return await handlePasswordReauth(request, env);
+		}
+
+		if (path === '/api/admin/security' && method === 'GET') {
+			return await handleSecurityStatus(request, env);
+		}
+
+		if (path === '/api/admin/security/methods' && method === 'PATCH') {
+			return await handleSetMethod(request, env);
+		}
+
+		if (path === '/api/admin/security/password' && method === 'POST') {
+			return await handleChangePassword(request, env);
+		}
+
+		if (path === '/api/admin/security/totp/prepare' && method === 'POST') {
+			return await handlePrepareTotp(request, env);
+		}
+
+		if (path === '/api/admin/security/totp/confirm' && method === 'POST') {
+			return await handleConfirmTotp(request, env);
+		}
+
+		if (path.match(/^\/api\/admin\/passkeys\/[^\/]+$/) && method === 'DELETE') {
+			return await handleRemovePasskey(request, env, segments[4]);
 		}
 
 		if (path === '/api/admin/passkeys/register/options' && method === 'POST') {
@@ -424,6 +450,67 @@ async function handleTotpReauth(request: Request, env: Env): Promise<Response> {
 	const code = await readTotpCode(request);
 	await reauthWithTotp(env, session, code, getCurrentTimestamp());
 	return json({ reauthenticated: true }, 200, { 'Cache-Control': 'no-store' });
+}
+
+// --- Security settings (signed-in owner) ---
+
+// A change that bumps authVersion answers with the replacement session, so the caller stays signed in
+function rotatedResponse(result: Rotated): Response {
+	return json({ security: result.security, csrfToken: result.csrfToken }, 200, {
+		'Cache-Control': 'no-store',
+		'Set-Cookie': result.cookie,
+	});
+}
+
+// GET /api/admin/security - Which methods are set up and on; never the secrets themselves
+async function handleSecurityStatus(request: Request, env: Env): Promise<Response> {
+	await requireOwner(request, env.R2_STORAGE, env.JWT_SECRET, { mutating: false });
+	return json(await securityStatus(env.R2_STORAGE), 200, { 'Cache-Control': 'no-store' });
+}
+
+// PATCH /api/admin/security/methods - Switches one method on or off
+async function handleSetMethod(request: Request, env: Env): Promise<Response> {
+	const session = await requireOwner(request, env.R2_STORAGE, env.JWT_SECRET, { mutating: true });
+	const body = await readJson<{ method?: unknown; enabled?: unknown }>(request);
+	if ((body.method !== 'password' && body.method !== 'totp' && body.method !== 'passkey') || typeof body.enabled !== 'boolean') {
+		throw new ApiError(400, 'INVALID_REQUEST', 'A method and an enabled flag are required');
+	}
+	const result = await setMethodEnabled(env, session, body.method as Method, body.enabled, getCurrentTimestamp());
+	return rotatedResponse(result);
+}
+
+// POST /api/admin/security/password - Changes the password; every other session ends
+async function handleChangePassword(request: Request, env: Env): Promise<Response> {
+	const session = await requireOwner(request, env.R2_STORAGE, env.JWT_SECRET, { mutating: true });
+	const body = await readJson<{ newPassword?: unknown; confirmPassword?: unknown }>(request);
+	const result = await changePassword(env, session, body.newPassword, body.confirmPassword, getCurrentTimestamp());
+	return rotatedResponse(result);
+}
+
+// POST /api/admin/security/totp/prepare - A new seed, kept sealed until it is confirmed
+async function handlePrepareTotp(request: Request, env: Env): Promise<Response> {
+	const session = await requireOwner(request, env.R2_STORAGE, env.JWT_SECRET, { mutating: true });
+	const prepared = await prepareTotp(env, session, getCurrentTimestamp());
+	return json(prepared, 200, { 'Cache-Control': 'no-store' });
+}
+
+// POST /api/admin/security/totp/confirm - Replaces the seed once the new code is checked
+async function handleConfirmTotp(request: Request, env: Env): Promise<Response> {
+	const session = await requireOwner(request, env.R2_STORAGE, env.JWT_SECRET, { mutating: true });
+	await enforceRateLimit(env.AUTH_LIMITER, request, 'totp-confirm');
+	const body = await readJson<{ challenge?: unknown; code?: unknown }>(request);
+	if (typeof body.challenge !== 'string' || typeof body.code !== 'string') {
+		throw new ApiError(400, 'INVALID_REQUEST', 'A challenge and a code are required');
+	}
+	const result = await confirmTotp(env, session, body.challenge, body.code, getCurrentTimestamp());
+	return rotatedResponse(result);
+}
+
+// DELETE /api/admin/passkeys/:id - Removes one passkey
+async function handleRemovePasskey(request: Request, env: Env, credentialId: string): Promise<Response> {
+	const session = await requireOwner(request, env.R2_STORAGE, env.JWT_SECRET, { mutating: true });
+	const result = await removePasskey(env, session, decodeURIComponent(credentialId), getCurrentTimestamp());
+	return rotatedResponse(result);
 }
 
 // --- Passkeys ---

@@ -23,10 +23,10 @@
 | TASK-16 | Rate Limiting、密碼/TOTP 錯誤冷卻 | PASS | 見 Git log（throttle.ts、ratelimit.ts、auth-throttle.spec.ts 16 項）。Passkey 端點尚未建立，TASK-17/18 須接入 enforceRateLimit 並補測試 |
 | TASK-17 | Passkey 註冊 | PASS | 見 Git log（passkeys.ts、challenges.ts、passkey-register.spec.ts、login-passkey.spec.ts；@simplewebauthn/server 14.0.3 精確鎖定） |
 | TASK-18 | Passkey 登入 | PASS | 見 Git log（passkeys.ts、challenges.ts、passkey-register.spec.ts、login-passkey.spec.ts；@simplewebauthn/server 14.0.3 精確鎖定） |
-| TASK-19 | 三方式 Toggle 與最後方式保護 | TODO | |
-| TASK-20 | 密碼修改與 Session 輪替 | TODO | |
-| TASK-21 | TOTP 綁定與重綁 | TODO | |
-| TASK-22 | 離線密碼恢復 CLI | TODO | |
+| TASK-19 | 三方式 Toggle 與最後方式保護 | PASS | 見 Git log（security.ts、security-method-toggle.spec.ts 12 項）；啟用需以同一方式再驗證 |
+| TASK-20 | 密碼修改與 Session 輪替 | PASS | 見 Git log（change-password.spec.ts 8 項） |
+| TASK-21 | TOTP 綁定與重綁 | PASS | 見 Git log（totp-enroll.spec.ts 7 項）；QR 圖未產生，提供 otpauth URI |
+| TASK-22 | 離線密碼恢復 CLI | PASS | 見 Git log（scripts/recovery-core.mjs、reset-owner-password.mjs、docs/RECOVERY.md、recovery-cli.spec.ts 6 項） |
 | TASK-23 | 登入頁（動態方式） | TODO | |
 | TASK-24 | Security Settings Modal | TODO | |
 | TASK-25 | i18n 核心 | TODO | |

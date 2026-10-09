@@ -13,7 +13,7 @@ import type { AuthenticationResponseJSON, AuthenticatorTransport, RegistrationRe
 import { ApiError } from '../errors';
 import { fromBase64Url, toBase64Url } from './encoding';
 import { CHALLENGE_SECONDS, consumeChallenge, storeChallenge } from './challenges';
-import { isUsable, loadOwner, mutateOwner, OwnerConflictError, OwnerRecord, PasskeyCredential } from './owner';
+import { isConfigured, isUsable, loadOwner, mutateOwner, OwnerConflictError, OwnerRecord, PasskeyCredential } from './owner';
 import { assertRecentReauth, LoadedSession, markReauthenticated, sha256Hex } from './sessions';
 
 export const RP_NAME = 'PocketChest';
@@ -146,7 +146,8 @@ export async function assertionOptions(
 	now: number,
 ) {
 	const owner = await loadOwnerOrThrow(bucket, invalidSignIn);
-	if (!isUsable(owner, 'passkey')) {
+	// Sign-in needs the passkey enabled; re-entry only needs the owner to hold one
+	if (purpose === 'login' ? !isUsable(owner, 'passkey') : !isConfigured(owner, 'passkey')) {
 		throw new ApiError(403, 'AUTH_METHOD_DISABLED', 'Passkey sign-in is not enabled');
 	}
 	const { rpID } = relyingParty(request);
@@ -176,7 +177,7 @@ async function verifyAssertion(
 
 	const owner = await loadOwnerOrThrow(bucket, invalidSignIn);
 	const stored = owner.methods.passkey.credentials.find((credential) => credential.id === body.response?.id);
-	if (!isUsable(owner, 'passkey') || !stored) {
+	if (!stored || (purpose === 'login' && !isUsable(owner, 'passkey'))) {
 		throw invalidSignIn();
 	}
 
@@ -203,7 +204,7 @@ async function verifyAssertion(
 	try {
 		return await mutateOwner(bucket, (latest) => {
 			const current = latest.methods.passkey.credentials.find((credential) => credential.id === credentialId);
-			if (!isUsable(latest, 'passkey') || !current) {
+			if (!current || (purpose === 'login' && !isUsable(latest, 'passkey'))) {
 				throw new CredentialGoneError();
 			}
 			const credentials = latest.methods.passkey.credentials.map((credential) =>
@@ -239,5 +240,5 @@ export async function reauthVerify(
 	now: number,
 ): Promise<void> {
 	await verifyAssertion(bucket, request, 'reauth', session, body, now);
-	await markReauthenticated(bucket, session.sid, now);
+	await markReauthenticated(bucket, session.sid, now, 'passkey');
 }

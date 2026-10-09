@@ -4,12 +4,13 @@
  * verification marks it with a conditional write, and any later attempt finds it used.
  */
 import { ApiError } from '../errors';
+import type { EncryptedSecret } from './owner';
 import { sha256Hex } from './sessions';
 
 export const CHALLENGE_SECONDS = 120;
 export const CHALLENGE_PREFIX = 'auth/challenges/';
 
-export type ChallengePurpose = 'register' | 'login' | 'reauth';
+export type ChallengePurpose = 'register' | 'login' | 'reauth' | 'totp-enroll';
 
 interface ChallengeRecord {
 	version: 1;
@@ -17,6 +18,8 @@ interface ChallengeRecord {
 	sessionHash: string | null;
 	expiresAt: number;
 	used: boolean;
+	// Sealed data a later step needs, such as a TOTP seed being enrolled
+	payload: EncryptedSecret | null;
 }
 
 export function challengeKey(hash: string): string {
@@ -29,8 +32,16 @@ export async function storeChallenge(
 	purpose: ChallengePurpose,
 	sessionHash: string | null,
 	now: number,
+	options: { ttlSeconds?: number; payload?: EncryptedSecret } = {},
 ): Promise<void> {
-	const record: ChallengeRecord = { version: 1, purpose, sessionHash, expiresAt: now + CHALLENGE_SECONDS, used: false };
+	const record: ChallengeRecord = {
+		version: 1,
+		purpose,
+		sessionHash,
+		expiresAt: now + (options.ttlSeconds ?? CHALLENGE_SECONDS),
+		used: false,
+		payload: options.payload ?? null,
+	};
 	await bucket.put(challengeKey(await sha256Hex(challenge)), JSON.stringify(record), {
 		httpMetadata: { contentType: 'application/json' },
 		onlyIf: new Headers({ 'If-None-Match': '*' }),
@@ -47,10 +58,11 @@ function isChallengeRecord(value: unknown): value is ChallengeRecord {
 		typeof record === 'object' &&
 		record !== null &&
 		record.version === 1 &&
-		(record.purpose === 'register' || record.purpose === 'login' || record.purpose === 'reauth') &&
+		(record.purpose === 'register' || record.purpose === 'login' || record.purpose === 'reauth' || record.purpose === 'totp-enroll') &&
 		(record.sessionHash === null || typeof record.sessionHash === 'string') &&
 		typeof record.expiresAt === 'number' &&
-		typeof record.used === 'boolean'
+		typeof record.used === 'boolean' &&
+		(record.payload === null || (typeof record.payload === 'object' && record.payload !== null))
 	);
 }
 
@@ -64,7 +76,7 @@ export async function consumeChallenge(
 	purpose: ChallengePurpose,
 	sessionHash: string | null,
 	now: number,
-): Promise<void> {
+): Promise<{ payload: EncryptedSecret | null }> {
 	if (!/^[A-Za-z0-9_-]{32,128}$/.test(challenge)) {
 		throw invalidChallenge();
 	}
@@ -92,6 +104,7 @@ export async function consumeChallenge(
 	if (stored === null) {
 		throw invalidChallenge();
 	}
+	return { payload: record.payload };
 }
 
 /**

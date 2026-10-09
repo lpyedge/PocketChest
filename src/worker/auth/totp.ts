@@ -13,6 +13,27 @@ const WINDOW = 1;
 const SEED_BYTES = 20;
 const IV_BYTES = 12;
 
+const BASE32 = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ234567';
+
+// RFC 4648 base32, the form authenticator apps expect in an otpauth URI
+export function base32Encode(bytes: Uint8Array): string {
+	let bits = 0;
+	let value = 0;
+	let out = '';
+	for (const byte of bytes) {
+		value = (value << 8) | byte;
+		bits += 8;
+		while (bits >= 5) {
+			out += BASE32[(value >>> (bits - 5)) & 31];
+			bits -= 5;
+		}
+	}
+	if (bits > 0) {
+		out += BASE32[(value << (5 - bits)) & 31];
+	}
+	return out;
+}
+
 export function generateSeed(): Uint8Array {
 	return crypto.getRandomValues(new Uint8Array(SEED_BYTES));
 }

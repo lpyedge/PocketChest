@@ -4,7 +4,7 @@
  */
 import { ApiError } from '../errors';
 import { BOOTSTRAP_MARKER_KEY } from './bootstrap';
-import { isUsable, loadOwner, mutateOwner, Method, OwnerConflictError, OwnerRecord } from './owner';
+import { isConfigured, isUsable, loadOwner, mutateOwner, Method, OwnerConflictError, OwnerRecord } from './owner';
 import { verifyPassword } from './password';
 import { matchTotpStep, openSeed } from './totp';
 import { assertNotLocked, clearFailures, recordFailure, ThrottledMethod } from './throttle';
@@ -42,14 +42,19 @@ export async function authMethods(env: AuthEnv): Promise<MethodsStatus> {
 	return { setupRequired, methods };
 }
 
+// Mode 'login' needs the method enabled; 'reauth' only needs the owner to hold it, since the owner is already signed in
+type Mode = 'login' | 'reauth';
+const usable = (owner: OwnerRecord, method: Method, mode: Mode) =>
+	mode === 'login' ? isUsable(owner, method) : isConfigured(owner, method);
+
 // Returns the owner the password was checked against, so callers use that same state
-async function checkPassword(env: AuthEnv, password: string): Promise<OwnerRecord> {
+async function checkPassword(env: AuthEnv, password: string, mode: Mode): Promise<OwnerRecord> {
 	const loaded = await loadOwner(env.R2_STORAGE);
 	if (!loaded) {
 		throw new ApiError(401, 'AUTH_INVALID_CREDENTIALS', 'Invalid credentials');
 	}
 	const { owner } = loaded;
-	if (!isUsable(owner, 'password') || owner.methods.password.hash === null) {
+	if (!usable(owner, 'password', mode) || owner.methods.password.hash === null) {
 		throw new ApiError(403, 'AUTH_METHOD_DISABLED', 'Password sign-in is not enabled');
 	}
 	if (!(await verifyPassword(password, owner.methods.password.hash))) {
@@ -84,7 +89,7 @@ export async function loginWithPassword(
 	now: number,
 ): Promise<{ sid: string; csrfToken: string; cookie: string }> {
 	return guarded(env, 'password', now, async () => {
-		const owner = await checkPassword(env, password);
+		const owner = await checkPassword(env, password, 'login');
 		return issueOwnerSession(env.R2_STORAGE, env.JWT_SECRET, owner.authVersion, now);
 	});
 }
@@ -93,8 +98,8 @@ export async function loginWithPassword(
 // Re-confirms the owner's password inside an existing session, opening the reauth window
 export async function reauthWithPassword(env: AuthEnv, session: LoadedSession, password: string, now: number): Promise<void> {
 	await guarded(env, 'password', now, async () => {
-		await checkPassword(env, password);
-		await markReauthenticated(env.R2_STORAGE, session.sid, now);
+		await checkPassword(env, password, 'reauth');
+		await markReauthenticated(env.R2_STORAGE, session.sid, now, 'password');
 	});
 }
 
@@ -105,13 +110,13 @@ class TotpRejectedError extends Error {}
  * Checks a TOTP code and records its time step, so the same step is never accepted twice. The
  * step is recorded with an owner CAS, so two requests carrying the same code cannot both succeed.
  */
-async function consumeTotpCode(env: AuthEnv, code: string, now: number): Promise<OwnerRecord> {
+async function consumeTotpCode(env: AuthEnv, code: string, now: number, mode: Mode): Promise<OwnerRecord> {
 	const loaded = await loadOwner(env.R2_STORAGE);
 	if (!loaded) {
 		throw new ApiError(401, 'AUTH_INVALID_CREDENTIALS', 'Invalid credentials');
 	}
 	const sealed = loaded.owner.methods.totp.encryptedSecret;
-	if (!isUsable(loaded.owner, 'totp') || sealed === null) {
+	if (!usable(loaded.owner, 'totp', mode) || sealed === null) {
 		throw new ApiError(403, 'AUTH_METHOD_DISABLED', 'Authenticator sign-in is not enabled');
 	}
 	const seed = await openSeed(sealed, env.AUTH_ENCRYPTION_KEY);
@@ -124,7 +129,7 @@ async function consumeTotpCode(env: AuthEnv, code: string, now: number): Promise
 		return await mutateOwner(env.R2_STORAGE, (latest) => {
 			const totp = latest.methods.totp;
 			// The seed or the method may have changed since it was read; the code is then not accepted
-			if (!isUsable(latest, 'totp') || totp.encryptedSecret?.ct !== sealed.ct) {
+			if (!usable(latest, 'totp', mode) || totp.encryptedSecret?.ct !== sealed.ct) {
 				throw new TotpRejectedError();
 			}
 			if (totp.lastAcceptedStep !== null && step <= totp.lastAcceptedStep) {
@@ -147,7 +152,7 @@ async function consumeTotpCode(env: AuthEnv, code: string, now: number): Promise
 // Signs the owner in with an authenticator code alone; the password is not needed
 export async function loginWithTotp(env: AuthEnv, code: string, now: number): Promise<{ sid: string; csrfToken: string; cookie: string }> {
 	return guarded(env, 'totp', now, async () => {
-		const owner = await consumeTotpCode(env, code, now);
+		const owner = await consumeTotpCode(env, code, now, 'login');
 		return issueOwnerSession(env.R2_STORAGE, env.JWT_SECRET, owner.authVersion, now);
 	});
 }
@@ -156,7 +161,7 @@ export async function loginWithTotp(env: AuthEnv, code: string, now: number): Pr
 // Re-confirms the owner with an authenticator code inside an existing session
 export async function reauthWithTotp(env: AuthEnv, session: LoadedSession, code: string, now: number): Promise<void> {
 	await guarded(env, 'totp', now, async () => {
-		await consumeTotpCode(env, code, now);
-		await markReauthenticated(env.R2_STORAGE, session.sid, now);
+		await consumeTotpCode(env, code, now, 'reauth');
+		await markReauthenticated(env.R2_STORAGE, session.sid, now, 'totp');
 	});
 }

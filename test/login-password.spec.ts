@@ -219,7 +219,7 @@ describe('POST /api/auth/reauth/password', () => {
 		expect(typeof (await sessionRecord(owner.cookie)).reauthenticatedAt).toBe('number');
 	});
 
-	it('is refused when the password method is switched off', async () => {
+	it('accepts re-entry with a switched-off password, since the owner still holds it, but sign-in stays refused', async () => {
 		const owner = await ownerSignIn();
 		await setPasswordEnabled(false);
 		const response = await post(
@@ -227,9 +227,13 @@ describe('POST /api/auth/reauth/password', () => {
 			{ password: TEST_OWNER_PASSWORD },
 			{ Cookie: owner.cookie, 'X-PocketChest-CSRF': owner.csrfToken },
 		);
-
-		expect(response.status).toBe(403);
+		expect(response.status).toBe(200);
 		await response.text();
+		expect((await sessionRecord(owner.cookie)).reauthMethod).toBe('password');
+
+		const login = await post('/api/auth/login/password', { password: TEST_OWNER_PASSWORD });
+		expect(login.status).toBe(403);
+		await login.text();
 	});
 });
 
@@ -245,6 +249,7 @@ describe('recent reauth window', () => {
 			absoluteExpiresAt: NOW + 100_000,
 			ownerAuthVersion: 1,
 			reauthenticatedAt,
+			reauthMethod: reauthenticatedAt === null ? null : ('password' as const),
 		},
 	});
 

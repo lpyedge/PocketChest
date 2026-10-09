@@ -33,8 +33,8 @@
 | `CSRF_REJECTED` | 403 | Origin 或 CSRF Header 不符 `[TODO-TASK-13]` |
 | `REAUTH_REQUIRED` | 403 | 需近期重新驗證（5 分鐘）`[判斷已實作，TASK-19/20 的敏感操作使用]` |
 | `AUTH_METHOD_DISABLED` | 403 | 該登入方式已停用 `[已實作]` |
-| `AUTH_METHOD_NOT_CONFIGURED` | 409 | 方式未設定卻要求啟用 `[TODO-TASK-19]` |
-| `LAST_AUTH_METHOD` | 409 | 不可停用最後一種可用方式 `[TODO-TASK-19]` |
+| `AUTH_METHOD_NOT_CONFIGURED` | 409 | 方式未設定卻要求啟用 `[已實作]` |
+| `LAST_AUTH_METHOD` | 409 | 不可停用最後一種可用方式 `[已實作]` |
 | `CONFLICT` | 409 | R2 CAS 衝突，請重新讀取後再試 `[TODO-TASK-04]` |
 | `SESSION_NOT_FOUND` | 404 | 上傳 Session 不存在或已完成 |
 | `FILE_NOT_IN_SESSION` | 400 | 提交的檔案不屬於此 Session |
@@ -70,14 +70,14 @@
 
 | # | Method | Path | 權限 | 狀態 | 說明 |
 |---|---|---|---|---|---|
-| 13 | GET | `/api/admin/security` | Cookie | [TODO-TASK-19] | 只回摘要，不回 Hash／Seed／公鑰。 |
-| 14 | PATCH | `/api/admin/security/methods` | Cookie + CSRF + 近期 reauth | [TODO-TASK-19] | `{method, enabled}`，單一方式。 |
-| 15 | POST | `/api/admin/security/password` | Cookie + CSRF + 近期 reauth | [TODO-TASK-20] | 修改密碼，輪替 Session。 |
-| 16 | POST | `/api/admin/security/totp/prepare` | Cookie + CSRF + 近期 reauth | [TODO-TASK-21] | 產生新 Seed 與 Challenge。 |
-| 17 | POST | `/api/admin/security/totp/confirm` | Cookie + CSRF + 近期 reauth | [TODO-TASK-21] | 驗證新 OTP 後切換。 |
+| 13 | GET | `/api/admin/security` | Cookie | [已實作] | 只回摘要，不回 Hash／Seed／公鑰。 |
+| 14 | PATCH | `/api/admin/security/methods` | Cookie + CSRF + 近期 reauth | [已實作] | `{method, enabled}`，單一方式。 |
+| 15 | POST | `/api/admin/security/password` | Cookie + CSRF + 近期 reauth | [已實作] | 修改密碼，輪替 Session。 |
+| 16 | POST | `/api/admin/security/totp/prepare` | Cookie + CSRF + 近期 reauth | [已實作] | 產生新 Seed 與 Challenge。 |
+| 17 | POST | `/api/admin/security/totp/confirm` | Cookie + CSRF + 近期 reauth | [已實作] | 驗證新 OTP 後切換。 |
 | 18 | POST | `/api/admin/passkeys/register/options` | Cookie + CSRF + 近期 reauth | [已實作] | 註冊 Challenge。 |
 | 19 | POST | `/api/admin/passkeys/register/verify` | Cookie + CSRF + 近期 reauth | [已實作] | 新增 Credential。 |
-| 20 | DELETE | `/api/admin/passkeys/{id}` | Cookie + CSRF + 近期 reauth | [TODO-TASK-19] | 不得刪最後一個有效方式。 |
+| 20 | DELETE | `/api/admin/passkeys/{id}` | Cookie + CSRF + 近期 reauth | [已實作] | 不得刪最後一個有效方式。 |
 
 ### 上傳
 

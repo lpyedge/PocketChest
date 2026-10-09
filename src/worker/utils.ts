@@ -65,6 +65,11 @@ async function signJWT(payload: object, secret: string): Promise<string> {
 	return `${message}.${signatureB64}`;
 }
 
+const CLOCK_SKEW_SECONDS = 60;
+
+const isRecord = (value: unknown): value is Record<string, unknown> => typeof value === 'object' && value !== null && !Array.isArray(value);
+
+// Checks the signature first, then the claims: a validly signed token still has to be one this service would issue
 async function verifyJWT(token: string, secret: string): Promise<any> {
 	const parts = token.split('.');
 	if (parts.length !== 3) {
@@ -85,12 +90,28 @@ async function verifyJWT(token: string, secret: string): Promise<any> {
 		throw new Error('Invalid JWT signature');
 	}
 
-	// Decode payload
-	const payload = JSON.parse(base64UrlDecode(payloadB64));
+	// Only the one algorithm and type this service signs with
+	const header: unknown = JSON.parse(base64UrlDecode(headerB64));
+	if (!isRecord(header) || header.alg !== 'HS256' || header.typ !== 'JWT') {
+		throw new Error('Invalid JWT header');
+	}
 
-	// Check expiration
-	if (payload.exp && Date.now() / 1000 > payload.exp) {
+	const payload: unknown = JSON.parse(base64UrlDecode(payloadB64));
+	if (!isRecord(payload)) {
+		throw new Error('Invalid JWT payload');
+	}
+
+	// Every token has a whole-second issue time and expiry; a missing or odd one is never "no expiry"
+	const { iat, exp } = payload;
+	if (!Number.isInteger(iat) || !Number.isInteger(exp)) {
+		throw new Error('Invalid JWT time claims');
+	}
+	const now = Math.floor(Date.now() / 1000);
+	if (now >= (exp as number)) {
 		throw new Error('JWT token expired');
+	}
+	if ((iat as number) > now + CLOCK_SKEW_SECONDS) {
+		throw new Error('JWT token issued in the future');
 	}
 
 	return payload;
@@ -160,7 +181,6 @@ export async function verifyUploadJWT(token: string, secret: string): Promise<Up
 
 export async function verifyChestJWT(token: string, secret: string): Promise<ChestJWTPayload> {
 	const payload = await verifyJWT(token, secret);
-	// Tokens issued before the R2-only storage carry no code and must be re-issued via /api/retrieve
 	if (payload.type !== 'chest' || typeof payload.code !== 'string') {
 		throw new Error('Invalid token type');
 	}

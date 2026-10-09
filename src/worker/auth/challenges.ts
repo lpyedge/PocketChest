@@ -11,7 +11,7 @@ import { scanBatch, ScanState } from './scan';
 export const CHALLENGE_SECONDS = 120;
 export const CHALLENGE_PREFIX = 'auth/challenges/';
 
-export type ChallengePurpose = 'register' | 'login' | 'reauth' | 'totp-enroll';
+export type ChallengePurpose = 'register' | 'login' | 'reauth' | 'activate' | 'totp-enroll';
 
 interface ChallengeRecord {
 	version: 1;
@@ -61,7 +61,11 @@ function isChallengeRecord(value: unknown): value is ChallengeRecord {
 		typeof record === 'object' &&
 		record !== null &&
 		record.version === 1 &&
-		(record.purpose === 'register' || record.purpose === 'login' || record.purpose === 'reauth' || record.purpose === 'totp-enroll') &&
+		(record.purpose === 'register' ||
+			record.purpose === 'login' ||
+			record.purpose === 'reauth' ||
+			record.purpose === 'activate' ||
+			record.purpose === 'totp-enroll') &&
 		(record.sessionHash === null || typeof record.sessionHash === 'string') &&
 		typeof record.expiresAt === 'number' &&
 		typeof record.used === 'boolean' &&

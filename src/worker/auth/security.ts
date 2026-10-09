@@ -12,9 +12,17 @@ import { ApiError } from '../errors';
 import { toBase64Url } from './encoding';
 import { beginAttempts, storeChallenge } from './challenges';
 import { hashPassword, verifyPassword } from './password';
-import { isConfigured, loadOwner, mutateOwner, Method, OwnerConflictError, OwnerInvariantError, OwnerRecord } from './owner';
+import { isConfigured, isUsable, loadOwner, mutateOwner, Method, OwnerConflictError, OwnerInvariantError, OwnerRecord } from './owner';
 import { openSeed, sealSeed, generateSeed, base32Encode, matchTotpStep } from './totp';
-import { assertRecentReauth, issueOwnerSession, LoadedSession, markReauthenticated, revokeOwnerSession, sha256Hex } from './sessions';
+import {
+	assertActivationProof,
+	assertRecentReauth,
+	issueOwnerSession,
+	LoadedSession,
+	markReauthenticated,
+	revokeOwnerSession,
+	sha256Hex,
+} from './sessions';
 
 export const MIN_PASSWORD_LENGTH = 16;
 export const MAX_PASSWORD_LENGTH = 1024;
@@ -150,8 +158,11 @@ export async function setMethodEnabled(
 		if (!isConfigured(loaded.owner, method)) {
 			throw new ApiError(409, 'AUTH_METHOD_NOT_CONFIGURED', 'This method has not been set up yet');
 		}
-		// Proof that the owner still holds this method: the re-entry was made with it
-		assertRecentReauth(session, now, method);
+		// Proof that the owner still holds this method. A method that is off cannot re-enter a session, so the proof
+		// is its own step (see /api/auth/activate/*) and opens nothing else.
+		if (!isUsable(loaded.owner, method)) {
+			assertActivationProof(session, now, method);
+		}
 	}
 	let written: OwnerRecord;
 	try {

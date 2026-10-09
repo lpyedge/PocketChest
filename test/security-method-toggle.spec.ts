@@ -1,6 +1,7 @@
 import { env } from 'cloudflare:test';
 import { describe, it, expect, beforeAll, beforeEach } from 'vitest';
 import { ownerSignIn, resetStorage, setupTestEnvironment, testFetch, TEST_ORIGIN, TEST_OWNER_PASSWORD } from './utils/test-setup';
+import { totpCodeAt } from '../src/worker/auth/totp';
 import { configureTotp, reauthPassword, call, adoptRotated, setEnabled, SignedIn } from './utils/security-helpers';
 import { ownerRecord } from './utils/test-setup';
 
@@ -65,13 +66,13 @@ describe('switching methods on and off', () => {
 		expect(((await response.json()) as any).code).toBe('AUTH_METHOD_NOT_CONFIGURED');
 	});
 
-	it('refuses to switch on a configured method without a re-entry with that same method', async () => {
+	it('refuses to switch on a configured method without a proof of that same method', async () => {
 		const owner = await signIn();
 		await configureTotp(SEED, false);
 		await reauthPassword(owner);
 		const response = await toggle(owner, 'totp', true);
 		expect(response.status).toBe(403);
-		expect(((await response.json()) as any).code).toBe('REAUTH_METHOD_REQUIRED');
+		expect(((await response.json()) as any).code).toBe('ACTIVATION_PROOF_REQUIRED');
 	});
 
 	it('refuses to change anything without a recent re-entry', async () => {
@@ -111,15 +112,23 @@ describe('switching methods on and off', () => {
 		await old.text();
 	});
 
-	it('switching a method back on uses the same stored setup, after a re-entry with it', async () => {
+	it('switching a method back on uses the same stored setup, after a proof of it', async () => {
 		const owner = await signIn();
 		await configureTotp(SEED, true);
 		await reauthPassword(owner);
 		const off = await toggle(owner, 'password', false);
 		const { session } = await adoptRotated(owner, off);
 
-		// Still configured, so re-entry with the password is possible while it is off
-		await reauthPassword(session);
+		// A password that is off cannot re-enter the session; the authenticator does, and the password is proved on its own
+		const reentry = await call(session, 'POST', '/api/auth/reauth/password', { password: TEST_OWNER_PASSWORD });
+		expect(reentry.status).toBe(403);
+		await reentry.text();
+		const proof = await call(session, 'POST', '/api/auth/activate/password', { password: TEST_OWNER_PASSWORD });
+		expect(proof.status).toBe(200);
+		await proof.text();
+		const code = await call(session, 'POST', '/api/auth/reauth/totp', { code: await totpCodeAt(SEED, Math.floor(Date.now() / 1000)) });
+		expect(code.status).toBe(200);
+		await code.text();
 		const on = await toggle(session, 'password', true);
 		expect(on.status).toBe(200);
 		await on.text();
@@ -198,6 +207,8 @@ describe('passkey removal', () => {
 
 	it('refuses to remove a passkey when it is the only usable method', async () => {
 		const owner = await signIn();
+		// Re-entered while the password is still on; the record is then changed underneath the open window
+		await reauthPassword(owner);
 		const record = await ownerRecord();
 		await env.R2_STORAGE.put(
 			'auth/owner.json',
@@ -213,7 +224,6 @@ describe('passkey removal', () => {
 				},
 			}),
 		);
-		await reauthPassword(owner);
 		const response = await call(owner, 'DELETE', '/api/admin/passkeys/only-key');
 		expect(response.status).toBe(409);
 		expect(((await response.json()) as any).code).toBe('LAST_AUTH_METHOD');

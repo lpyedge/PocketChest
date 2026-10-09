@@ -1,8 +1,16 @@
 import { assertSameOrigin, clearedSessionCookie, csrfTokenFor, issueOwnerSession, requireOwner } from './auth/sessions';
 import { bootstrapOwner } from './auth/bootstrap';
 import type { AuthenticationResponseJSON, RegistrationResponseJSON } from '@simplewebauthn/server';
-import { authMethods, loginWithPassword, loginWithTotp, reauthWithPassword, reauthWithTotp } from './auth/login';
-import { assertionOptions, loginVerify, registrationOptions, registrationVerify, reauthVerify } from './auth/passkeys';
+import {
+	activateWithPassword,
+	activateWithTotp,
+	authMethods,
+	loginWithPassword,
+	loginWithTotp,
+	reauthWithPassword,
+	reauthWithTotp,
+} from './auth/login';
+import { activateVerify, assertionOptions, loginVerify, registrationOptions, registrationVerify, reauthVerify } from './auth/passkeys';
 import { changePassword, confirmTotp, prepareTotp, removePasskey, Rotated, securityStatus, setMethodEnabled } from './auth/security';
 import type { Method } from './auth/owner';
 import { ApiError } from './errors';
@@ -233,6 +241,22 @@ async function routeApi(request: Request, env: Env, path: string): Promise<Respo
 
 		if (path === '/api/auth/reauth/passkey/verify' && method === 'POST') {
 			return await handlePasskeyReauthVerify(request, env);
+		}
+
+		if (path === '/api/auth/activate/password' && method === 'POST') {
+			return await handlePasswordActivation(request, env);
+		}
+
+		if (path === '/api/auth/activate/totp' && method === 'POST') {
+			return await handleTotpActivation(request, env);
+		}
+
+		if (path === '/api/auth/activate/passkey/options' && method === 'POST') {
+			return await handlePasskeyActivationOptions(request, env);
+		}
+
+		if (path === '/api/auth/activate/passkey/verify' && method === 'POST') {
+			return await handlePasskeyActivationVerify(request, env);
 		}
 
 		if (path === '/api/auth/login/totp' && method === 'POST') {
@@ -466,6 +490,44 @@ async function handleTotpReauth(request: Request, env: Env): Promise<Response> {
 	const code = await readTotpCode(request);
 	await reauthWithTotp(env, session, code, getCurrentTimestamp());
 	return json({ reauthenticated: true }, 200, { 'Cache-Control': 'no-store' });
+}
+
+// POST /api/auth/activate/password - Proves the owner holds the password, so a password that is off can be switched on
+async function handlePasswordActivation(request: Request, env: Env): Promise<Response> {
+	const session = await requireOwner(request, env.R2_STORAGE, env.JWT_SECRET, { mutating: true });
+	await enforceRateLimit(env.AUTH_LIMITER, request, 'activate-password');
+	const { password } = await readJson<{ password?: unknown }>(request);
+	if (typeof password !== 'string' || password.length === 0 || password.length > 1024) {
+		throw new ApiError(401, 'AUTH_INVALID_CREDENTIALS', 'Invalid credentials');
+	}
+	await activateWithPassword(env, session, password, getCurrentTimestamp());
+	return json({ proven: true }, 200, { 'Cache-Control': 'no-store' });
+}
+
+// POST /api/auth/activate/totp - Proves the owner holds the authenticator, so one that is off can be switched on
+async function handleTotpActivation(request: Request, env: Env): Promise<Response> {
+	const session = await requireOwner(request, env.R2_STORAGE, env.JWT_SECRET, { mutating: true });
+	await enforceRateLimit(env.AUTH_LIMITER, request, 'activate-totp');
+	const code = await readTotpCode(request);
+	await activateWithTotp(env, session, code, getCurrentTimestamp());
+	return json({ proven: true }, 200, { 'Cache-Control': 'no-store' });
+}
+
+// POST /api/auth/activate/passkey/options - Challenge for proving the owner holds a passkey that is off
+async function handlePasskeyActivationOptions(request: Request, env: Env): Promise<Response> {
+	const session = await requireOwner(request, env.R2_STORAGE, env.JWT_SECRET, { mutating: true });
+	await enforceRateLimit(env.AUTH_LIMITER, request, 'passkey-activate-options');
+	const options = await assertionOptions(env.R2_STORAGE, request, 'activate', session, getCurrentTimestamp(), env.PASSKEY_RP_ID);
+	return json(options, 200, { 'Cache-Control': 'no-store' });
+}
+
+// POST /api/auth/activate/passkey/verify - Records the proof after a valid passkey assertion
+async function handlePasskeyActivationVerify(request: Request, env: Env): Promise<Response> {
+	const session = await requireOwner(request, env.R2_STORAGE, env.JWT_SECRET, { mutating: true });
+	await enforceRateLimit(env.AUTH_LIMITER, request, 'passkey-activate-verify');
+	const body = await readPasskeyBody<{ response: AuthenticationResponseJSON }>(request);
+	await activateVerify(env.R2_STORAGE, request, session, body, getCurrentTimestamp(), env.PASSKEY_RP_ID);
+	return json({ proven: true }, 200, { 'Cache-Control': 'no-store' });
 }
 
 // --- Security settings (signed-in owner) ---

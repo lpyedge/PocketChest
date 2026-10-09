@@ -19,6 +19,8 @@ interface SecuritySettingsModalProps {
 interface PendingAction {
 	run: () => Promise<void>;
 	required: Method | null;
+	// A proof of holding a method that is off, to switch it on; not a re-entry
+	activate?: boolean;
 }
 
 function statusLabel(
@@ -97,8 +99,11 @@ export function SecuritySettingsModal({ csrfToken, onRotated, onClose, onSignedO
 			}
 			await refresh();
 		} catch (error) {
-			if (error instanceof AuthRequestError && (error.code === 'REAUTH_REQUIRED' || error.code === 'REAUTH_METHOD_REQUIRED')) {
-				setPending({ run: () => attempt(run, required), required });
+			if (error instanceof AuthRequestError && error.code === 'ACTIVATION_PROOF_REQUIRED' && required) {
+				setPending({ run: () => attempt(run, required), required, activate: true });
+			} else if (error instanceof AuthRequestError && (error.code === 'REAUTH_REQUIRED' || error.code === 'REAUTH_METHOD_REQUIRED')) {
+				// Any method that is on can re-enter; the method being switched on (if any) is proved separately afterwards
+				setPending({ run: () => attempt(run, required), required: null });
 			} else if (error instanceof AuthRequestError && error.status === 409) {
 				setMessage(t('security.conflict'));
 				await refresh();
@@ -111,21 +116,22 @@ export function SecuritySettingsModal({ csrfToken, onRotated, onClose, onSignedO
 	};
 
 	// Re-entry with a method the owner has set up; with `required`, only that method is offered
-	const reenter = async (method: Method, action: () => Promise<void>) => {
+	const reenter = async (method: Method, action: () => Promise<void>, activate = false) => {
 		setBusy(true);
 		setMessage(null);
 		try {
 			if (method === 'password') {
-				const response = await authApi.reauthPassword(csrf, reauthPassword);
+				await (activate ? authApi.activatePassword(csrf, reauthPassword) : authApi.reauthPassword(csrf, reauthPassword));
 				setReauthPassword('');
-				void response;
 			} else if (method === 'totp') {
-				await authApi.reauthTotp(csrf, reauthCode);
+				await (activate ? authApi.activateTotp(csrf, reauthCode) : authApi.reauthTotp(csrf, reauthCode));
 				setReauthCode('');
 			} else {
-				const options = await authApi.reauthPasskeyOptions(csrf);
+				const options = await (activate ? authApi.activatePasskeyOptions(csrf) : authApi.reauthPasskeyOptions(csrf));
 				const response = await startAuthentication({ optionsJSON: options });
-				await authApi.reauthPasskeyVerify(csrf, options.challenge, response);
+				await (activate
+					? authApi.activatePasskeyVerify(csrf, options.challenge, response)
+					: authApi.reauthPasskeyVerify(csrf, options.challenge, response));
 			}
 			setPending(null);
 			await action();
@@ -136,10 +142,14 @@ export function SecuritySettingsModal({ csrfToken, onRotated, onClose, onSignedO
 		}
 	};
 
-	const offeredMethods = (required: Method | null): Method[] => {
+	// A re-entry can only use a method that is switched on; a proof for switching one on again uses that method itself
+	const offeredMethods = (required: Method | null, activate = false): Method[] => {
 		if (!status) return [];
 		const all: Method[] = ['password', 'totp', 'passkey'];
-		return all.filter((method) => status.methods[method].configured && (required === null || required === method));
+		return all.filter((method) => {
+			const item = status.methods[method];
+			return (required === null || required === method) && item.configured && (activate || item.enabled);
+		});
 	};
 
 	const toggle = (method: Method, enabled: boolean) =>
@@ -194,7 +204,7 @@ export function SecuritySettingsModal({ csrfToken, onRotated, onClose, onSignedO
 					<p className="text-sm text-gray-800">
 						{pending.required ? t('security.confirmTitleWith', { method: t(`method.${pending.required}`) }) : t('security.confirmTitle')}
 					</p>
-					{offeredMethods(pending.required).map((method) => {
+					{offeredMethods(pending.required, pending.activate).map((method) => {
 						if (method === 'password') {
 							return (
 								<form
@@ -202,7 +212,7 @@ export function SecuritySettingsModal({ csrfToken, onRotated, onClose, onSignedO
 									className="flex gap-2"
 									onSubmit={(event) => {
 										event.preventDefault();
-										reenter('password', pending.run);
+										reenter('password', pending.run, pending.activate);
 									}}
 								>
 									<input
@@ -225,7 +235,7 @@ export function SecuritySettingsModal({ csrfToken, onRotated, onClose, onSignedO
 										className="flex gap-2"
 										onSubmit={(event) => {
 											event.preventDefault();
-											reenter('totp', pending.run);
+											reenter('totp', pending.run, pending.activate);
 										}}
 									>
 										<input
@@ -249,7 +259,7 @@ export function SecuritySettingsModal({ csrfToken, onRotated, onClose, onSignedO
 								key={method}
 								type="button"
 								disabled={busy}
-								onClick={() => reenter('passkey', pending.run)}
+								onClick={() => reenter('passkey', pending.run, pending.activate)}
 								className="px-4 py-2 bg-gray-800 text-white rounded disabled:opacity-50"
 							>
 								{t('security.confirmPasskey')}

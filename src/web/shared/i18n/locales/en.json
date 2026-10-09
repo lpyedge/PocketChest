@@ -27,6 +27,7 @@
 	"code.PASSWORD_TOO_SHORT": "Use at least 16 characters.",
 	"code.PASSWORD_TOO_WEAK": "Use a less repetitive password.",
 	"code.PASSWORD_UNCHANGED": "Choose a password different from the current one.",
+	"code.ACTIVATION_PROOF_REQUIRED": "Confirm that you hold this method first, then switch it on.",
 	"code.REAUTH_METHOD_REQUIRED": "Confirm with the same method to continue.",
 	"code.REAUTH_REQUIRED": "Confirm it is you to continue.",
 	"code.TOTP_CODE_INVALID": "That code does not match. The current authenticator is still in use.",

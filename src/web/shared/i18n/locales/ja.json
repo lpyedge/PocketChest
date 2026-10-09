@@ -27,6 +27,7 @@
 	"code.PASSWORD_TOO_SHORT": "16 文字以上を使用してください。",
 	"code.PASSWORD_TOO_WEAK": "同じ文字の繰り返しを減らしてください。",
 	"code.PASSWORD_UNCHANGED": "現在と異なるパスワードを選んでください。",
+	"code.ACTIVATION_PROOF_REQUIRED": "この方法を持っていることを先に確認してから、オンにしてください。",
 	"code.REAUTH_METHOD_REQUIRED": "同じ方法で本人確認をしてから続行してください。",
 	"code.REAUTH_REQUIRED": "本人確認をしてから続行してください。",
 	"code.TOTP_CODE_INVALID": "コードが一致しません。現在の認証アプリが引き続き使われます。",

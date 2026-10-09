@@ -88,4 +88,12 @@ export const authApi = {
 	reauthPasskeyOptions: (csrf: string) => call<any>('POST', '/api/auth/reauth/passkey/options', { csrf, body: {} }),
 	reauthPasskeyVerify: (csrf: string, challenge: string, response: unknown) =>
 		call<{ reauthenticated: boolean }>('POST', '/api/auth/reauth/passkey/verify', { csrf, body: { challenge, response } }),
+
+	// Proof of holding a method that is switched off, to switch it on again. Not a re-entry.
+	activatePassword: (csrf: string, password: string) =>
+		call<{ proven: boolean }>('POST', '/api/auth/activate/password', { csrf, body: { password } }),
+	activateTotp: (csrf: string, code: string) => call<{ proven: boolean }>('POST', '/api/auth/activate/totp', { csrf, body: { code } }),
+	activatePasskeyOptions: (csrf: string) => call<any>('POST', '/api/auth/activate/passkey/options', { csrf, body: {} }),
+	activatePasskeyVerify: (csrf: string, challenge: string, response: unknown) =>
+		call<{ proven: boolean }>('POST', '/api/auth/activate/passkey/verify', { csrf, body: { challenge, response } }),
 };

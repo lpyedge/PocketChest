@@ -27,6 +27,7 @@
 	"code.PASSWORD_TOO_SHORT": "請至少使用 16 個字元。",
 	"code.PASSWORD_TOO_WEAK": "請避免重複的字元。",
 	"code.PASSWORD_UNCHANGED": "請選擇與目前不同的密碼。",
+	"code.ACTIVATION_PROOF_REQUIRED": "請先確認您持有此方式，再將它開啟。",
 	"code.REAUTH_METHOD_REQUIRED": "請使用同一種方式確認後繼續。",
 	"code.REAUTH_REQUIRED": "請先確認是你本人。",
 	"code.TOTP_CODE_INVALID": "代碼不符，仍使用目前的驗證器。",

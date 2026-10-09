@@ -26,8 +26,11 @@ export interface OwnerSessionRecord {
 	absoluteExpiresAt: number;
 	ownerAuthVersion: number;
 	reauthenticatedAt: number | null;
-	// Which sign-in method the last re-entry used; enabling a method needs proof of that same method
+	// Which sign-in method the last re-entry used
 	reauthMethod: ReauthMethod | null;
+	// Proof that the owner still holds a method that is switched off, given so it can be switched on again.
+	// It is separate from the re-entry above and opens nothing else.
+	activationProof?: { method: ReauthMethod; at: number };
 }
 
 export interface LoadedSession {
@@ -181,8 +184,34 @@ export async function markReauthenticated(
 	throw new ApiError(409, 'CONFLICT', 'Session changed, try again');
 }
 
+/**
+ * Records a proof of holding `method`, for switching that method on. Unlike a re-entry it does not open the
+ * window that password changes and other settings need.
+ */
+export async function markActivationProof(bucket: R2Bucket, sid: string, now: number, method: ReauthMethod): Promise<void> {
+	const key = sessionKey(await sha256Hex(sid));
+	for (let attempt = 0; attempt < 3; attempt++) {
+		const object = await bucket.get(key);
+		const parsed = object ? parseRecord(await object.text()) : null;
+		if (!object || !parsed) {
+			throw new ApiError(401, 'AUTH_INVALID', 'Sign in required');
+		}
+		if (await replaceRecord(bucket, key, object.etag, { ...parsed, activationProof: { method, at: now } })) {
+			return;
+		}
+	}
+	throw new ApiError(409, 'CONFLICT', 'Session changed, try again');
+}
+
 // Enforces the short window after a password re-entry that sensitive changes require
 export const REAUTH_SECONDS = 5 * 60;
+
+export function assertActivationProof(session: LoadedSession, now: number, method: ReauthMethod): void {
+	const proof = session.record.activationProof;
+	if (!proof || proof.method !== method || now - proof.at >= REAUTH_SECONDS || proof.at > now) {
+		throw new ApiError(403, 'ACTIVATION_PROOF_REQUIRED', `Prove you hold ${method} to switch it on`);
+	}
+}
 
 export function assertRecentReauth(session: LoadedSession, now: number, method?: ReauthMethod): void {
 	const { reauthenticatedAt: at, reauthMethod } = session.record;

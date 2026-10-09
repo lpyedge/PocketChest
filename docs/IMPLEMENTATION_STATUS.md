@@ -27,8 +27,8 @@
 | TASK-20 | 密碼修改與 Session 輪替 | PASS | 見 Git log（change-password.spec.ts 8 項） |
 | TASK-21 | TOTP 綁定與重綁 | PASS | 見 Git log（totp-enroll.spec.ts 7 項）；QR 圖未產生，提供 otpauth URI |
 | TASK-22 | 離線密碼恢復 CLI | PASS | 見 Git log（scripts/recovery-core.mjs、reset-owner-password.mjs、docs/RECOVERY.md、recovery-cli.spec.ts 6 項） |
-| TASK-23 | 登入頁（動態方式） | TODO | |
-| TASK-24 | Security Settings Modal | TODO | |
+| TASK-23 | Upload 登入頁：三種已啟用方式動態顯示 | PASS | 見 Git log（AuthMethodPicker.tsx、auth-api.ts、auth-login.spec.ts 8 項含真實密碼登入） |
+| TASK-24 | Security Settings Modal | PASS | 見 Git log（SecuritySettingsModal.tsx、security-settings.spec.ts，含 Chromium 虛擬 Passkey 完整流程） |
 | TASK-25 | i18n 核心 | TODO | |
 | TASK-26 | 三語完整翻譯 | TODO | |
 | TASK-27 | 無 JS 三語首頁 | TODO | |

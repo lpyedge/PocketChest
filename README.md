@@ -89,7 +89,7 @@ PocketChest/
 │       └── shared/            # Components, hooks, API client, styles
 ├── public/                    # Copied into dist/ as-is (_headers, _redirects, 404.html, favicon)
 ├── test/                      # Worker tests (Vitest + @cloudflare/vitest-pool-workers)
-├── scripts/                   # generate-secrets.js, test-ci.sh
+├── scripts/                   # reset-owner-password.mjs (offline recovery), test-ci.sh
 ├── docs/API.md                # API reference
 ├── wrangler.jsonc             # Worker, assets, R2 and cron configuration
 ├── vite.config.ts

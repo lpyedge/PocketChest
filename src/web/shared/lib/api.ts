@@ -35,17 +35,6 @@ function bindXhrAbort(xhr: XMLHttpRequest, signal: AbortSignal | undefined, reje
 export class PocketChestAPI {
 	constructor(private baseUrl: string = API_BASE_URL) {}
 
-	// Whether the owner is signed in, and the CSRF token that the signed-in session must echo on changes
-	async getOwnerStatus(): Promise<{ authenticated: boolean; csrfToken?: string }> {
-		const response = await fetch(`${this.baseUrl}/api/auth/session`);
-
-		if (!response.ok) {
-			throw new Error('Failed to check sign-in');
-		}
-
-		return response.json();
-	}
-
 	// Starts an upload session; only the signed-in owner can do this
 	async createUploadSession(csrfToken: string): Promise<CreateChestResponse> {
 		const response = await fetch(`${this.baseUrl}/api/upload-sessions`, {

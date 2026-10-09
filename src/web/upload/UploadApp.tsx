@@ -6,6 +6,9 @@ import { UploadProgress } from '@/components/UploadProgress';
 import { ShareResult } from '@/components/ShareResult';
 import { usePocketChest } from '@/hooks/usePocketChest';
 import { PocketChestAPI } from '@/lib/api';
+import { authApi, AuthMethodsStatus } from '@/lib/auth-api';
+import { AuthMethodPicker } from '@/components/AuthMethodPicker';
+import { SecuritySettingsModal } from '@/components/SecuritySettingsModal';
 import { TextItem, ValidityDays } from '@/lib/types';
 
 export default function UploadApp() {
@@ -18,20 +21,46 @@ export default function UploadApp() {
 	// Owner sign-in: the CSRF token of the signed-in session, or null when nobody is signed in
 	const [csrfToken, setCsrfToken] = useState<string | null>(null);
 	const [authChecked, setAuthChecked] = useState(false);
+	const [methods, setMethods] = useState<AuthMethodsStatus | null>(null);
+	const [signOutError, setSignOutError] = useState<string | null>(null);
+	const [showSecurity, setShowSecurity] = useState(false);
 	const [startError, setStartError] = useState<string | null>(null);
 
 	const { uploadWithSession, retryUpload, cancelUpload, isUploading, uploadProgress, uploadStatus, fileProgress, error, clearError } =
 		usePocketChest();
 	const api = new PocketChestAPI();
 
-	// Check the owner session once on load
-	useEffect(() => {
-		api
-			.getOwnerStatus()
-			.then((status) => setCsrfToken(status.authenticated ? (status.csrfToken ?? null) : null))
-			.catch(() => setCsrfToken(null))
+	// Check the owner session and which sign-in methods are on, once on load
+	const loadAuth = () => {
+		return Promise.all([authApi.session(), authApi.methods()])
+			.then(([session, status]) => {
+				setCsrfToken(session.authenticated ? (session.csrfToken ?? null) : null);
+				setMethods(status);
+			})
+			.catch(() => {
+				setCsrfToken(null);
+				setMethods(null);
+			})
 			.finally(() => setAuthChecked(true));
+	};
+
+	useEffect(() => {
+		loadAuth();
 	}, []);
+
+	const signOut = async () => {
+		if (!csrfToken) return;
+		setSignOutError(null);
+		try {
+			await authApi.logout(csrfToken);
+			setCsrfToken(null);
+			setSessionData(null);
+			setUploadResult(null);
+			await loadAuth();
+		} catch {
+			setSignOutError('Sign-out failed. Please try again.');
+		}
+	};
 
 	// Every upload runs in its own session: a session is closed by completing it, cancelling it or a failed attempt
 	const startSession = async (): Promise<{ sessionId: string; uploadToken: string }> => {
@@ -96,25 +125,39 @@ export default function UploadApp() {
 		setUploadResult(null);
 	};
 
-	// Until the sign-in check finishes, and whenever nobody is signed in, the page cannot start an upload
-	if (!authChecked || !csrfToken) {
+	// Until the sign-in check finishes, the page shows nothing to upload with
+	if (!authChecked) {
 		return (
 			<main className="min-h-screen bg-gray-50 py-8">
-				<div className="max-w-2xl mx-auto px-4">
+				<div className="max-w-2xl mx-auto px-4 text-center text-gray-600">Checking sign-in...</div>
+			</main>
+		);
+	}
+
+	// Signed out: only the sign-in methods that are switched on are offered; with none, nothing is uploadable
+	if (!csrfToken) {
+		return (
+			<main className="min-h-screen bg-gray-50 py-8">
+				<div className="max-w-md mx-auto px-4">
 					<div className="text-center mb-8">
 						<a href="/" className="text-blue-600 hover:text-blue-800 text-sm">
 							← Back to Home
 						</a>
 						<h1 className="text-4xl font-bold text-gray-900 mt-4 mb-2">📤 Share Files & Text</h1>
-						<p className="text-xl text-gray-600">Upload files or text to get a shareable code</p>
+						<p className="text-lg text-gray-600">Sign in to upload</p>
 					</div>
-
 					<div className="bg-white rounded-lg shadow-md p-8">
-						<div className="text-center">
-							<div className="text-8xl mb-6">{authChecked ? '🔐' : '🎯'}</div>
-							<h2 className="text-2xl font-bold text-gray-900 mb-4">{authChecked ? 'Sign-in Required' : 'Checking Sign-in...'}</h2>
-							<p className="text-gray-600">{authChecked ? 'Only the owner can upload. Sign in to continue.' : 'One moment, please.'}</p>
-						</div>
+						{methods ? (
+							<AuthMethodPicker
+								status={methods}
+								onSignedIn={(token) => {
+									setCsrfToken(token);
+									loadAuth();
+								}}
+							/>
+						) : (
+							<p className="text-gray-700">Could not reach sign-in. Reload the page to try again.</p>
+						)}
 					</div>
 				</div>
 			</main>
@@ -170,6 +213,15 @@ export default function UploadApp() {
 					</a>
 					<h1 className="text-4xl font-bold text-gray-900 mt-4 mb-2">📤 Share Files & Text</h1>
 					<p className="text-xl text-gray-600">Upload files or text to get a shareable code</p>
+					<div className="flex justify-center gap-4 mt-4 text-sm">
+						<button type="button" onClick={() => setShowSecurity(true)} className="text-blue-600 hover:text-blue-800 underline">
+							Security settings
+						</button>
+						<button type="button" onClick={signOut} className="text-gray-700 hover:text-gray-900 underline">
+							Sign out
+						</button>
+					</div>
+					{signOutError && <p className="text-red-700 text-sm mt-2">{signOutError}</p>}
 				</div>
 
 				{startError && (
@@ -240,6 +292,19 @@ export default function UploadApp() {
 					</div>
 				</div>
 			</div>
+			{showSecurity && csrfToken && (
+				<SecuritySettingsModal
+					csrfToken={csrfToken}
+					onRotated={(token) => setCsrfToken(token)}
+					onClose={() => setShowSecurity(false)}
+					onSignedOut={() => {
+						setShowSecurity(false);
+						setCsrfToken(null);
+						setSessionData(null);
+						loadAuth();
+					}}
+				/>
+			)}
 		</main>
 	);
 }

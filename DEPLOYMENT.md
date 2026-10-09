@@ -7,7 +7,7 @@ This guide walks you through deploying PocketChest, a secure file-sharing applic
 - **One Worker** serves the API (`/api/*`) and the static frontend (built by Vite into `dist/` and uploaded as Workers Static Assets)
 - **R2** stores everything: file content and a small JSON manifest per chest (no database)
 - **Cron trigger** (hourly) deletes expired chests and abandoned uploads
-- **Authentication**: Optional TOTP (Time-based One-Time Password)
+- **Authentication**: One owner, with three independent sign-in methods: password, authenticator app (TOTP) and passkey
 
 There is no separate Cloudflare Pages project and no separate API domain.
 
@@ -74,79 +74,32 @@ If you have a domain managed by Cloudflare, you can configure a custom domain ro
 - **Important**: Use a subdomain (3-level domain like `share.yourdomain.com`) for automatic SSL certificates
 - Avoid deeper subdomains (4+ levels like `share.pc.yourdomain.com`) as they won't receive automatic SSL certificates due to Cloudflare limitations
 
-### 3. Configure Secrets
+### 3. Configure Secrets and Variables
 
-**⚠️ IMPORTANT**: Never put secrets in `wrangler.jsonc` vars section - use Cloudflare Worker Secrets ([docs](https://developers.cloudflare.com/workers/configuration/secrets/)) instead.
+**⚠️ IMPORTANT**: Never put secrets in the `wrangler.jsonc` vars section; use Cloudflare Worker Secrets ([docs](https://developers.cloudflare.com/workers/configuration/secrets/)).
 
-#### Generate Secrets
+| Name | Kind | Purpose |
+|------|------|---------|
+| `JWT_SECRET` | Secret | Signs upload and download tokens. Changing it ends all tokens. |
+| `AUTH_ENCRYPTION_KEY` | Secret | 32-byte AES key, base64, that seals the authenticator seed. Lose it and the authenticator must be set up again. |
+| `ADMIN_BOOTSTRAP_PASSWORD` | Secret | Used once, to create the owner. Remove it after setup. |
+| `BOOTSTRAP_ENABLED` | Variable | `"true"` only while the first setup is pending; `"false"` otherwise (`wrangler.jsonc`). |
 
-Use the provided script to generate secure secrets:
-
-```bash
-# Generate JWT + single TOTP user
-node scripts/generate-secrets.js [key-name]
-
-# Generate JWT + multiple TOTP users
-node scripts/generate-secrets.js admin user1 user2 user3
-
-# Generate only TOTP keys (for adding users later)
-node scripts/generate-secrets.js --totp-only newuser1 newuser2
-```
-
-**Script Features:**
-- **JWT_SECRET**: Secure random key for token signing. You should use a randomly generated JWT secret for security.
-- **Multiple TOTP Users**: Generate multiple users at once with setup instructions
-- **Add Users Later**: Use `--totp-only` flag to generate additional TOTP keys
-
-**Multiple Users Supported**: The TOTP system supports unlimited users with different TOTP secrets. Format: `key1:secret1,key2:secret2,key3:secret3`. Any user with a valid TOTP token can access the system.
-
-#### Configure Secrets and Variables
-**1. Configure TOTP Setting in `wrangler.jsonc`:**
-
-```jsonc
-{
-  "vars": {
-    "REQUIRE_TOTP": "true"    // Set to "false" to disable TOTP
-  }
-}
-```
-
-**2. Set Cloudflare Worker Secrets:**
+Generate the random values with:
 
 ```bash
-# Set JWT secret (REQUIRED)
+openssl rand -base64 48    # JWT_SECRET
+openssl rand -base64 32    # AUTH_ENCRYPTION_KEY (must decode to exactly 32 bytes)
+openssl rand -base64 24    # ADMIN_BOOTSTRAP_PASSWORD
+```
+
+```bash
 npx wrangler secret put JWT_SECRET
-# Paste the JWT secret from the generator when prompted
-
-# Set TOTP secrets (ONLY if REQUIRE_TOTP is "true")
-npx wrangler secret put TOTP_SECRETS
-# Paste the TOTP secrets from the generator when prompted
+npx wrangler secret put AUTH_ENCRYPTION_KEY
+npx wrangler secret put ADMIN_BOOTSTRAP_PASSWORD
 ```
 
-**Note**: If prompted "Do you want to create a new Worker with that name and add secrets to it?", choose **Y** (yes).
-
-
-**3. Add TOTP Keys to Your Authenticator App:**
-
-The script will output setup URLs and secret keys for each generated TOTP user. Add these to your preferred authenticator app like 1Password or Google Authenticator:
-
-**Example: Adding to 1Password:**
-
-Create a *One-Time Password* field, then enter the output string (like `otpauth://totp/PocketChest%3Axxxx?secret=xxxxxxxxxxxxxxxxxxx&issuer=PocketChest&algorithm=SHA1&digits=6&period=30`) into that field.
-Fill in your PocketChest domain to enable autofill.
-![1Password-TOTP](assets/1Password-TOTP.png)
-
-
-**💡 Use Case Guide:**
-- **Private/Team Use**: Enable TOTP (`"REQUIRE_TOTP": "true"`) for secure access with known users
-- **Public Use**: Disable TOTP (`"REQUIRE_TOTP": "false"`) to allow anyone to share files
-- **TOTP setup appears complex because it's designed for private deployments with controlled access**
-
-**Security Notes:**
-- Secrets are encrypted and stored securely by Cloudflare
-- Never commit secrets to version control
-- You should generate and use unique secrets
-- Remove any secrets from the `wrangler.jsonc` vars section
+Set `"BOOTSTRAP_ENABLED": "true"` in `wrangler.jsonc` for the first deployment only.
 
 ### 4. Deploy
 
@@ -160,49 +113,48 @@ PocketChest will be available at `https://pocket-chest.your-subdomain.workers.de
 
 ## Post-Deployment Configuration
 
-### 1. Test Deployment
+### 1. First-time setup
 
-1. Visit your PocketChest URL
-2. Try uploading files (with TOTP if enabled)
-3. Test retrieval with the generated code
-4. Verify files download correctly
-
-### 2. Adding TOTP Keys Later
-
-⚠️ **Important**: Cloudflare Worker secrets are encrypted and hidden - you cannot view existing secret values. When adding new users, you have two options:
-
-**Option 1: Replace All Keys (Recommended)**
-1. Generate new keys for ALL users (existing + new):
+1. Open `https://<your-domain>/upload/`. While the owner does not exist and bootstrap is enabled, the page asks for the administrator password.
+2. Enter `ADMIN_BOOTSTRAP_PASSWORD`. The owner is created with that password, and you are signed in.
+3. Set `"BOOTSTRAP_ENABLED": "false"` in `wrangler.jsonc`, deploy again, and remove the secret:
    ```bash
-   node scripts/generate-secrets.js --totp-only admin user1 user2 newuser
+   npx wrangler secret delete ADMIN_BOOTSTRAP_PASSWORD
    ```
-2. Update all users' authenticator apps with the new secrets
-3. Set the new combined secret:
-   ```bash
-   npx wrangler secret put TOTP_SECRETS
-   # Enter the complete new secret string when prompted
-   ```
+   Bootstrap cannot run a second time, even with the secret present, so this step is about hygiene: the secret should not stay on the Worker.
 
-**Option 2: Keep Existing Keys (More Complex)**
-1. **Before deployment**: Save your TOTP secrets in a secure location (password manager)
-2. When adding users: Generate only new keys and manually combine with saved existing keys
-3. This requires you to have recorded the original secrets
+### 2. Set up the other sign-in methods
 
-**Recommended Approach**: Use Option 1 and regenerate all keys when adding users. This ensures you have a complete record of all active keys and maintains security.
+Sign in, then open **Security settings** on the upload page:
+
+- **Password**: change it there (at least 16 characters). Changing it ends the other sessions.
+- **Authenticator app**: *Set up authenticator* shows an `otpauth://` link. Add it to an authenticator app and confirm with a code. A wrong code leaves the current setup unchanged.
+- **Passkeys**: *Add passkey* registers the device. A new passkey is not used for sign-in until you switch the passkey method on.
+
+Each change asks you to confirm with a method you hold. A method cannot be switched off if it is the last one that works.
+
+### 3. Test the deployment
+
+1. Sign in on `/upload/` and upload a file.
+2. Open the returned link on `/retrieve/`, and download the file.
+
+### 4. Lost access
+
+If every sign-in method is unavailable, follow [docs/RECOVERY.md](docs/RECOVERY.md). It is an offline command run by the deployer; the website has no recovery route.
 
 ## Environment Variables Reference
 
-| Variable | Required | Description |
-|----------|----------|-------------|
-| `JWT_SECRET` | Yes | Long random string for JWT signing (secret) |
-| `REQUIRE_TOTP` | Yes | Set to "true" to enable TOTP auth (`vars` in `wrangler.jsonc`) |
-| `TOTP_SECRETS` | If TOTP enabled | Comma-separated `name:base32secret` pairs (secret) |
+| Name | Kind | Required | Description |
+|------|------|----------|-------------|
+| `JWT_SECRET` | Secret | Yes | Signs upload and download tokens |
+| `AUTH_ENCRYPTION_KEY` | Secret | Yes, once an authenticator is set up | Base64 32-byte key that seals the authenticator seed |
+| `ADMIN_BOOTSTRAP_PASSWORD` | Secret | During first setup only | Creates the owner; remove afterwards |
+| `BOOTSTRAP_ENABLED` | Variable | Yes | `"true"` only during first setup |
+| `AUTH_LIMITER`, `RETRIEVE_LIMITER`, `UPLOAD_LIMITER` | Rate limiting bindings | Yes | Per-client request limits (`ratelimits` in `wrangler.jsonc`) |
 
 The frontend needs no configuration: it calls the API on the same origin.
 
 For local development, put these values in `.dev.vars` (see `.dev.vars.example`).
-
-**Note**: TOTP configuration is automatically fetched from the backend via `/api/config` endpoint.
 
 ## Monitoring and Maintenance
 
@@ -237,7 +189,7 @@ Everything lives in the R2 bucket:
 ## Security Considerations
 
 1. **JWT Secret**: Use a strong, unique secret for production
-2. **TOTP**: Enable TOTP for sensitive deployments
+2. **Sign-in methods**: Keep at least two sign-in methods set up, so one lost device does not lock you out
 3. **File Types**: The system accepts all file types - consider validation if needed
 4. **Rate Limiting**: Consider adding rate limiting for production use
 5. **Same origin**: The API sends no CORS headers, so other sites cannot call it from a browser
@@ -248,7 +200,7 @@ Everything lives in the R2 bucket:
 
 1. **Blank page or 404 for `/upload/`**: Make sure `npm run deploy` (not plain `wrangler deploy`) ran, so `dist/` was built
 2. **Storage Errors**: Ensure the R2 bucket exists and `bucket_name` in `wrangler.jsonc` matches it
-3. **TOTP Issues**: Verify secrets are properly formatted and time is synchronized
+3. **Authenticator Issues**: Check that the device clock is synchronized; codes are time-based
 
 ### Debug Commands
 

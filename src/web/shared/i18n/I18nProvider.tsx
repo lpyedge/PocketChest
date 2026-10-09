@@ -1,4 +1,4 @@
-import { createContext, ReactNode, useCallback, useContext, useEffect, useMemo, useState } from 'react';
+import { createContext, ReactNode, useCallback, useRef, useContext, useEffect, useMemo, useState } from 'react';
 import {
 	DEFAULT_LOCALE,
 	isLocale,
@@ -58,6 +58,10 @@ export function I18nProvider({ children }: { children: ReactNode }) {
 	// The language whose messages could not be downloaded, if the last attempt failed
 	const [failedLocale, setFailedLocale] = useState<Locale | null>(null);
 
+	// A language the visitor asked for, not yet kept: it is remembered (and put in the address) only once its
+	// messages have really arrived, so a failed download leaves nothing behind that would ask for it again
+	const asked = useRef<Locale | null>(null);
+
 	useEffect(() => {
 		let cancelled = false;
 		loaders[locale]()
@@ -65,10 +69,20 @@ export function I18nProvider({ children }: { children: ReactNode }) {
 				if (cancelled) return;
 				setFailedLocale(null);
 				setLoaded({ locale, messages: module.default });
+				if (asked.current === locale) {
+					asked.current = null;
+					writeStoredLocale(locale);
+					// Keep a ?lang= in the address in step, so a reload does not bring the old language back (the #fragment is untouched)
+					const search = withLocaleParam(window.location.search, locale);
+					if (search !== window.location.search) {
+						window.history.replaceState(window.history.state, '', `${window.location.pathname}${search}${window.location.hash}`);
+					}
+				}
 			})
 			.catch((error: unknown) => {
 				if (cancelled) return;
 				console.error('Could not load the language file:', error);
+				asked.current = null;
 				if (loaded) {
 					// A language switch failed: stay in the language that is on screen, in step with the page's lang
 					setLocaleState(loaded.locale);
@@ -82,18 +96,15 @@ export function I18nProvider({ children }: { children: ReactNode }) {
 		// `loaded` is only read to decide how to recover, it must not restart the download
 	}, [locale]);
 
+	// The page's language follows the text on screen, which changes only when the new messages are there
+	const shownLocale = loaded?.locale;
 	useEffect(() => {
-		document.documentElement.lang = HTML_LANG[locale];
-	}, [locale]);
+		if (shownLocale) document.documentElement.lang = HTML_LANG[shownLocale];
+	}, [shownLocale]);
 
 	const setLocale = useCallback((next: Locale) => {
 		if (!isLocale(next)) return;
-		writeStoredLocale(next);
-		// Keep a ?lang= in the address in step, so a reload does not bring the old language back (the #fragment is untouched)
-		const search = withLocaleParam(window.location.search, next);
-		if (search !== window.location.search) {
-			window.history.replaceState(window.history.state, '', `${window.location.pathname}${search}${window.location.hash}`);
-		}
+		asked.current = next;
 		setLocaleState(next);
 	}, []);
 

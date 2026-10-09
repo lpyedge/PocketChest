@@ -79,7 +79,7 @@ for (const language of LANGUAGES) {
 			await request.post('/api/auth/bootstrap', { headers: { Origin: ORIGIN }, data: { password: OWNER_PASSWORD } });
 
 			await page.goto('/upload/');
-			expect(await page.getAttribute('html', 'lang')).toBe(language.lang);
+			await expect.poll(() => page.getAttribute('html', 'lang')).toBe(language.lang);
 			await expect(page.getByLabel(language.passwordLabel, { exact: true })).toBeVisible();
 			await page.getByLabel(language.passwordLabel, { exact: true }).fill(OWNER_PASSWORD);
 			await page.getByRole('button', { name: language.signIn }).click();
@@ -126,11 +126,11 @@ for (const language of LANGUAGES) {
 			await page.evaluate('window.marker = 42');
 
 			await page.getByRole('combobox').selectOption('en');
-			expect(await page.getAttribute('html', 'lang')).toBe('en');
+			await expect.poll(() => page.getAttribute('html', 'lang')).toBe('en');
 			expect(await page.evaluate('window.marker')).toBe(42);
 
 			await page.reload();
-			expect(await page.getAttribute('html', 'lang')).toBe('en');
+			await expect.poll(() => page.getAttribute('html', 'lang')).toBe('en');
 		});
 	});
 }
@@ -139,7 +139,7 @@ test('ignores an unsupported stored language and falls back to the browser langu
 	await useClientAddress(page, randomClientIp());
 	await page.addInitScript("window.localStorage.setItem('pocketchest.locale', 'klingon')");
 	await page.goto('/retrieve/');
-	expect(await page.getAttribute('html', 'lang')).toBe('en');
+	await expect.poll(() => page.getAttribute('html', 'lang')).toBe('en');
 });
 
 test('loads only the chunk for the language in use', async ({ page }) => {

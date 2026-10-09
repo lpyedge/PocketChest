@@ -11,11 +11,12 @@ import { AuthMethodPicker } from '@/components/AuthMethodPicker';
 import { SecuritySettingsModal } from '@/components/SecuritySettingsModal';
 import { LanguageSwitcher } from '@/components/LanguageSwitcher';
 import { useI18n } from '@/i18n/I18nProvider';
+import { homeUrlFor } from '@/lib/home';
 import { ClientError, messageKeyFor } from '@/lib/errors';
 import { TextItem, ValidityDays } from '@/lib/types';
 
 export default function UploadApp() {
-	const { t } = useI18n();
+	const { t, locale } = useI18n();
 	const [files, setFiles] = useState<File[]>([]);
 	const [textItems, setTextItems] = useState<TextItem[]>([]);
 	const [validityDays, setValidityDays] = useState<ValidityDays>(7);
@@ -148,8 +149,8 @@ export default function UploadApp() {
 			<main className="min-h-screen bg-gray-50 py-8">
 				<div className="max-w-md mx-auto px-4">
 					<div className="text-center mb-8">
-						<a href="/" className="text-blue-600 hover:text-blue-800 text-sm">
-							← Back to Home
+						<a href={homeUrlFor(locale)} className="text-blue-600 hover:text-blue-800 text-sm">
+							{t('common.backHome')}
 						</a>
 						<h1 className="text-4xl font-bold text-gray-900 mt-4 mb-2">{t('upload.pageTitle')}</h1>
 						<p className="text-lg text-gray-600">{t('upload.signInSubtitle')}</p>
@@ -180,10 +181,13 @@ export default function UploadApp() {
 			<main className="min-h-screen bg-gray-50 py-8">
 				<div className="max-w-2xl mx-auto px-4">
 					<div className="text-center mb-8">
-						<a href="/" className="text-blue-600 hover:text-blue-800 text-sm">
-							← Back to Home
+						<a href={homeUrlFor(locale)} className="text-blue-600 hover:text-blue-800 text-sm">
+							{t('common.backHome')}
 						</a>
 						<h1 className="text-4xl font-bold text-gray-900 mt-4 mb-2">{t('upload.resultTitle')}</h1>
+						<div className="flex justify-center mt-2">
+							<LanguageSwitcher />
+						</div>
 					</div>
 
 					<div className="bg-white rounded-lg shadow-md p-8">
@@ -204,8 +208,11 @@ export default function UploadApp() {
 								>
 									{t('upload.shareMore')}
 								</button>
-								<a href="/" className="block w-full py-3 bg-gray-500 text-white rounded-lg hover:bg-gray-600 font-semibold text-center">
-									Back to Home
+								<a
+									href={homeUrlFor(locale)}
+									className="block w-full py-3 bg-gray-500 text-white rounded-lg hover:bg-gray-600 font-semibold text-center"
+								>
+									{t('common.backHome')}
 								</a>
 							</div>
 						</div>
@@ -219,8 +226,8 @@ export default function UploadApp() {
 		<main className="min-h-screen bg-gray-50 py-8">
 			<div className="max-w-3xl mx-auto px-4">
 				<div className="text-center mb-8">
-					<a href="/" className="text-blue-600 hover:text-blue-800 text-sm">
-						← Back to Home
+					<a href={homeUrlFor(locale)} className="text-blue-600 hover:text-blue-800 text-sm">
+						{t('common.backHome')}
 					</a>
 					<h1 className="text-4xl font-bold text-gray-900 mt-4 mb-2">{t('upload.pageTitle')}</h1>
 					<p className="text-xl text-gray-600">{t('upload.subtitle')}</p>

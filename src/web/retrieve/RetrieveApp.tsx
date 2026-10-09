@@ -3,9 +3,10 @@ import { RetrieveClient } from '@/components/RetrieveClient';
 import { readCodeFromLocation } from '@/lib/share';
 import { useI18n } from '@/i18n/I18nProvider';
 import { LanguageSwitcher } from '@/components/LanguageSwitcher';
+import { appUrl, homeUrlFor } from '@/lib/home';
 
 export default function RetrieveApp() {
-	const { t } = useI18n();
+	const { t, locale } = useI18n();
 
 	useEffect(() => {
 		document.title = t('retrieve.docTitle');
@@ -71,7 +72,7 @@ export default function RetrieveApp() {
 					<LanguageSwitcher />
 				</div>
 				<div className="text-center mb-8">
-					<a href="/" className="text-green-600 hover:text-green-800 text-sm">
+					<a href={homeUrlFor(locale)} className="text-green-600 hover:text-green-800 text-sm">
 						{t('common.backHome')}
 					</a>
 					<div className="text-8xl mb-6 mt-4">📥</div>
@@ -115,7 +116,7 @@ export default function RetrieveApp() {
 						<div className="text-center">
 							<p className="text-sm text-gray-500">
 								{t('retrieve.noCode')}{' '}
-								<a href="/upload/" className="text-green-600 hover:text-green-800 font-medium">
+								<a href={appUrl('/upload/', locale)} className="text-green-600 hover:text-green-800 font-medium">
 									{t('retrieve.shareInstead')}
 								</a>
 							</p>

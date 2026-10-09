@@ -3,6 +3,8 @@ import { usePocketChest } from '@/hooks/usePocketChest';
 import { FileInfo } from '@/lib/types';
 import { describeExpiry } from '@/lib/expiry';
 import { formatBytes } from '@/lib/format';
+import { appUrl, homeUrlFor } from '@/lib/home';
+import { LanguageSwitcher } from '@/components/LanguageSwitcher';
 import { AUTO_LOAD_TEXT_ITEMS, loadTexts, TextState } from '@/lib/text-loader';
 import { useI18n } from '@/i18n/I18nProvider';
 
@@ -108,10 +110,16 @@ export function RetrieveClient({ code, onBack }: RetrieveClientProps) {
 		return (
 			<main className="min-h-screen bg-gray-50 flex items-center justify-center">
 				<div className="max-w-md mx-auto p-6 bg-white rounded-lg shadow-md text-center">
+					<div className="flex justify-end mb-2">
+						<LanguageSwitcher />
+					</div>
 					<div className="text-6xl mb-4">❌</div>
 					<h1 className="text-2xl font-bold text-red-700 mb-2">{t('retrieve.failedTitle')}</h1>
 					<p className="text-gray-600 mb-4">{error}</p>
-					<button onClick={() => (window.location.href = '/')} className="px-6 py-2 bg-blue-500 text-white rounded-lg hover:bg-blue-600">
+					<button
+						onClick={() => (window.location.href = homeUrlFor(locale))}
+						className="px-6 py-2 bg-blue-500 text-white rounded-lg hover:bg-blue-600"
+					>
 						{t('retrieve.goHome')}
 					</button>
 				</div>
@@ -122,6 +130,9 @@ export function RetrieveClient({ code, onBack }: RetrieveClientProps) {
 	return (
 		<main className="min-h-screen bg-gray-50 py-8">
 			<div className="max-w-4xl mx-auto px-4">
+				<div className="flex justify-end mb-2">
+					<LanguageSwitcher />
+				</div>
 				<div className="text-center mb-8">
 					<h1 className="text-4xl font-bold text-gray-900 mb-2">PocketChest</h1>
 					<p className="text-xl text-gray-600">
@@ -247,7 +258,10 @@ export function RetrieveClient({ code, onBack }: RetrieveClientProps) {
 							{t('retrieve.enterAnother')}
 						</button>
 					)}
-					<button onClick={() => (window.location.href = '/')} className="px-6 py-2 bg-blue-500 text-white rounded-lg hover:bg-blue-600">
+					<button
+						onClick={() => (window.location.href = appUrl('/upload/', locale))}
+						className="px-6 py-2 bg-blue-500 text-white rounded-lg hover:bg-blue-600"
+					>
 						{t('retrieve.uploadFiles')}
 					</button>
 				</div>

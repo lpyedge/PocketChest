@@ -121,12 +121,13 @@ describe('FIX-02 stuck completions leave no orphan claims', () => {
 		await bucket().put('codes/GONE01', manifest(crypto.randomUUID(), null));
 
 		// A live chest completed through the normal path
-		const live = await stuckFinalizing({ code: 'LIVE01', expiresAt: now + 86400, claim: true });
+		const liveExpiry = now + 86400;
+		const live = await stuckFinalizing({ code: 'LIVE01', expiresAt: liveExpiry, claim: true });
 		await cleanupExpired(bucket(), live.now);
 		const second = await cleanupExpired(bucket(), live.now);
 
 		expect(await keys('codes/')).toEqual(['codes/LIVE01']);
-		expect(await keys('expiry/')).toEqual([`expiry/${pad(live.now + 86400)}/LIVE01`]);
+		expect(await keys('expiry/')).toEqual([`expiry/${pad(liveExpiry)}/LIVE01`]);
 		expect(second.errors).toEqual([]);
 	});
 });

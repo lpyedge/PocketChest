@@ -153,4 +153,9 @@ test('a wrong authenticator code keeps the QR usable, and the right code then co
 	await authenticator.getByRole('button', { name: 'Confirm code' }).click();
 	await expect(qr).toBeHidden();
 	await expect(authenticator.getByText(/Off \(set up\)|On/).first()).toBeVisible();
+
+	// C25a: switching the method on asks for a code again. The one just used cannot be used twice, and the panel says so
+	await authenticator.getByRole('button', { name: 'Turn on' }).click();
+	await expect(dialog.getByText(/wait for the next code/i)).toBeVisible();
+	await dialog.getByRole('button', { name: 'Cancel', exact: true }).click();
 });

@@ -162,6 +162,7 @@
 	"security.setUpAuthenticator": "設定驗證器",
 	"security.setUpFirst": "請先設定",
 	"security.thisDevice": "此裝置",
+	"security.totpWait": "若剛用驗證碼登入，請等下一組新代碼（最多 30 秒）：同一組代碼不能重複使用。",
 	"security.title": "安全設定",
 	"security.turnOff": "關閉",
 	"security.turnOn": "開啟",

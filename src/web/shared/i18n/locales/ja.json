@@ -162,6 +162,7 @@
 	"security.setUpAuthenticator": "認証アプリを設定",
 	"security.setUpFirst": "先に設定してください",
 	"security.thisDevice": "この端末",
+	"security.totpWait": "認証コードでサインインした直後は、次のコードに切り替わるまで（最大30秒）お待ちください。同じコードは二度使えません。",
 	"security.title": "セキュリティ設定",
 	"security.turnOff": "オフにする",
 	"security.turnOn": "オンにする",

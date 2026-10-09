@@ -1218,6 +1218,7 @@ async function withActiveMultipart<T>(
 async function handleUploadPart(request: Request, env: Env, sessionId: string, fileId: string, partNumber: number): Promise<Response> {
 	const payload = await authorizeMultipart(request, env, sessionId, fileId);
 	await enforceRateLimit(env.PART_LIMITER, request, `part:${fileId}`);
+	await enforceRateLimit(env.PART_TOTAL_LIMITER, request, 'part-all');
 
 	if (!(partNumber >= 1 && partNumber <= LIMITS.maxPartsPerUpload)) {
 		throw new ApiError(400, 'INVALID_REQUEST', 'Invalid part number');

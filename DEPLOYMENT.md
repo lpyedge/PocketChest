@@ -152,7 +152,7 @@ If every sign-in method is unavailable, follow [docs/RECOVERY.md](docs/RECOVERY.
 | `ADMIN_BOOTSTRAP_PASSWORD` | Secret | During first setup only | Creates the owner; remove afterwards |
 | `BOOTSTRAP_ENABLED` | Variable | Yes | `"true"` only during first setup |
 | `PASSKEY_RP_ID` | Variable | Recommended | The one hostname passkeys are bound to |
-| `AUTH_LIMITER`, `RETRIEVE_LIMITER`, `UPLOAD_LIMITER`, `PART_LIMITER` | Rate limiting bindings | Yes | Per-client request limits (`ratelimits` in `wrangler.jsonc`) |
+| `AUTH_LIMITER`, `RETRIEVE_LIMITER`, `UPLOAD_LIMITER`, `PART_LIMITER`, `PART_TOTAL_LIMITER` | Rate limiting bindings | Yes | Per-client request limits (`ratelimits` in `wrangler.jsonc`) |
 
 The frontend needs no configuration: it calls the API on the same origin.
 

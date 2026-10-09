@@ -30,6 +30,8 @@
 		{ "name": "UPLOAD_LIMITER", "namespace_id": "1003", "simple": { "limit": 60, "period": 60 } },
 		// Multipart parts, keyed by upload and client: far above what a real upload sends (20 MiB parts), so only repeats are stopped
 		{ "name": "PART_LIMITER", "namespace_id": "1004", "simple": { "limit": 600, "period": 60 } },
+		// All multipart parts from one client address, whatever the file: opening many files does not multiply the allowance
+		{ "name": "PART_TOTAL_LIMITER", "namespace_id": "1005", "simple": { "limit": 1200, "period": 60 } },
 	],
 	"vars": {
 		"BOOTSTRAP_ENABLED": "false",

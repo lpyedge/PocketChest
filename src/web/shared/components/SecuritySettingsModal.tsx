@@ -220,26 +220,28 @@ export function SecuritySettingsModal({ csrfToken, onRotated, onClose, onSignedO
 						}
 						if (method === 'totp') {
 							return (
-								<form
-									key={method}
-									className="flex gap-2"
-									onSubmit={(event) => {
-										event.preventDefault();
-										reenter('totp', pending.run);
-									}}
-								>
-									<input
-										inputMode="numeric"
-										aria-label={t('auth.code')}
-										maxLength={6}
-										value={reauthCode}
-										onChange={(event) => setReauthCode(event.target.value)}
-										className="flex-1 border border-gray-300 rounded px-3 py-2"
-									/>
-									<button type="submit" disabled={busy} className="px-4 py-2 bg-blue-500 text-white rounded disabled:opacity-50">
-										{t('security.confirmAuthenticator')}
-									</button>
-								</form>
+								<div key={method} className="space-y-1">
+									<form
+										className="flex gap-2"
+										onSubmit={(event) => {
+											event.preventDefault();
+											reenter('totp', pending.run);
+										}}
+									>
+										<input
+											inputMode="numeric"
+											aria-label={t('auth.code')}
+											maxLength={6}
+											value={reauthCode}
+											onChange={(event) => setReauthCode(event.target.value)}
+											className="flex-1 border border-gray-300 rounded px-3 py-2"
+										/>
+										<button type="submit" disabled={busy} className="px-4 py-2 bg-blue-500 text-white rounded disabled:opacity-50">
+											{t('security.confirmAuthenticator')}
+										</button>
+									</form>
+									<p className="text-xs text-gray-600">{t('security.totpWait')}</p>
+								</div>
 							);
 						}
 						return (

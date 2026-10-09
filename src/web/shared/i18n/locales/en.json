@@ -162,6 +162,7 @@
 	"security.setUpAuthenticator": "Set up authenticator",
 	"security.setUpFirst": "Set up first",
 	"security.thisDevice": "This device",
+	"security.totpWait": "If you just signed in with an authenticator code, wait for the next code (up to 30 seconds): the same code cannot be used twice.",
 	"security.title": "Security settings",
 	"security.turnOff": "Turn off",
 	"security.turnOn": "Turn on",

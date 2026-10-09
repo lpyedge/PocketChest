@@ -123,6 +123,27 @@ describe('FIX-06 multipart parts are rate limited', () => {
 		expect(keys[0]).toBe(`part:${upload.fileId}:203.0.113.60`);
 	});
 
+	it('R08: also limits all parts from one address together, so many files do not multiply the allowance', async () => {
+		const keys: string[] = [];
+		const saved = (env as any).PART_TOTAL_LIMITER;
+		setBinding('PART_TOTAL_LIMITER', limiter(1, keys));
+		try {
+			const first = await start();
+			const second = await start();
+
+			const ok = await sendPart(first, 1);
+			const refused = await sendPart(second, 1);
+
+			expect(ok.status).toBe(200);
+			expect(refused.status).toBe(429);
+			await ok.text();
+			await refused.text();
+			expect(keys).toEqual(['part-all:203.0.113.60', 'part-all:203.0.113.60']);
+		} finally {
+			setBinding('PART_TOTAL_LIMITER', saved);
+		}
+	});
+
 	it('does not limit a normal upload of many parts', async () => {
 		const upload = await start();
 		for (let n = 1; n <= 30; n++) {

@@ -210,6 +210,12 @@ export async function finalizeChest(bucket: R2Bucket, sessionId: string, plan: F
 		}
 
 		await closeSession(bucket, sessionId, plan.createdAt);
+		// Earlier uploads of retried files are not part of the share; failing here only delays their removal
+		await removeUnreferencedObjects(
+			bucket,
+			sessionId,
+			plan.files.map((file) => file.fileId),
+		).catch(() => undefined);
 		if (startedAt !== null) await bucket.delete(finalizingIndexKey(startedAt, sessionId));
 		return code;
 	}
@@ -223,6 +229,14 @@ export async function finalizeChest(bucket: R2Bucket, sessionId: string, plan: F
 	});
 	if (startedAt !== null) await bucket.delete(finalizingIndexKey(startedAt, sessionId));
 	return null;
+}
+
+// Deletes the session's file objects that the completed share does not list. Only used once the session is COMPLETED.
+async function removeUnreferencedObjects(bucket: R2Bucket, sessionId: string, fileIds: readonly string[]): Promise<number> {
+	const keep = new Set(fileIds.map((fileId) => fileKey(sessionId, fileId)));
+	const stray = (await listSessionKeys(bucket, sessionId)).filter((key) => !keep.has(key));
+	await deleteKeys(bucket, stray);
+	return stray.length;
 }
 
 async function readManifest(bucket: R2Bucket, code: string): Promise<ChestManifest | null> {
@@ -566,17 +580,22 @@ async function cleanupOrphanObjects(bucket: R2Bucket, now: number, result: Clean
 	const cursor = saved ? (((await saved.json()) as { cursor?: string | null }).cursor ?? undefined) : undefined;
 	const page = await bucket.list({ cursor, limit: ORPHAN_SCAN_BATCH });
 
-	const sessionExists = new Map<string, boolean>();
+	const sessions = new Map<string, SessionRecord | null | 'unreadable'>();
 	let removed = 0;
 	for (const object of page.objects) {
 		const [sessionId, fileId] = object.key.split('/');
 		if (!object.key.includes('/') || !UUID_PATTERN.test(sessionId) || !UUID_PATTERN.test(fileId ?? '')) continue;
 		if (object.uploaded.getTime() / 1000 > now - ORPHAN_GRACE_SECONDS) continue;
 
-		if (!sessionExists.has(sessionId)) {
-			sessionExists.set(sessionId, (await getSessionRecord(bucket, sessionId).catch(() => null)) !== null);
+		if (!sessions.has(sessionId)) {
+			const found = await getSessionRecord(bucket, sessionId).catch(() => 'unreadable' as const);
+			sessions.set(sessionId, found === 'unreadable' ? found : (found?.record ?? null));
 		}
-		if (!sessionExists.get(sessionId)) {
+		const session = sessions.get(sessionId);
+		if (session === 'unreadable') continue; // a corrupt record is not proof that the content is unowned
+		// A session that is gone owns nothing. A completed one owns exactly the files it lists.
+		const unreferenced = session === null || (session?.status === 'COMPLETED' && !session.fileIds?.includes(fileId));
+		if (unreferenced) {
 			await bucket.delete(object.key);
 			removed++;
 			result.deletedObjects++;

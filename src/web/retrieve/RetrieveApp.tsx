@@ -58,7 +58,7 @@ export default function RetrieveApp() {
 	}
 
 	return (
-		<main className="min-h-screen bg-gradient-to-br from-green-50 via-white to-emerald-50 flex items-center justify-center p-4">
+		<main className="min-h-screen bg-linear-to-br from-green-50 via-white to-emerald-50 flex items-center justify-center p-4">
 			<div className="max-w-md w-full">
 				<div className="text-center mb-8">
 					<a href="/" className="text-green-600 hover:text-green-800 text-sm">

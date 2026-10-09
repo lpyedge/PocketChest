@@ -33,7 +33,7 @@ export function usePocketChest() {
 			} catch (err) {
 				const message = err instanceof Error ? err.message : 'Upload failed';
 				setError(message);
-				throw new Error(message);
+				throw new Error(message, { cause: err });
 			} finally {
 				setIsUploading(false);
 			}
@@ -70,7 +70,7 @@ export function usePocketChest() {
 			} catch (err) {
 				const message = err instanceof Error ? err.message : 'Retrieval failed';
 				setError(message);
-				throw new Error(message);
+				throw new Error(message, { cause: err });
 			} finally {
 				setIsRetrieving(false);
 			}
@@ -85,7 +85,7 @@ export function usePocketChest() {
 			} catch (err) {
 				const message = err instanceof Error ? err.message : 'Download failed';
 				setError(message);
-				throw new Error(message);
+				throw new Error(message, { cause: err });
 			}
 		},
 		[api],
@@ -138,7 +138,7 @@ export function usePocketChest() {
 				setError(message);
 				setUploadStatus('error');
 				setAbortController(null); // Clear abort controller on error
-				throw new Error(message);
+				throw new Error(message, { cause: err });
 			} finally {
 				setIsUploading(false);
 			}

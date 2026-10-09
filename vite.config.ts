@@ -1,13 +1,14 @@
 import { resolve } from 'node:path';
 import { defineConfig } from 'vite';
 import react from '@vitejs/plugin-react';
+import tailwindcss from '@tailwindcss/vite';
 
 const webRoot = resolve(__dirname, 'src/web');
 
 export default defineConfig({
 	root: webRoot,
 	publicDir: resolve(__dirname, 'public'),
-	plugins: [react()],
+	plugins: [react(), tailwindcss()],
 	resolve: {
 		alias: {
 			'@': resolve(webRoot, 'shared'),

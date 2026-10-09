@@ -1,6 +1,6 @@
-@tailwind base;
-@tailwind components;
-@tailwind utilities;
+@import 'tailwindcss' source(none);
+/* Scan only the web sources: dist/, .wrangler/ and node_modules/ are never included */
+@source "../";
 
 @layer base {
 	body {
@@ -15,14 +15,5 @@
 			'Noto Sans CJK SC',
 			'Hiragino Sans',
 			sans-serif;
-	}
-}
-
-@layer utilities {
-	.line-clamp-2 {
-		display: -webkit-box;
-		-webkit-line-clamp: 2;
-		-webkit-box-orient: vertical;
-		overflow: hidden;
 	}
 }

@@ -21,16 +21,25 @@
 
 React 18.3.1、Vite 6.3.5、`@vitejs/plugin-react` 4.7.x、Tailwind 3.4.x、ESLint 9.33、Prettier 3.6.x、`@cloudflare/vitest-pool-workers` 0.8.x、Vitest 3.2.x。
 
-## 待 TASK-02 處理
+## TASK-02 已升級（前端）
 
-| 套件 | 最新 stable（2026-10-09） | 備註 |
+| 套件 | 版本 | 備註 |
 |---|---|---|
-| `react`／`react-dom` | 19.3.0 | 由 18.x 升級。 |
-| `vite` | 8.3.4 | 需同步 `@vitejs/plugin-react` 6.1.2（peer `vite ^8`）。 |
-| `tailwindcss` | 4.3.3 | 主版本升級，需改 CSS 入口與 PostCSS 設定。 |
-| `eslint` | 10.12.0 | 需確認 `@typescript-eslint` 與 `eslint-config-prettier` 相容。 |
+| `react`／`react-dom` | 19.3.0 | 型別 `@types/react`／`@types/react-dom` 19.3.0 |
+| `vite` | 8.3.4 | 多入口 build 不變；`build.target` 仍為 `es2020` |
+| `@vitejs/plugin-react` | 6.1.2 | peer `vite ^8` |
+| `tailwindcss`、`@tailwindcss/vite` | 4.3.3 | CSS 入口改為 `@import "tailwindcss" source(none)`；`@source "../"` 限定掃描範圍；移除 `tailwind.config.js`、`postcss.config.js`、`autoprefixer` |
+| `eslint`、`@eslint/js` | 10.12.0／10.x | 新規則 `preserve-caught-error`：錯誤保留 `cause` |
+| `prettier` | 3.9.9 | |
+| `@playwright/test` | 1.64.0 | E2E 冒煙測試，桌面與 375px 兩個 Project |
+
+移除未使用依賴：`eslint-plugin-prettier`、`eslint-config-prettier`。
+
+### 遷移注意
+
+- Tailwind 4 改名：`bg-gradient-to-*` → `bg-linear-to-*`、`bg-opacity-*` → `bg/NN` 顏色修飾、`flex-shrink-0` → `shrink-0`。
+- 自訂 `.line-clamp-2` 已刪除，改用內建 utility。
 
 ## 審計狀態
 
-- TASK-01 後：`npm audit --audit-level=high` 有 14 個 high，主要位於前端工具鏈（tailwind 3、postcss、rollup via Vite 6、micromatch 等）。Worker 測試工具已不再有高危項目。
-- 上述高危項需在 TASK-02 清除（AC-02-4）。
+- TASK-02 後：`npm audit --audit-level=high` exit 0，無 high／critical。

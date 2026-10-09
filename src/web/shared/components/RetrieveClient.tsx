@@ -116,7 +116,7 @@ export function RetrieveClient({ code, onBack }: RetrieveClientProps) {
 											// Remove .txt extension for display
 											const displayName = file.filename.endsWith('.txt') ? file.filename.slice(0, -4) : file.filename;
 											return (
-												<div key={file.fileId} className="flex-shrink-0 w-80 border border-gray-200 rounded-lg p-4">
+												<div key={file.fileId} className="shrink-0 w-80 border border-gray-200 rounded-lg p-4">
 													<h3 className="font-semibold text-lg text-gray-900 mb-2 truncate">{displayName}</h3>
 													<p className="text-sm text-gray-500 mb-3">{formatFileSize(file.size)}</p>
 
@@ -171,7 +171,7 @@ export function RetrieveClient({ code, onBack }: RetrieveClientProps) {
 														</p>
 													</div>
 
-													<div className="ml-4 flex-shrink-0">
+													<div className="ml-4 shrink-0">
 														<button
 															onClick={() => handleDownload(file)}
 															className="px-4 py-2 bg-green-500 text-white rounded hover:bg-green-600"

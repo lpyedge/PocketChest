@@ -1,3 +1,5 @@
+import { bootstrapOwner } from './auth/bootstrap';
+import { ApiError } from './errors';
 import {
 	abandonSession,
 	acquireLease,
@@ -64,16 +66,6 @@ import {
 } from './storage';
 
 // Error responses: { "error": human-readable message, "code": stable machine-readable code }
-class ApiError extends Error {
-	constructor(
-		readonly status: number,
-		readonly code: string,
-		message: string,
-	) {
-		super(message);
-	}
-}
-
 // A write lease lasts this long; a write that outlives it can no longer register its file
 const UPLOAD_LEASE_SECONDS = 15 * 60;
 
@@ -126,6 +118,10 @@ export default {
 		const method = request.method;
 
 		try {
+			if (path === '/api/auth/bootstrap' && method === 'POST') {
+				return await handleBootstrap(request, env);
+			}
+
 			if (path === '/api/config' && method === 'GET') {
 				return handleGetConfig(env);
 			}
@@ -204,6 +200,16 @@ export default {
 		console.log('✅ Cleanup completed without errors');
 	},
 } satisfies ExportedHandler<Env>;
+
+// POST /api/auth/bootstrap - Initial owner setup (one time)
+async function handleBootstrap(request: Request, env: Env): Promise<Response> {
+	const { password } = await readJson<{ password?: unknown }>(request);
+	if (typeof password !== 'string' || password.length === 0 || password.length > 1024) {
+		throw new ApiError(400, 'INVALID_REQUEST', 'Password is required');
+	}
+	await bootstrapOwner(env, password);
+	return json({ initialized: true }, 201, { 'Cache-Control': 'no-store' });
+}
 
 // --- Request helpers ---
 

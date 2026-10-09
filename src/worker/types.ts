@@ -125,6 +125,11 @@ export interface MultipartJWTPayload {
 
 // Cloudflare Env type
 export interface Env {
+	// Initial setup (see auth/bootstrap.ts). BOOTSTRAP_ENABLED is a plain var; the password is a secret.
+	BOOTSTRAP_ENABLED?: string;
+	ADMIN_BOOTSTRAP_PASSWORD?: string;
+	// 32-byte AES-GCM key (base64) that encrypts the TOTP seed
+	AUTH_ENCRYPTION_KEY?: string;
 	ASSETS: Fetcher;
 	R2_STORAGE: R2Bucket;
 	JWT_SECRET: string;

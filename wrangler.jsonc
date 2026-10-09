@@ -25,6 +25,7 @@
 	],
 	"vars": {
 		"REQUIRE_TOTP": "true",
+		"BOOTSTRAP_ENABLED": "false",
 	},
 	// Uncomment and configure for custom domain:
 	// "routes": [

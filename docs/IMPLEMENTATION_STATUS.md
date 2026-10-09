@@ -16,7 +16,7 @@
 | TASK-09 | 上傳配額與前端真取消 | PASS | 見 Git log |
 | TASK-10 | POST 查碼 | PASS | 見 Git log |
 | TASK-11 | 下載授權 Cookie 與串流 | PASS | 見 Git log |
-| TASK-12 | Owner 原子資料與首次初始化 | TODO | |
+| TASK-12 | Owner 原子資料與首次初始化 | PASS | 見 Git log |
 | TASK-13 | Owner Cookie Session、CSRF | TODO | |
 | TASK-14 | Password 獨立登入 | TODO | |
 | TASK-15 | TOTP 獨立登入、重放防護 | TODO | |

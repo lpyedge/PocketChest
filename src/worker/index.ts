@@ -752,6 +752,51 @@ async function readBoundedFormData(request: Request, maxBytes: number): Promise<
 	}
 }
 
+/**
+ * Reads a request body into memory, but never more than `maxBytes`: the stream is cancelled as soon as the
+ * limit is passed, so a body with no (or a false) Content-Length cannot make the Worker hold an unbounded amount.
+ */
+async function readBoundedBytes(request: Request, maxBytes: number): Promise<ArrayBuffer> {
+	if (request.body === null) {
+		return new ArrayBuffer(0);
+	}
+	// With a declared length the buffer is allocated once and filled in place, so the peak is one copy, not two
+	const declared = Number(request.headers.get('Content-Length'));
+	let target = Number.isInteger(declared) && declared > 0 && declared <= maxBytes ? new Uint8Array(declared) : null;
+	const chunks: Uint8Array[] = [];
+	const reader = request.body.getReader();
+	let received = 0;
+	for (;;) {
+		const { done, value } = await reader.read();
+		if (done) break;
+		if (received + value.byteLength > maxBytes) {
+			await reader.cancel().catch(() => undefined);
+			throw new ApiError(413, 'PAYLOAD_TOO_LARGE', 'Request body is larger than the limit');
+		}
+		if (target && received + value.byteLength <= target.byteLength) {
+			target.set(value, received);
+		} else {
+			// The body is longer than it declared: keep what was filled so far and collect the rest
+			if (target) {
+				chunks.push(target.subarray(0, received));
+				target = null;
+			}
+			chunks.push(value);
+		}
+		received += value.byteLength;
+	}
+	if (target) {
+		return received === target.byteLength ? target.buffer : target.slice(0, received).buffer;
+	}
+	const bytes = new Uint8Array(received);
+	let offset = 0;
+	for (const chunk of chunks) {
+		bytes.set(chunk, offset);
+		offset += chunk.byteLength;
+	}
+	return bytes.buffer;
+}
+
 // Declared Content-Length of a request. Missing is allowed (the body is checked after reading), too large is refused.
 function declaredLength(request: Request, max: number): number {
 	const header = request.headers.get('Content-Length');
@@ -1140,12 +1185,9 @@ async function handleUploadPart(request: Request, env: Env, sessionId: string, f
 	}
 	declaredLength(request, LIMITS.maxPartBytes);
 
-	const body = await request.arrayBuffer();
+	const body = await readBoundedBytes(request, LIMITS.maxPartBytes);
 	if (body.byteLength === 0) {
 		throw new ApiError(400, 'INVALID_REQUEST', 'Empty part body');
-	}
-	if (body.byteLength > LIMITS.maxPartBytes) {
-		throw new ApiError(413, 'PAYLOAD_TOO_LARGE', 'Part is larger than the limit');
 	}
 
 	const uploadedPart = await withActiveMultipart(env, sessionId, fileId, payload.uploadId, async () => {

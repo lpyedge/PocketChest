@@ -4,6 +4,7 @@ import { cleanupChallenges } from './auth/challenges';
 import type { ScanState } from './auth/scan';
 import { ChestFile, ChestManifest } from './types';
 import {
+	abandonSession,
 	createSessionRecord,
 	getSessionRecord,
 	MultipartUploadEntry,
@@ -474,7 +475,28 @@ export async function cleanupExpired(bucket: R2Bucket, now: number): Promise<Cle
 		try {
 			const current = await getSessionRecord(bucket, sessionId);
 			if (current?.record.status === 'OPEN' || current?.record.status === 'ABANDONED') {
-				result.deletedObjects += await removeSession(bucket, sessionId, current.record.multipartUploads);
+				// Take the session over before touching its content: OPEN -> ABANDONED is a compare-and-swap, so if a
+				// Complete (or Cancel) got there first this fails or returns the newer state, and nothing is deleted
+				// on the strength of the record that was read a moment ago.
+				let taken: SessionRecord;
+				try {
+					taken = await abandonSession(bucket, sessionId, now);
+				} catch (error) {
+					if (error instanceof SessionError && error.code === 'INVALID_TRANSITION') {
+						// It is being completed (or already is): its content is not ours to delete. Try again next run.
+						const latest = await getSessionRecord(bucket, sessionId);
+						if (latest?.record.status === 'COMPLETED' || latest === null) {
+							await deleteKeys(bucket, [markerKey]);
+						}
+						continue;
+					}
+					throw error;
+				}
+				// Abandoning marks running uploads closed; whatever R2 may still hold open for them is aborted here
+				const uploads = taken.multipartUploads
+					.filter((entry) => entry.state !== 'COMPLETED')
+					.map((entry) => ({ ...entry, state: 'ACTIVE' as const }));
+				result.deletedObjects += await removeSession(bucket, sessionId, uploads);
 				result.abandonedSessions++;
 			} else if (current?.record.status === 'FINALIZING') {
 				// Still completing: leave the session alone; step 3 decides whether it is stuck

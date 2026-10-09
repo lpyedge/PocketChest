@@ -76,8 +76,10 @@ export function UploadProgress({
 		}
 	};
 
-	const getFileProgress = (filename: string): FileUploadProgress | undefined => {
-		return fileProgress.find((fp) => fp.filename === filename);
+	// fileProgress is ordered like the inputs: files first, then text items. Matching by position
+	// keeps same-name items apart.
+	const getFileProgress = (localId: string): FileUploadProgress | undefined => {
+		return fileProgress.find((fp) => fp.localId === localId);
 	};
 
 	return (
@@ -122,7 +124,7 @@ export function UploadProgress({
 			{/* File List with Individual Progress */}
 			<div className="space-y-3">
 				{files.map((file, index) => {
-					const fileProgressData = getFileProgress(file.name);
+					const fileProgressData = getFileProgress(`file-${index}`);
 					return (
 						<div key={index} className="p-3 bg-gray-50 rounded-lg border">
 							<div className="flex items-center justify-between mb-2">
@@ -177,8 +179,7 @@ export function UploadProgress({
 				})}
 
 				{textItems.map((item, index) => {
-					const filename = item.filename || `text-${index + 1}.txt`;
-					const fileProgressData = getFileProgress(filename);
+					const fileProgressData = getFileProgress(`text-${index}`);
 					return (
 						<div key={index} className="p-3 bg-gray-50 rounded-lg border">
 							<div className="flex items-center justify-between mb-2">

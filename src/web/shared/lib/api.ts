@@ -1,3 +1,4 @@
+import { runWithConcurrency } from './concurrency';
 import {
 	CreateChestResponse,
 	UploadResponse,
@@ -40,7 +41,7 @@ export class PocketChestAPI {
 		});
 
 		if (!response.ok) {
-			const error = await response.json().catch(() => ({}));
+			const error = (await response.json().catch(() => ({}))) as { error?: string };
 			throw new Error(error.error || 'Failed to create chest');
 		}
 
@@ -55,238 +56,154 @@ export class PocketChestAPI {
 		onProgress?: (progress: { loaded: number; total: number; percentage: number }) => void,
 		onFileProgress?: (progress: FileUploadProgress[]) => void,
 	): Promise<UploadResponse> {
-		const CHUNK_SIZE = 20 * 1024 * 1024; // 20MB chunk size
+		const CHUNK_SIZE = 20 * 1024 * 1024; // 20MB: larger files use multipart upload
+		const MAX_CONCURRENT_SMALL_FILES = 3;
 
-		// Separate small and large files - split if larger than one chunk
-		const smallFiles = files.filter((file) => file.size <= CHUNK_SIZE);
-		const largeFiles = files.filter((file) => file.size > CHUNK_SIZE);
-
-		const uploadedFiles: Array<{ fileId: string; filename: string; isText: boolean }> = [];
-
-		// Calculate total size for overall progress (including text items)
-		const totalSize =
-			files.reduce((sum, file) => sum + file.size, 0) +
-			textItems.reduce((sum, textItem) => sum + new TextEncoder().encode(textItem.content).length, 0);
+		const textSizes = textItems.map((textItem) => new TextEncoder().encode(textItem.content).length);
+		const totalSize = files.reduce((sum, file) => sum + file.size, 0) + textSizes.reduce((sum, size) => sum + size, 0);
 		let completedSize = 0;
 
-		// Track individual file progress
-		const fileProgressMap = new Map<string, FileUploadProgress>();
-
-		// Initialize progress for all files as waiting
-		files.forEach((file) => {
-			fileProgressMap.set(file.name, {
-				fileId: '', // Will be set when upload starts
+		// One progress entry per input item, in input order: files first, then text items
+		const progress: FileUploadProgress[] = [
+			...files.map((file, index) => ({
+				localId: `file-${index}`,
+				fileId: '',
 				filename: file.name,
 				uploadedBytes: 0,
 				totalBytes: file.size,
 				percentage: 0,
 				isText: false,
-				status: 'waiting',
-			});
-		});
-
-		// Initialize progress for text items as waiting
-		textItems.forEach((textItem, index) => {
-			const textSize = new TextEncoder().encode(textItem.content).length;
-			fileProgressMap.set(textItem.filename || `text-${index + 1}`, {
-				fileId: '', // Will be set when upload starts
-				filename: textItem.filename || `text-${index + 1}`,
+				status: 'waiting' as const,
+			})),
+			...textItems.map((textItem, index) => ({
+				localId: `text-${index}`,
+				fileId: '',
+				filename: textItem.filename || `text-${index + 1}.txt`,
 				uploadedBytes: 0,
-				totalBytes: textSize,
+				totalBytes: textSizes[index],
 				percentage: 0,
 				isText: true,
-				status: 'waiting',
-			});
-		});
+				status: 'waiting' as const,
+			})),
+		];
+		const fileEntry = (index: number) => progress[index];
+		const textEntry = (index: number) => progress[files.length + index];
 
-		const updateFileProgress = () => {
-			if (onFileProgress) {
-				onFileProgress(Array.from(fileProgressMap.values()));
-			}
+		const emitFileProgress = () => {
+			onFileProgress?.(progress.map((entry) => ({ ...entry })));
 		};
 
-		// Upload text items first if any
-		if (textItems.length > 0) {
-			// Mark all text items as starting
-			textItems.forEach((textItem, index) => {
-				const key = textItem.filename || `text-${index + 1}`;
-				const fileProgress = fileProgressMap.get(key);
-				if (fileProgress) {
-					fileProgress.status = 'starting';
-				}
+		const emitOverallProgress = () => {
+			if (!onProgress) return;
+			const inFlight = progress
+				.filter((entry) => entry.status === 'uploading' || entry.status === 'finalizing')
+				.reduce((sum, entry) => sum + entry.uploadedBytes, 0);
+			const loaded = completedSize + inFlight;
+			onProgress({
+				loaded,
+				total: totalSize,
+				percentage: totalSize === 0 ? 100 : Math.round((loaded / totalSize) * 100),
 			});
-			updateFileProgress();
+		};
+
+		const fileIds: string[] = new Array(files.length);
+		const textIds: string[] = new Array(textItems.length);
+		const textNames: string[] = new Array(textItems.length);
+
+		// Text items travel in one request, before any file
+		if (textItems.length > 0) {
+			textItems.forEach((_, index) => {
+				textEntry(index).status = 'starting';
+			});
+			emitFileProgress();
 
 			const result = await this.uploadContentRegular(sessionId, uploadToken, [], textItems);
+			if (result.uploadedFiles.length !== textItems.length) {
+				throw new Error('Unexpected response while uploading text items');
+			}
 
-			// Mark all text items as completed and update their fileIds
-			result.uploadedFiles.forEach((uploadedFile) => {
-				if (uploadedFile.isText) {
-					// Find the corresponding text item by filename
-					const key = uploadedFile.filename;
-					const fileProgress = fileProgressMap.get(key);
-					if (fileProgress) {
-						fileProgress.fileId = uploadedFile.fileId;
-						fileProgress.status = 'completed';
-						fileProgress.uploadedBytes = fileProgress.totalBytes;
-						fileProgress.percentage = 100;
-						// Add text size to completed size for overall progress
-						completedSize += fileProgress.totalBytes;
-					}
-				}
+			textItems.forEach((_, index) => {
+				const uploaded = result.uploadedFiles[index];
+				const entry = textEntry(index);
+				textIds[index] = uploaded.fileId;
+				textNames[index] = uploaded.filename;
+				entry.fileId = uploaded.fileId;
+				entry.status = 'completed';
+				entry.uploadedBytes = entry.totalBytes;
+				entry.percentage = 100;
+				completedSize += entry.totalBytes;
 			});
-			updateFileProgress();
-
-			uploadedFiles.push(...result.uploadedFiles);
+			emitFileProgress();
+			emitOverallProgress();
 		}
 
-		// Upload small files with rolling concurrency (max 3 at a time)
-		if (smallFiles.length > 0) {
-			const MAX_CONCURRENT_SMALL_FILES = 3;
-			let activeUploads = 0;
-			let fileIndex = 0;
+		// Small files: a fixed pool of at most 3 concurrent requests; waits for all of them
+		const smallIndexes = files.map((_, index) => index).filter((index) => files[index].size <= CHUNK_SIZE);
+		const largeIndexes = files.map((_, index) => index).filter((index) => files[index].size > CHUNK_SIZE);
+		const resultNames: string[] = new Array(files.length);
 
-			const uploadNextFile = async (): Promise<void> => {
-				if (fileIndex >= smallFiles.length) return;
+		await runWithConcurrency(smallIndexes, MAX_CONCURRENT_SMALL_FILES, async (index) => {
+			const file = files[index];
+			const entry = fileEntry(index);
+			entry.status = 'starting';
+			emitFileProgress();
 
-				const file = smallFiles[fileIndex++];
-				activeUploads++;
-
-				// Mark file as starting
-				const fileProgress = fileProgressMap.get(file.name);
-				if (fileProgress) {
-					fileProgress.status = 'starting';
-				}
-				updateFileProgress();
-
-				try {
-					const result = await this.uploadContentRegular(sessionId, uploadToken, [file], [], (progress) => {
-						// Mark as uploading when progress starts
-						const fileProgress = fileProgressMap.get(file.name);
-						if (fileProgress) {
-							if (fileProgress.status === 'starting') {
-								fileProgress.status = 'uploading';
-							}
-							fileProgress.uploadedBytes = Math.min(file.size, progress.loaded);
-							fileProgress.percentage = Math.round((fileProgress.uploadedBytes / fileProgress.totalBytes) * 100);
-
-							if (progress.percentage === 100) {
-								fileProgress.status = 'finalizing';
-								fileProgress.uploadedBytes = fileProgress.totalBytes;
-								fileProgress.percentage = 100;
-							}
-						}
-						updateFileProgress();
-
-						// Calculate total progress across all concurrent uploads
-						if (onProgress) {
-							const currentProgress = Array.from(fileProgressMap.values())
-								.filter((fp) => fp.status === 'uploading' || fp.status === 'finalizing')
-								.reduce((sum, fp) => sum + fp.uploadedBytes, 0);
-
-							onProgress({
-								loaded: completedSize + currentProgress,
-								total: totalSize,
-								percentage: Math.round(((completedSize + currentProgress) / totalSize) * 100),
-							});
-						}
-					});
-
-					// Mark file as completed
-					const fileProgress = fileProgressMap.get(file.name);
-					if (fileProgress) {
-						fileProgress.fileId = result.uploadedFiles[0].fileId;
-						fileProgress.status = 'completed';
-						fileProgress.uploadedBytes = fileProgress.totalBytes;
-						fileProgress.percentage = 100;
-						fileProgress.isText = result.uploadedFiles[0].isText;
-					}
-
-					uploadedFiles.push(...result.uploadedFiles);
-					completedSize += file.size;
-					updateFileProgress();
-				} catch (error) {
-					const fileProgress = fileProgressMap.get(file.name);
-					if (fileProgress) {
-						fileProgress.status = 'error';
-					}
-					updateFileProgress();
-					throw error;
-				} finally {
-					activeUploads--;
-
-					// Start next file if available and under limit
-					if (fileIndex < smallFiles.length && activeUploads < MAX_CONCURRENT_SMALL_FILES) {
-						uploadNextFile();
-					}
-				}
-			};
-
-			// Start initial uploads (up to 3)
-			const initialUploads = Math.min(MAX_CONCURRENT_SMALL_FILES, smallFiles.length);
-			const uploadPromises: Promise<void>[] = [];
-
-			for (let i = 0; i < initialUploads; i++) {
-				uploadPromises.push(uploadNextFile());
-			}
-
-			// Wait for all small files to complete
-			await Promise.all(uploadPromises);
-
-			// Process any remaining files (this handles the rolling uploads)
-			while (fileIndex < smallFiles.length) {
-				await uploadNextFile();
-			}
-		}
-
-		// Upload large files using multipart upload sequentially
-		for (const file of largeFiles) {
-			// Mark current large file as starting
-			const currentFileProgress = fileProgressMap.get(file.name);
-			if (currentFileProgress) {
-				currentFileProgress.status = 'starting';
-			}
-			updateFileProgress();
-
-			const result = await this.uploadLargeFile(sessionId, uploadToken, file, (progress) => {
-				// Update file progress for this specific file
-				const activeFileProgress = fileProgressMap.get(file.name);
-				if (activeFileProgress) {
-					activeFileProgress.fileId = progress.fileId;
-					activeFileProgress.uploadedBytes = progress.uploadedBytes;
-					activeFileProgress.percentage = progress.percentage;
-					activeFileProgress.status = progress.percentage === 100 ? 'finalizing' : 'uploading';
-				}
-				updateFileProgress();
-
-				// Update overall progress - convert MultipartUploadProgress to match small files format
-				if (onProgress) {
-					onProgress({
-						loaded: completedSize + progress.uploadedBytes,
-						total: totalSize,
-						percentage: Math.round(((completedSize + progress.uploadedBytes) / totalSize) * 100),
-					});
-				}
+			const result = await this.uploadContentRegular(sessionId, uploadToken, [file], [], (chunk) => {
+				entry.status = chunk.percentage === 100 ? 'finalizing' : 'uploading';
+				entry.uploadedBytes = Math.min(file.size, chunk.loaded);
+				entry.percentage = file.size === 0 ? 100 : Math.round((entry.uploadedBytes / file.size) * 100);
+				emitFileProgress();
+				emitOverallProgress();
 			});
-
-			// Mark large file as completed
-			const completedFileProgress = fileProgressMap.get(file.name);
-			if (completedFileProgress) {
-				completedFileProgress.fileId = result.fileId;
-				completedFileProgress.status = 'completed';
-				completedFileProgress.uploadedBytes = completedFileProgress.totalBytes;
-				completedFileProgress.percentage = 100;
-				completedFileProgress.isText = false;
+			if (result.uploadedFiles.length !== 1) {
+				throw new Error(`Unexpected response while uploading ${file.name}`);
 			}
 
-			uploadedFiles.push({
-				fileId: result.fileId,
-				filename: result.filename,
-				isText: false,
-			});
-
+			fileIds[index] = result.uploadedFiles[0].fileId;
+			resultNames[index] = result.uploadedFiles[0].filename;
+			entry.fileId = fileIds[index];
+			entry.status = 'completed';
+			entry.uploadedBytes = file.size;
+			entry.percentage = 100;
 			completedSize += file.size;
-			updateFileProgress();
+			emitFileProgress();
+			emitOverallProgress();
+		});
+
+		// Large files use multipart upload, one after another
+		for (const index of largeIndexes) {
+			const file = files[index];
+			const entry = fileEntry(index);
+			entry.status = 'starting';
+			emitFileProgress();
+
+			const result = await this.uploadLargeFile(sessionId, uploadToken, file, (chunk) => {
+				entry.fileId = chunk.fileId;
+				entry.uploadedBytes = chunk.uploadedBytes;
+				entry.percentage = chunk.percentage;
+				entry.status = chunk.percentage === 100 ? 'finalizing' : 'uploading';
+				emitFileProgress();
+				emitOverallProgress();
+			});
+
+			fileIds[index] = result.fileId;
+			resultNames[index] = result.filename;
+			entry.fileId = result.fileId;
+			entry.status = 'completed';
+			entry.uploadedBytes = file.size;
+			entry.percentage = 100;
+			completedSize += file.size;
+			emitFileProgress();
+			emitOverallProgress();
+		}
+
+		// Every input item must have produced exactly one file id before the caller may complete the upload
+		const uploadedFiles = [
+			...files.map((_, index) => ({ fileId: fileIds[index], filename: resultNames[index], isText: false })),
+			...textItems.map((_, index) => ({ fileId: textIds[index], filename: textNames[index], isText: true })),
+		];
+		if (uploadedFiles.some((uploaded) => !uploaded.fileId)) {
+			throw new Error('Upload incomplete: some files were not stored');
 		}
 
 		return { uploadedFiles };

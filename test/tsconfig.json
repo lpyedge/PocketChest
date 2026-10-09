@@ -4,5 +4,5 @@
 		"types": ["@cloudflare/vitest-plugin/types"]
 	},
 	"include": ["./**/*.ts", "../worker-configuration.d.ts"],
-	"exclude": []
+	"exclude": ["web"]
 }

@@ -7,7 +7,7 @@
 | TASK-00 | 基準鎖定與新 API 合約 | PASS | 見 Git log |
 | TASK-01 | Worker 工具鏈／測試插件升級 | PASS | 見 Git log |
 | TASK-02 | 前端依賴更新與 UI Gate | PASS | 見 Git log |
-| TASK-03 | 小檔並行上傳完成屏障（P0） | TODO | |
+| TASK-03 | 小檔並行上傳完成屏障（P0） | PASS | 見 Git log |
 | TASK-04 | 單 Session R2 CAS 狀態層 | TODO | |
 | TASK-05 | 寫入租約與 Complete 屏障 | TODO | |
 | TASK-06 | Complete 冪等與碼碰撞補償（P0） | TODO | |

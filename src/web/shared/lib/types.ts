@@ -68,6 +68,8 @@ export interface MultipartUploadProgress {
 }
 
 export interface FileUploadProgress {
+	// Stable per input item: 'file-{index}' or 'text-{index}'. Never derived from the filename
+	localId: string;
 	fileId: string;
 	filename: string;
 	uploadedBytes: number;

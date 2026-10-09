@@ -612,78 +612,129 @@ async function handleUploadFiles(request: Request, env: Env, sessionId: string):
 		bytes: declaredBytes,
 	});
 
+	const written: string[] = [];
 	try {
-		const formData = await request.formData();
-		const uploadedFiles: UploadFileResponse['uploadedFiles'] = [];
-		const expected: { fileId: string; size: number; filename: string; mimeType: string; isText: boolean }[] = [];
-		const writes: Promise<unknown>[] = [];
+		const formData = await readBoundedFormData(request, LIMITS.maxUploadRequestBytes);
+
+		// Phase 1: validate every item. Nothing is written here, so a refusal leaves no object behind.
+		type Planned = {
+			fileId: string;
+			size: number;
+			filename: string;
+			mimeType: string;
+			isText: boolean;
+			body: File | string;
+		};
+		const planned: Planned[] = [];
 
 		for (const value of formData.getAll('files')) {
 			if (value instanceof File) {
-				const fileId = generateUUID();
 				const filename = value.name || 'unnamed-file';
 				checkFilename(filename);
 				if (value.size > LIMITS.maxSmallFileBytes) {
 					throw new ApiError(413, 'FILE_TOO_LARGE', 'File is larger than the single-upload limit; use multipart upload');
 				}
-				const mimeType = value.type || 'application/octet-stream';
-				writes.push(
-					env.R2_STORAGE.put(fileKey(sessionId, fileId), value.stream(), fileUploadOptions({ filename, mimeType, isText: false })),
-				);
-				expected.push({ fileId, size: value.size, filename, mimeType, isText: false });
-				uploadedFiles.push({ fileId, filename, isText: false });
+				planned.push({
+					fileId: generateUUID(),
+					size: value.size,
+					filename,
+					mimeType: value.type || 'application/octet-stream',
+					isText: false,
+					body: value,
+				});
 			}
 		}
 
 		for (const textItem of formData.getAll('textItems')) {
 			if (typeof textItem === 'string') {
-				let textData: { content?: unknown; filename?: unknown };
+				let textData: { content?: unknown; filename?: unknown } | null;
 				try {
 					textData = JSON.parse(textItem);
 				} catch {
 					throw new ApiError(400, 'INVALID_REQUEST', 'Invalid text item');
 				}
-				if (typeof textData.content !== 'string') {
+				if (typeof textData !== 'object' || textData === null || typeof textData.content !== 'string') {
 					throw new ApiError(400, 'INVALID_REQUEST', 'Invalid text item');
 				}
 				const size = utf8ByteLength(textData.content);
 				if (size > LIMITS.maxTextBytes) {
 					throw new ApiError(413, 'TEXT_TOO_LARGE', 'Text is larger than the limit');
 				}
-
-				const fileId = generateUUID();
 				const filename = typeof textData.filename === 'string' && textData.filename ? textData.filename : `text-${Date.now()}.txt`;
 				checkFilename(filename);
-				writes.push(
-					env.R2_STORAGE.put(
-						fileKey(sessionId, fileId),
-						textData.content,
-						fileUploadOptions({ filename, mimeType: 'text/plain', isText: true }),
-					),
-				);
-				expected.push({ fileId, size, filename, mimeType: 'text/plain', isText: true });
-				uploadedFiles.push({ fileId, filename, isText: true });
+				planned.push({ fileId: generateUUID(), size, filename, mimeType: 'text/plain', isText: true, body: textData.content });
 			}
 		}
 
-		// The real count and size replace the reservation; over-quota uploads are refused before anything is written
+		// Phase 2: the real count and size replace the reservation; over-quota uploads are refused before any write
 		await setLeaseUsage(env.R2_STORAGE, sessionId, leaseId, {
-			files: expected.length,
-			bytes: expected.reduce((sum, file) => sum + file.size, 0),
+			files: planned.length,
+			bytes: planned.reduce((sum, file) => sum + file.size, 0),
 		});
 
-		await Promise.all(writes);
+		// Phase 3: write. Every started write is waited for, so nothing is still running when we clean up or return.
+		const outcomes = await Promise.allSettled(
+			planned.map((file) => {
+				const key = fileKey(sessionId, file.fileId);
+				written.push(key);
+				const body = file.body instanceof File ? file.body.stream() : file.body;
+				return env.R2_STORAGE.put(key, body, fileUploadOptions(file));
+			}),
+		);
+		const failed = outcomes.find((outcome): outcome is PromiseRejectedResult => outcome.status === 'rejected');
+		if (failed) {
+			throw failed.reason;
+		}
 
 		// Only size-checked files are registered; a file that is missing or truncated fails the whole upload
-		const registered = await Promise.all(expected.map((file) => verifyStoredFile(env.R2_STORAGE, sessionId, file.fileId, file)));
+		const registered = await Promise.all(planned.map((file) => verifyStoredFile(env.R2_STORAGE, sessionId, file.fileId, file)));
 		await releaseLease(env.R2_STORAGE, sessionId, leaseId, registered);
 
-		const response: UploadFileResponse = { uploadedFiles };
+		const response: UploadFileResponse = {
+			uploadedFiles: planned.map((file) => ({ fileId: file.fileId, filename: file.filename, isText: file.isText })),
+		};
 		return json(response);
 	} catch (error) {
-		// Free the lease so Complete is not blocked for the rest of its lifetime; unregistered objects are cleaned up later
+		// Remove what this request wrote (best effort; the orphan scan catches the rest), then free the lease
+		if (written.length > 0) {
+			await env.R2_STORAGE.delete(written).catch(() => undefined);
+		}
 		await releaseLease(env.R2_STORAGE, sessionId, leaseId, []).catch(() => undefined);
 		throw error;
+	}
+}
+
+/**
+ * Reads a multipart body with an upper bound on the bytes actually received, whether or not the client
+ * declared a Content-Length. Past the limit the stream is cut and the request is refused with 413.
+ */
+async function readBoundedFormData(request: Request, maxBytes: number): Promise<FormData> {
+	if (request.body === null) {
+		throw new ApiError(400, 'INVALID_REQUEST', 'Request body is required');
+	}
+	let received = 0;
+	let exceeded = false;
+	const counter = new TransformStream<Uint8Array, Uint8Array>({
+		transform(chunk, controller) {
+			received += chunk.byteLength;
+			if (received > maxBytes) {
+				exceeded = true;
+				controller.error(new Error('Request body is larger than the limit'));
+				return;
+			}
+			controller.enqueue(chunk);
+		},
+	});
+	const bounded = new Response(request.body.pipeThrough(counter), {
+		headers: { 'Content-Type': request.headers.get('Content-Type') ?? '' },
+	});
+	try {
+		return await bounded.formData();
+	} catch {
+		if (exceeded) {
+			throw new ApiError(413, 'PAYLOAD_TOO_LARGE', 'Request body is larger than the limit');
+		}
+		throw new ApiError(400, 'INVALID_REQUEST', 'Invalid multipart body');
 	}
 }
 

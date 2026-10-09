@@ -2,6 +2,7 @@ import { ChestFile, ChestManifest } from './types';
 import {
 	createSessionRecord,
 	getSessionRecord,
+	MultipartUploadEntry,
 	replaceCandidateCode,
 	reserveCandidateCode,
 	sessionKey,
@@ -231,6 +232,21 @@ export async function getChest(bucket: R2Bucket, code: string, now: number): Pro
 	return manifest;
 }
 
+/**
+ * Aborts the R2 multipart uploads that are still ACTIVE for a session. Used when the session is
+ * completed or cleaned up, so unfinished uploads cannot linger in R2. An upload that R2 no longer
+ * knows about is already gone, so that case is not an error.
+ */
+export async function abortActiveMultipart(bucket: R2Bucket, sessionId: string, entries: readonly MultipartUploadEntry[]): Promise<void> {
+	for (const entry of entries) {
+		if (entry.state !== 'ACTIVE') continue;
+		await bucket
+			.resumeMultipartUpload(fileKey(sessionId, entry.fileId), entry.uploadId)
+			.abort()
+			.catch(() => undefined);
+	}
+}
+
 // --- Cleanup ---
 
 export interface CleanupResult {
@@ -282,6 +298,10 @@ export async function cleanupExpired(bucket: R2Bucket, now: number): Promise<Cle
 		const code = indexKey.split('/')[2];
 		try {
 			const manifest = await readManifest(bucket, code);
+			const session = manifest ? await getSessionRecord(bucket, manifest.sessionId).catch(() => null) : null;
+			if (manifest && session) {
+				await abortActiveMultipart(bucket, manifest.sessionId, session.record.multipartUploads);
+			}
 			const sessionKeys = manifest ? await listSessionKeys(bucket, manifest.sessionId) : [];
 			// Index entry last: if anything fails, the next run retries this chest
 			const recordKeys = manifest ? [sessionKey(manifest.sessionId)] : [];
@@ -302,6 +322,7 @@ export async function cleanupExpired(bucket: R2Bucket, now: number): Promise<Cle
 				await deleteKeys(bucket, [markerKey]);
 				continue;
 			}
+			await abortActiveMultipart(bucket, sessionId, current.record.multipartUploads);
 			const sessionKeys = await listSessionKeys(bucket, sessionId);
 			await deleteKeys(bucket, [...sessionKeys, sessionKey(sessionId), markerKey]);
 			result.deletedObjects += sessionKeys.length;

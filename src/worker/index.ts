@@ -1,6 +1,8 @@
 import {
 	acquireLease,
 	assertSameCompletion,
+	MultipartUploadEntry,
+	registerMultipartUpload,
 	beginFinalize,
 	getSessionRecord,
 	releaseLease,
@@ -49,6 +51,7 @@ import {
 	getChest,
 	isSessionOpen,
 	openSession,
+	abortActiveMultipart,
 	StorageVerificationError,
 	verifyStoredFile,
 } from './storage';
@@ -130,6 +133,10 @@ export default {
 
 			if (path.match(/^\/api\/chest\/[^\/]+\/multipart\/[^\/]+\/part\/[^\/]+$/) && method === 'PUT') {
 				return await handleUploadPart(request, env, segments[3], segments[5], parseInt(segments[7]));
+			}
+
+			if (path.match(/^\/api\/chest\/[^\/]+\/multipart\/[^\/]+\/abort$/) && method === 'POST') {
+				return await handleAbortMultipartUpload(request, env, segments[3], segments[5]);
 			}
 
 			if (path.match(/^\/api\/chest\/[^\/]+\/multipart\/[^\/]+\/complete$/) && method === 'POST') {
@@ -412,6 +419,9 @@ async function handleCompleteUpload(request: Request, env: Env, sessionId: strin
 			throw error;
 		}
 
+		// No new part can start once the session is finalizing; unfinished multipart uploads are dropped now
+		await abortActiveMultipart(bucket, sessionId, finalizing.multipartUploads);
+
 		const registered = new Map(finalizing.files.map((file) => [file.fileId, file]));
 		const files = fileIds.map((fileId) => registered.get(fileId));
 		if (files.some((file) => file === undefined)) {
@@ -525,12 +535,72 @@ async function handleCreateMultipartUpload(request: Request, env: Env, sessionId
 		fileUploadOptions({ filename, mimeType, isText: false }),
 	);
 
+	// Record the upload before handing out its token; if the session cannot take it, drop the R2 upload
+	try {
+		await registerMultipartUpload(env.R2_STORAGE, sessionId, {
+			fileId,
+			uploadId: multipartUpload.uploadId,
+			state: 'ACTIVE',
+			createdAt: getCurrentTimestamp(),
+		});
+	} catch (error) {
+		await multipartUpload.abort().catch(() => undefined);
+		throw error;
+	}
+
 	const response: CreateMultipartUploadResponse = {
 		fileId,
 		// The raw R2 uploadId stays server-side inside a signed token
 		uploadId: await createMultipartJWT(sessionId, fileId, multipartUpload.uploadId, filename, mimeType, fileSize, env.JWT_SECRET),
 	};
 	return json(response);
+}
+
+// Runs `action` while holding a write lease on the session, for a multipart upload that must still be ACTIVE
+async function withActiveMultipart<T>(
+	env: Env,
+	sessionId: string,
+	fileId: string,
+	uploadId: string,
+	action: (entry: MultipartUploadEntry) => Promise<T>,
+	onSuccess?: (result: T) => { files: ChestFile[]; closeState: 'COMPLETED' | 'ABORTED' },
+	// For idempotent requests: if the upload is already in this state, return this value instead of acting
+	alreadyInState?: { state: 'ABORTED'; result: T },
+): Promise<T> {
+	const leaseId = generateUUID();
+	const record = await acquireLease(env.R2_STORAGE, sessionId, { id: leaseId, expiresAt: getCurrentTimestamp() + UPLOAD_LEASE_SECONDS });
+	const entry = record.multipartUploads.find((candidate) => candidate.fileId === fileId);
+
+	try {
+		if (!entry) {
+			throw new ApiError(404, 'UPLOAD_NOT_FOUND', 'Multipart upload not found');
+		}
+		if (entry.uploadId !== uploadId) {
+			throw new ApiError(403, 'TOKEN_MISMATCH', 'Token does not match upload session');
+		}
+		if (alreadyInState && entry.state === alreadyInState.state) {
+			await releaseLease(env.R2_STORAGE, sessionId, leaseId, []);
+			return alreadyInState.result;
+		}
+		if (entry.state !== 'ACTIVE') {
+			throw new ApiError(409, 'MULTIPART_CLOSED', 'This multipart upload was already completed or aborted');
+		}
+
+		const result = await action(entry);
+		const outcome = onSuccess?.(result);
+		await releaseLease(
+			env.R2_STORAGE,
+			sessionId,
+			leaseId,
+			outcome?.files ?? [],
+			undefined,
+			outcome && { fileId, state: outcome.closeState },
+		);
+		return result;
+	} catch (error) {
+		await releaseLease(env.R2_STORAGE, sessionId, leaseId, []).catch(() => undefined);
+		throw error;
+	}
 }
 
 // PUT /api/chest/:sessionId/multipart/:fileId/part/:partNumber - Upload part
@@ -546,15 +616,10 @@ async function handleUploadPart(request: Request, env: Env, sessionId: string, f
 		throw new ApiError(400, 'INVALID_REQUEST', 'Empty part body');
 	}
 
-	const leaseId = generateUUID();
-	await acquireLease(env.R2_STORAGE, sessionId, { id: leaseId, expiresAt: getCurrentTimestamp() + UPLOAD_LEASE_SECONDS });
-	let uploadedPart: R2UploadedPart;
-	try {
+	const uploadedPart = await withActiveMultipart(env, sessionId, fileId, payload.uploadId, async () => {
 		const multipartUpload = env.R2_STORAGE.resumeMultipartUpload(fileKey(sessionId, fileId), payload.uploadId);
-		uploadedPart = await multipartUpload.uploadPart(partNumber, body);
-	} finally {
-		await releaseLease(env.R2_STORAGE, sessionId, leaseId, []).catch(() => undefined);
-	}
+		return multipartUpload.uploadPart(partNumber, body);
+	});
 
 	const response: UploadPartResponse = {
 		etag: uploadedPart.etag,
@@ -563,45 +628,86 @@ async function handleUploadPart(request: Request, env: Env, sessionId: string, f
 	return json(response);
 }
 
+// Validates the part list before it reaches R2
+function validateParts(parts: unknown): { partNumber: number; etag: string }[] {
+	if (!Array.isArray(parts) || parts.length === 0 || parts.length > 10000) {
+		throw new ApiError(400, 'INVALID_REQUEST', 'Invalid parts array');
+	}
+	const seen = new Set<number>();
+	for (const part of parts) {
+		const { partNumber, etag } = part as { partNumber?: unknown; etag?: unknown };
+		if (!Number.isInteger(partNumber) || (partNumber as number) < 1 || (partNumber as number) > 10000) {
+			throw new ApiError(400, 'INVALID_REQUEST', 'Invalid part number');
+		}
+		if (typeof etag !== 'string' || etag.length === 0 || etag.length > 256) {
+			throw new ApiError(400, 'INVALID_REQUEST', 'Invalid part etag');
+		}
+		if (seen.has(partNumber as number)) {
+			throw new ApiError(400, 'INVALID_REQUEST', 'Duplicate part number');
+		}
+		seen.add(partNumber as number);
+	}
+	return (parts as { partNumber: number; etag: string }[])
+		.map(({ partNumber, etag }) => ({ partNumber, etag }))
+		.sort((a, b) => a.partNumber - b.partNumber);
+}
+
 // POST /api/chest/:sessionId/multipart/:fileId/complete - Complete multipart upload
 async function handleCompleteMultipartUpload(request: Request, env: Env, sessionId: string, fileId: string): Promise<Response> {
 	const payload = await authorizeMultipart(request, env, sessionId, fileId);
 	const { parts } = await readJson<CompleteMultipartUploadRequest>(request);
+	const sortedParts = validateParts(parts);
 
-	if (!Array.isArray(parts) || parts.length === 0) {
-		throw new ApiError(400, 'INVALID_REQUEST', 'Invalid parts array');
-	}
-
-	const sortedParts = [...parts].sort((a, b) => a.partNumber - b.partNumber);
-	const leaseId = generateUUID();
-	await acquireLease(env.R2_STORAGE, sessionId, { id: leaseId, expiresAt: getCurrentTimestamp() + UPLOAD_LEASE_SECONDS });
-	try {
-		const multipartUpload = env.R2_STORAGE.resumeMultipartUpload(fileKey(sessionId, fileId), payload.uploadId);
-		await multipartUpload.complete(sortedParts);
-
-		const registered = await verifyStoredFile(env.R2_STORAGE, sessionId, fileId, {
-			size: payload.fileSize,
-			filename: payload.filename,
-			mimeType: payload.mimeType,
-			isText: false,
-		});
-		await releaseLease(env.R2_STORAGE, sessionId, leaseId, [registered]);
-	} catch (error) {
-		if (error instanceof StorageVerificationError && error.reason === 'size-mismatch') {
-			// The declared size does not match what was uploaded
-			await env.R2_STORAGE.delete(fileKey(sessionId, fileId)).catch(() => undefined);
-			await releaseLease(env.R2_STORAGE, sessionId, leaseId, []).catch(() => undefined);
-			throw new ApiError(400, 'SIZE_MISMATCH', 'Uploaded size does not match the declared file size');
-		}
-		// The object was assembled but never registered: remove it instead of leaving an untracked file
-		await env.R2_STORAGE.delete(fileKey(sessionId, fileId)).catch(() => undefined);
-		await releaseLease(env.R2_STORAGE, sessionId, leaseId, []).catch(() => undefined);
-		throw error;
-	}
+	const registered = await withActiveMultipart(
+		env,
+		sessionId,
+		fileId,
+		payload.uploadId,
+		async () => {
+			const multipartUpload = env.R2_STORAGE.resumeMultipartUpload(fileKey(sessionId, fileId), payload.uploadId);
+			await multipartUpload.complete(sortedParts);
+			try {
+				return await verifyStoredFile(env.R2_STORAGE, sessionId, fileId, {
+					size: payload.fileSize,
+					filename: payload.filename,
+					mimeType: payload.mimeType,
+					isText: false,
+				});
+			} catch (error) {
+				if (error instanceof StorageVerificationError && error.reason === 'size-mismatch') {
+					// The declared size does not match what was uploaded; remove the object instead of storing it
+					await env.R2_STORAGE.delete(fileKey(sessionId, fileId)).catch(() => undefined);
+					throw new ApiError(400, 'SIZE_MISMATCH', 'Uploaded size does not match the declared file size');
+				}
+				throw error;
+			}
+		},
+		(file) => ({ files: [file], closeState: 'COMPLETED' }),
+	);
 
 	const response: CompleteMultipartUploadResponse = {
 		fileId,
-		filename: payload.filename,
+		filename: registered.filename,
 	};
 	return json(response);
+}
+
+// POST /api/chest/:sessionId/multipart/:fileId/abort - Abort an unfinished multipart upload
+async function handleAbortMultipartUpload(request: Request, env: Env, sessionId: string, fileId: string): Promise<Response> {
+	const payload = await authorizeMultipart(request, env, sessionId, fileId);
+
+	// Aborting twice is harmless: the first abort already closed the upload
+	const outcome = await withActiveMultipart(
+		env,
+		sessionId,
+		fileId,
+		payload.uploadId,
+		async () => {
+			await env.R2_STORAGE.resumeMultipartUpload(fileKey(sessionId, fileId), payload.uploadId).abort();
+			return true;
+		},
+		() => ({ files: [], closeState: 'ABORTED' }),
+		{ state: 'ABORTED', result: true },
+	);
+	return json({ fileId, aborted: outcome });
 }

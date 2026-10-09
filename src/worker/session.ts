@@ -18,6 +18,17 @@ export interface SessionLease {
 	expiresAt: number;
 }
 
+export type MultipartState = 'ACTIVE' | 'ABORTED' | 'COMPLETED';
+
+// One entry per multipart upload started in this session. The uploadId is kept here so that
+// the server can abort the upload later without relying on the client's token.
+export interface MultipartUploadEntry {
+	fileId: string;
+	uploadId: string;
+	state: MultipartState;
+	createdAt: number;
+}
+
 export interface SessionRecord {
 	version: 1;
 	sessionId: string;
@@ -26,6 +37,7 @@ export interface SessionRecord {
 	leases: SessionLease[];
 	// Verified (size-checked) files registered by finished uploads
 	files: ChestFile[];
+	multipartUploads: MultipartUploadEntry[];
 	// Set when completion starts; a repeated Complete must match it exactly
 	completionFingerprint: string | null;
 	// Retrieval code reserved for this completion; kept so a retry reuses it
@@ -88,6 +100,15 @@ export function parseSessionRecord(value: unknown): SessionRecord {
 	const isNullableNumber = (v: unknown): v is number | null => v === null || (typeof v === 'number' && Number.isInteger(v));
 	const isNullableStringArray = (v: unknown): v is string[] | null =>
 		v === null || (Array.isArray(v) && v.every((item) => typeof item === 'string'));
+	const isMultipart = (v: unknown): v is MultipartUploadEntry => {
+		const entry = v as Record<string, unknown>;
+		return (
+			typeof entry?.fileId === 'string' &&
+			typeof entry.uploadId === 'string' &&
+			(entry.state === 'ACTIVE' || entry.state === 'ABORTED' || entry.state === 'COMPLETED') &&
+			typeof entry.createdAt === 'number'
+		);
+	};
 	const isLease = (v: unknown): v is SessionLease => {
 		const lease = v as Record<string, unknown>;
 		return typeof lease?.id === 'string' && typeof lease.expiresAt === 'number' && Number.isInteger(lease.expiresAt);
@@ -115,6 +136,8 @@ export function parseSessionRecord(value: unknown): SessionRecord {
 		!r.leases.every(isLease) ||
 		!Array.isArray(r.files) ||
 		!r.files.every(isFile) ||
+		!Array.isArray(r.multipartUploads) ||
+		!r.multipartUploads.every(isMultipart) ||
 		!isNullableString(r.completionFingerprint) ||
 		!isNullableString(r.candidateCode) ||
 		!isNullableString(r.retrievalCode) ||
@@ -137,6 +160,7 @@ export function parseSessionRecord(value: unknown): SessionRecord {
 		createdAt: r.createdAt,
 		leases: r.leases as SessionLease[],
 		files: r.files as ChestFile[],
+		multipartUploads: r.multipartUploads as MultipartUploadEntry[],
 		completionFingerprint: r.completionFingerprint,
 		candidateCode: r.candidateCode,
 		retrievalCode: r.retrievalCode,
@@ -155,6 +179,7 @@ export async function createSessionRecord(bucket: R2Bucket, init: { sessionId: s
 		createdAt: init.createdAt,
 		leases: [],
 		files: [],
+		multipartUploads: [],
 		completionFingerprint: null,
 		candidateCode: null,
 		retrievalCode: null,
@@ -268,6 +293,7 @@ export function releaseLease(
 	leaseId: string,
 	files: ChestFile[],
 	now: number = Math.floor(Date.now() / 1000),
+	closeMultipart?: { fileId: string; state: Exclude<MultipartState, 'ACTIVE'> },
 ): Promise<SessionRecord> {
 	return updateSession(
 		bucket,
@@ -283,6 +309,11 @@ export function releaseLease(
 				...current,
 				leases: current.leases.filter((lease) => lease.id !== leaseId),
 				files: [...current.files, ...added],
+				multipartUploads: closeMultipart
+					? current.multipartUploads.map((entry) =>
+							entry.fileId === closeMultipart.fileId ? { ...entry, state: closeMultipart.state } : entry,
+						)
+					: current.multipartUploads,
 			};
 		},
 		now,
@@ -354,5 +385,25 @@ export function replaceCandidateCode(
 		sessionId,
 		(current) => (current.candidateCode === colliding ? { ...current, candidateCode: replacement } : current),
 		now ?? Math.floor(Date.now() / 1000),
+	);
+}
+
+/** Records a multipart upload that was just started. Only OPEN sessions accept one. */
+export function registerMultipartUpload(
+	bucket: R2Bucket,
+	sessionId: string,
+	entry: MultipartUploadEntry,
+	now: number = Math.floor(Date.now() / 1000),
+): Promise<SessionRecord> {
+	return updateSession(
+		bucket,
+		sessionId,
+		(current) => {
+			if (current.status !== 'OPEN') {
+				throw new SessionError('NOT_OPEN', 'Session is no longer accepting uploads');
+			}
+			return { ...current, multipartUploads: [...current.multipartUploads, entry] };
+		},
+		now,
 	);
 }

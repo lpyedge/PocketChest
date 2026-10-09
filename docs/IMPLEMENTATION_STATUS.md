@@ -12,7 +12,7 @@
 | TASK-05 | 寫入租約與 Complete 屏障 | PASS | 見 Git log |
 | TASK-06 | Complete 冪等與碼碰撞補償（P0） | PASS | 見 Git log |
 | TASK-07 | Multipart 狀態、Abort | PASS | 見 Git log |
-| TASK-08 | Cron 清理與故障自修復 | TODO | |
+| TASK-08 | Cron 清理與故障自修復 | PASS | 見 Git log |
 | TASK-09 | 上傳配額與前端真取消 | TODO | |
 | TASK-10 | POST 查碼 | TODO | |
 | TASK-11 | 下載授權 Cookie 與串流 | TODO | |

@@ -40,6 +40,8 @@ export interface SessionRecord {
 	multipartUploads: MultipartUploadEntry[];
 	// Set when completion starts; a repeated Complete must match it exactly
 	completionFingerprint: string | null;
+	// When completion started; lets the cleanup job find sessions stuck in FINALIZING
+	finalizeStartedAt: number | null;
 	// Retrieval code reserved for this completion; kept so a retry reuses it
 	candidateCode: string | null;
 	retrievalCode: string | null;
@@ -81,7 +83,10 @@ const STATUSES: readonly SessionStatus[] = ['OPEN', 'FINALIZING', 'COMPLETED', '
 const MAX_ATTEMPTS = 5;
 
 export type SessionPatch = Partial<
-	Pick<SessionRecord, 'retrievalCode' | 'validityDays' | 'expiresAt' | 'fileIds' | 'candidateCode' | 'completionFingerprint'>
+	Pick<
+		SessionRecord,
+		'retrievalCode' | 'validityDays' | 'expiresAt' | 'fileIds' | 'candidateCode' | 'completionFingerprint' | 'finalizeStartedAt'
+	>
 >;
 
 export function sessionKey(sessionId: string): string {
@@ -139,6 +144,7 @@ export function parseSessionRecord(value: unknown): SessionRecord {
 		!Array.isArray(r.multipartUploads) ||
 		!r.multipartUploads.every(isMultipart) ||
 		!isNullableString(r.completionFingerprint) ||
+		!isNullableNumber(r.finalizeStartedAt) ||
 		!isNullableString(r.candidateCode) ||
 		!isNullableString(r.retrievalCode) ||
 		!isNullableNumber(r.validityDays) ||
@@ -162,6 +168,7 @@ export function parseSessionRecord(value: unknown): SessionRecord {
 		files: r.files as ChestFile[],
 		multipartUploads: r.multipartUploads as MultipartUploadEntry[],
 		completionFingerprint: r.completionFingerprint,
+		finalizeStartedAt: r.finalizeStartedAt,
 		candidateCode: r.candidateCode,
 		retrievalCode: r.retrievalCode,
 		validityDays: r.validityDays,
@@ -181,6 +188,7 @@ export async function createSessionRecord(bucket: R2Bucket, init: { sessionId: s
 		files: [],
 		multipartUploads: [],
 		completionFingerprint: null,
+		finalizeStartedAt: null,
 		candidateCode: null,
 		retrievalCode: null,
 		validityDays: null,
@@ -331,6 +339,7 @@ export function beginFinalize(
 	fingerprint: string,
 	now: number = Math.floor(Date.now() / 1000),
 ): Promise<SessionRecord> {
+	// `now` is also recorded as the start of the completion, see finalizing/ index
 	return updateSession(
 		bucket,
 		sessionId,
@@ -341,7 +350,14 @@ export function beginFinalize(
 			if (current.leases.some((lease) => lease.expiresAt > at)) {
 				throw new SessionError('LEASE_ACTIVE', 'Uploads are still in progress for this session');
 			}
-			return { ...current, status: 'FINALIZING', leases: [], completionFingerprint: fingerprint, candidateCode: null };
+			return {
+				...current,
+				status: 'FINALIZING',
+				leases: [],
+				completionFingerprint: fingerprint,
+				finalizeStartedAt: at,
+				candidateCode: null,
+			};
 		},
 		now,
 	);

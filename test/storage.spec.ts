@@ -157,7 +157,7 @@ describe('R2 storage lifecycle', () => {
 
 			const result = await cleanupExpired(env.R2_STORAGE, getCurrentTimestamp() + ABANDONED_SESSION_SECONDS + 60);
 			expect(result).toMatchObject({ abandonedSessions: 1, deletedObjects: 1, errors: [] });
-			expect(await listKeys()).toEqual([]);
+			expect((await listKeys()).filter((key) => !key.startsWith('maintenance/'))).toEqual([]);
 		});
 
 		it('runs from the cron trigger without touching live chests', async () => {

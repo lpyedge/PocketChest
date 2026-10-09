@@ -159,6 +159,7 @@ export interface FinalizePlan {
  */
 export async function finalizeChest(bucket: R2Bucket, sessionId: string, plan: FinalizePlan): Promise<string | null> {
 	let reserved = await reserveCandidateCode(bucket, sessionId, generateRetrievalCode());
+	const startedAt = reserved.finalizeStartedAt;
 
 	for (let attempt = 0; attempt < 5; attempt++) {
 		const code = reserved.candidateCode as string;
@@ -205,10 +206,12 @@ export async function finalizeChest(bucket: R2Bucket, sessionId: string, plan: F
 		}
 
 		await closeSession(bucket, sessionId, plan.createdAt);
+		if (startedAt !== null) await bucket.delete(finalizingIndexKey(startedAt, sessionId));
 		return code;
 	}
 
-	await transitionSession(bucket, sessionId, 'OPEN', { candidateCode: null, completionFingerprint: null });
+	await transitionSession(bucket, sessionId, 'OPEN', { candidateCode: null, completionFingerprint: null, finalizeStartedAt: null });
+	if (startedAt !== null) await bucket.delete(finalizingIndexKey(startedAt, sessionId));
 	return null;
 }
 
@@ -249,29 +252,54 @@ export async function abortActiveMultipart(bucket: R2Bucket, sessionId: string, 
 
 // --- Cleanup ---
 
+// A completion that has not finished after this long is rolled back by the cleanup job
+export const FINALIZE_STALE_SECONDS = 60 * 60;
+// Orphaned file objects are only removed this long after they were written, in case a request is still running
+export const ORPHAN_GRACE_SECONDS = 48 * 60 * 60;
+const ORPHAN_SCAN_BATCH = 1000;
+const ORPHAN_CURSOR_KEY = 'maintenance/orphan-cursor.json';
+const UUID_PATTERN = /^[0-9a-f-]{36}$/;
+
 export interface CleanupResult {
 	expiredChests: number;
 	abandonedSessions: number;
+	rolledBackFinalizations: number;
+	orphanClaims: number;
+	orphanObjects: number;
 	deletedObjects: number;
+	// true when more due work exists than this run processed; the next run continues it
+	backlog: { expired: boolean; abandoned: boolean; finalizing: boolean };
 	errors: string[];
 }
 
-// Lists keys under an index prefix whose timestamp segment is <= cutoff, oldest first
-async function listDueKeys(bucket: R2Bucket, prefix: 'expiry/' | 'pending/', cutoff: number): Promise<string[]> {
+export function finalizingIndexKey(startedAt: number, sessionId: string): string {
+	return `finalizing/${timestampSegment(startedAt)}/${sessionId}`;
+}
+
+// Index keys under `prefix` whose timestamp is <= cutoff, oldest first, up to `limit`
+async function listDueKeys(
+	bucket: R2Bucket,
+	prefix: 'expiry/' | 'pending/' | 'finalizing/',
+	cutoff: number,
+	limit: number,
+): Promise<{ keys: string[]; hasMore: boolean }> {
 	const due: string[] = [];
 	let cursor: string | undefined;
 	do {
 		const page = await bucket.list({ prefix, cursor, limit: 1000 });
 		for (const object of page.objects) {
 			const timestamp = Number(object.key.slice(prefix.length).split('/')[0]);
-			if (timestamp > cutoff || due.length >= CLEANUP_BATCH_LIMIT) {
-				return due;
+			if (timestamp > cutoff) {
+				return { keys: due, hasMore: false };
+			}
+			if (due.length >= limit) {
+				return { keys: due, hasMore: true };
 			}
 			due.push(object.key);
 		}
 		cursor = page.truncated ? page.cursor : undefined;
 	} while (cursor);
-	return due;
+	return { keys: due, hasMore: false };
 }
 
 async function deleteKeys(bucket: R2Bucket, keys: string[]): Promise<void> {
@@ -291,46 +319,134 @@ async function listSessionKeys(bucket: R2Bucket, sessionId: string): Promise<str
 	return keys;
 }
 
-export async function cleanupExpired(bucket: R2Bucket, now: number): Promise<CleanupResult> {
-	const result: CleanupResult = { expiredChests: 0, abandonedSessions: 0, deletedObjects: 0, errors: [] };
+// Removes a session's content and its record. Only called when nothing refers to the content any more.
+async function removeSession(bucket: R2Bucket, sessionId: string, multipartUploads: MultipartUploadEntry[]): Promise<number> {
+	await abortActiveMultipart(bucket, sessionId, multipartUploads);
+	const sessionKeys = await listSessionKeys(bucket, sessionId);
+	// The record goes last among the session's objects: without it the session cannot be mistaken for live
+	await deleteKeys(bucket, [...sessionKeys, sessionKey(sessionId)]);
+	return sessionKeys.length;
+}
 
-	for (const indexKey of await listDueKeys(bucket, 'expiry/', now)) {
+/**
+ * One pass of the cleanup job. Each category is bounded per run, so a large backlog is worked
+ * through over several runs instead of exceeding the Worker's limits. Every deletion is repeatable.
+ */
+export async function cleanupExpired(bucket: R2Bucket, now: number): Promise<CleanupResult> {
+	const result: CleanupResult = {
+		expiredChests: 0,
+		abandonedSessions: 0,
+		rolledBackFinalizations: 0,
+		orphanClaims: 0,
+		orphanObjects: 0,
+		deletedObjects: 0,
+		backlog: { expired: false, abandoned: false, finalizing: false },
+		errors: [],
+	};
+
+	// 1. Expired chests. An expiry entry only removes the session's content when the session still
+	//    uses this code; otherwise the entry is a leftover claim and only its own objects go.
+	const expired = await listDueKeys(bucket, 'expiry/', now, CLEANUP_BATCH_LIMIT);
+	result.backlog.expired = expired.hasMore;
+	for (const indexKey of expired.keys) {
 		const code = indexKey.split('/')[2];
 		try {
 			const manifest = await readManifest(bucket, code);
 			const session = manifest ? await getSessionRecord(bucket, manifest.sessionId).catch(() => null) : null;
-			if (manifest && session) {
-				await abortActiveMultipart(bucket, manifest.sessionId, session.record.multipartUploads);
+			const owns = session?.record.status === 'COMPLETED' && session.record.retrievalCode === code;
+
+			if (manifest && owns) {
+				result.deletedObjects += await removeSession(bucket, manifest.sessionId, session.record.multipartUploads);
+				await deleteKeys(bucket, [codeKey(code), indexKey]);
+				result.expiredChests++;
+			} else {
+				await deleteKeys(bucket, [codeKey(code), indexKey]);
+				result.orphanClaims++;
 			}
-			const sessionKeys = manifest ? await listSessionKeys(bucket, manifest.sessionId) : [];
-			// Index entry last: if anything fails, the next run retries this chest
-			const recordKeys = manifest ? [sessionKey(manifest.sessionId)] : [];
-			await deleteKeys(bucket, [...sessionKeys, ...recordKeys, codeKey(code), indexKey]);
-			result.deletedObjects += sessionKeys.length;
-			result.expiredChests++;
 		} catch (error) {
-			result.errors.push(`Failed to delete chest ${code}: ${error}`);
+			result.errors.push(`Failed to clean up chest ${code}: ${error}`);
 		}
 	}
 
-	for (const markerKey of await listDueKeys(bucket, 'pending/', now - ABANDONED_SESSION_SECONDS)) {
+	// 2. Sessions abandoned before completion (48 hours without completing)
+	const abandoned = await listDueKeys(bucket, 'pending/', now - ABANDONED_SESSION_SECONDS, CLEANUP_BATCH_LIMIT);
+	result.backlog.abandoned = abandoned.hasMore;
+	for (const markerKey of abandoned.keys) {
 		const sessionId = markerKey.split('/')[2];
 		try {
 			const current = await getSessionRecord(bucket, sessionId).catch(() => null);
-			if (current?.record.status !== 'OPEN') {
-				// Completed (or unknown) sessions keep their files; only the stale index entry goes
-				await deleteKeys(bucket, [markerKey]);
+			if (current?.record.status === 'OPEN') {
+				result.deletedObjects += await removeSession(bucket, sessionId, current.record.multipartUploads);
+				result.abandonedSessions++;
+			} else if (current?.record.status === 'FINALIZING') {
+				// Still completing: leave the session alone; step 3 decides whether it is stuck
 				continue;
 			}
-			await abortActiveMultipart(bucket, sessionId, current.record.multipartUploads);
-			const sessionKeys = await listSessionKeys(bucket, sessionId);
-			await deleteKeys(bucket, [...sessionKeys, sessionKey(sessionId), markerKey]);
-			result.deletedObjects += sessionKeys.length;
-			result.abandonedSessions++;
+			// Completed sessions keep their files; a leftover marker is only an index entry
+			await deleteKeys(bucket, [markerKey]);
 		} catch (error) {
-			result.errors.push(`Failed to delete abandoned session ${sessionId}: ${error}`);
+			result.errors.push(`Failed to clean up session ${sessionId}: ${error}`);
 		}
 	}
 
+	// 3. Completions that started long ago and never finished: roll them back so the client can retry
+	const stuck = await listDueKeys(bucket, 'finalizing/', now - FINALIZE_STALE_SECONDS, CLEANUP_BATCH_LIMIT);
+	result.backlog.finalizing = stuck.hasMore;
+	for (const indexKey of stuck.keys) {
+		const sessionId = indexKey.split('/')[2];
+		try {
+			const current = await getSessionRecord(bucket, sessionId).catch(() => null);
+			if (current?.record.status === 'FINALIZING') {
+				await transitionSession(
+					bucket,
+					sessionId,
+					'OPEN',
+					{ candidateCode: null, completionFingerprint: null, finalizeStartedAt: null },
+					now,
+				);
+				result.rolledBackFinalizations++;
+			}
+			await deleteKeys(bucket, [indexKey]);
+		} catch (error) {
+			result.errors.push(`Failed to repair session ${sessionId}: ${error}`);
+		}
+	}
+
+	// 4. Orphaned file objects: content whose session record is gone. Scanned in batches; the cursor persists.
+	try {
+		result.orphanObjects = await cleanupOrphanObjects(bucket, now, result);
+	} catch (error) {
+		result.errors.push(`Failed to scan for orphaned objects: ${error}`);
+	}
+
 	return result;
+}
+
+async function cleanupOrphanObjects(bucket: R2Bucket, now: number, result: CleanupResult): Promise<number> {
+	const saved = await bucket.get(ORPHAN_CURSOR_KEY);
+	const cursor = saved ? (((await saved.json()) as { cursor?: string | null }).cursor ?? undefined) : undefined;
+	const page = await bucket.list({ cursor, limit: ORPHAN_SCAN_BATCH });
+
+	const sessionExists = new Map<string, boolean>();
+	let removed = 0;
+	for (const object of page.objects) {
+		const [sessionId, fileId] = object.key.split('/');
+		if (!object.key.includes('/') || !UUID_PATTERN.test(sessionId) || !UUID_PATTERN.test(fileId ?? '')) continue;
+		if (object.uploaded.getTime() / 1000 > now - ORPHAN_GRACE_SECONDS) continue;
+
+		if (!sessionExists.has(sessionId)) {
+			sessionExists.set(sessionId, (await getSessionRecord(bucket, sessionId).catch(() => null)) !== null);
+		}
+		if (!sessionExists.get(sessionId)) {
+			await bucket.delete(object.key);
+			removed++;
+			result.deletedObjects++;
+		}
+	}
+
+	// Continue from here next run; start over once the whole bucket has been scanned
+	await bucket.put(ORPHAN_CURSOR_KEY, JSON.stringify({ cursor: page.truncated ? page.cursor : null }), {
+		httpMetadata: { contentType: 'application/json' },
+	});
+	return removed;
 }

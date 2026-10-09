@@ -92,6 +92,14 @@ describe('completion idempotency', () => {
 		expect((await getSessionRecord(bucket(), sessionId))?.record.status).toBe('COMPLETED');
 	});
 
+	it('leaves no finalizing index behind once a completion succeeds', async () => {
+		const { sessionId, uploadToken } = await createTestSession();
+		const [a] = await uploadTwoTexts(sessionId, uploadToken);
+		await complete(sessionId, uploadToken, [a], 7);
+
+		expect((await bucket().list({ prefix: 'finalizing/' })).objects).toEqual([]);
+	});
+
 	it('does not store an expiry index for a permanent chest', async () => {
 		const { sessionId, uploadToken } = await createTestSession();
 		const [a] = await uploadTwoTexts(sessionId, uploadToken);

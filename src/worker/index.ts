@@ -52,6 +52,7 @@ import {
 	isSessionOpen,
 	openSession,
 	abortActiveMultipart,
+	finalizingIndexKey,
 	StorageVerificationError,
 	verifyStoredFile,
 } from './storage';
@@ -172,13 +173,17 @@ export default {
 	async scheduled(_controller: ScheduledController, env: Env, _ctx: ExecutionContext): Promise<void> {
 		console.log('🧹 Starting scheduled cleanup job at', new Date().toISOString());
 
-		try {
-			const result = await cleanupExpired(env.R2_STORAGE, getCurrentTimestamp());
-			console.log('✅ Cleanup completed:', result);
-		} catch (error) {
-			console.error('❌ Cleanup job failed:', error);
-			// Don't throw - we don't want to fail the cron job
+		const result = await cleanupExpired(env.R2_STORAGE, getCurrentTimestamp());
+		const { errors, ...counts } = result;
+		console.log('🧹 Cleanup summary:', JSON.stringify(counts));
+
+		// Partial failures are kept and retried by the next run; the invocation is still reported as failed
+		// so that the problem shows up in the Worker's logs and observability
+		if (errors.length > 0) {
+			console.error(`❌ Cleanup finished with ${errors.length} error(s):`, errors.slice(0, 20).join(' | '));
+			throw new Error(`Cleanup finished with ${errors.length} error(s); remaining work will be retried`);
 		}
+		console.log('✅ Cleanup completed without errors');
 	},
 } satisfies ExportedHandler<Env>;
 
@@ -410,7 +415,10 @@ async function handleCompleteUpload(request: Request, env: Env, sessionId: strin
 				assertSameCompletion(record, fingerprint);
 				finalizing = record;
 			} else {
-				finalizing = await beginFinalize(bucket, sessionId, fingerprint);
+				// Index first: if we fail before the session moves, the cleanup job just removes this entry
+				const startedAt = getCurrentTimestamp();
+				await bucket.put(finalizingIndexKey(startedAt, sessionId), '');
+				finalizing = await beginFinalize(bucket, sessionId, fingerprint, startedAt);
 			}
 		} catch (error) {
 			if (error instanceof SessionError && error.code === 'INVALID_TRANSITION') {

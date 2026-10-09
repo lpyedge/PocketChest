@@ -391,7 +391,9 @@ export async function cleanupExpired(bucket: R2Bucket, now: number): Promise<Cle
 		const code = indexKey.split('/')[2];
 		try {
 			const manifest = await readManifest(bucket, code);
-			const session = manifest ? await getSessionRecord(bucket, manifest.sessionId).catch(() => null) : null;
+			// Only a real "not found" (null) means the session is gone. A failed or unreadable read throws to the
+			// handler below, which keeps everything and tries again on the next run.
+			const session = manifest ? await getSessionRecord(bucket, manifest.sessionId) : null;
 			const owns = session?.record.status === 'COMPLETED' && session.record.retrievalCode === code;
 
 			const indexTimestamp = Number(indexKey.split('/')[1]);
@@ -427,7 +429,7 @@ export async function cleanupExpired(bucket: R2Bucket, now: number): Promise<Cle
 	for (const markerKey of abandoned.keys) {
 		const sessionId = markerKey.split('/')[2];
 		try {
-			const current = await getSessionRecord(bucket, sessionId).catch(() => null);
+			const current = await getSessionRecord(bucket, sessionId);
 			if (current?.record.status === 'OPEN' || current?.record.status === 'ABANDONED') {
 				result.deletedObjects += await removeSession(bucket, sessionId, current.record.multipartUploads);
 				result.abandonedSessions++;
@@ -448,7 +450,7 @@ export async function cleanupExpired(bucket: R2Bucket, now: number): Promise<Cle
 	for (const indexKey of stuck.keys) {
 		const sessionId = indexKey.split('/')[2];
 		try {
-			const current = await getSessionRecord(bucket, sessionId).catch(() => null);
+			const current = await getSessionRecord(bucket, sessionId);
 			if (current?.record.status === 'FINALIZING') {
 				if (await recoverFinalizing(bucket, current.record, now)) {
 					result.recoveredFinalizations++;

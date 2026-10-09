@@ -1,10 +1,28 @@
 import { env } from 'cloudflare:test';
-import { createOwnerOnce } from '../../src/worker/auth/owner';
+import { createOwnerOnce, loadOwner } from '../../src/worker/auth/owner';
 
 // Test environment setup
 export const TEST_JWT_SECRET = 'test-jwt-secret-for-vitest-only';
 export const TEST_ORIGIN = 'http://example.com';
 export const TEST_OWNER_PASSWORD = 'test-owner-password-0123456789';
+
+// The owner record as stored; a test that calls this expects an owner to exist
+export async function ownerRecord() {
+	const loaded = await loadOwner(env.R2_STORAGE);
+	if (!loaded) {
+		throw new Error('Owner record is missing');
+	}
+	return loaded.owner;
+}
+
+// Text of a stored object; a test that calls this expects the object to exist
+export async function objectText(key: string): Promise<string> {
+	const object = await env.R2_STORAGE.get(key);
+	if (!object) {
+		throw new Error(`Missing object ${key}`);
+	}
+	return object.text();
+}
 
 // Removes every object from the R2 bucket so each test starts from empty storage
 export async function resetStorage() {

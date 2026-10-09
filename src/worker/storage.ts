@@ -1,5 +1,6 @@
 import { cleanupOwnerSessions } from './auth/sessions';
 import { cleanupThrottles } from './auth/throttle';
+import { cleanupChallenges } from './auth/challenges';
 import { ChestFile, ChestManifest } from './types';
 import {
 	createSessionRecord,
@@ -270,6 +271,7 @@ export interface CleanupResult {
 	orphanObjects: number;
 	sessionsRemoved: number;
 	throttlesReset: number;
+	challengesRemoved: number;
 	deletedObjects: number;
 	// true when more due work exists than this run processed; the next run continues it
 	backlog: { expired: boolean; abandoned: boolean; finalizing: boolean };
@@ -345,6 +347,7 @@ export async function cleanupExpired(bucket: R2Bucket, now: number): Promise<Cle
 		orphanObjects: 0,
 		sessionsRemoved: 0,
 		throttlesReset: 0,
+		challengesRemoved: 0,
 		deletedObjects: 0,
 		backlog: { expired: false, abandoned: false, finalizing: false },
 		errors: [],
@@ -430,6 +433,13 @@ export async function cleanupExpired(bucket: R2Bucket, now: number): Promise<Cle
 		result.throttlesReset = await cleanupThrottles(bucket, now);
 	} catch (error) {
 		result.errors.push(`Failed to reset sign-in throttles: ${error}`);
+	}
+
+	// 4c. WebAuthn challenges past their expiry; live ones are never removed
+	try {
+		result.challengesRemoved = await cleanupChallenges(bucket, now);
+	} catch (error) {
+		result.errors.push(`Failed to clean up passkey challenges: ${error}`);
 	}
 
 	// 5. Orphaned file objects: content whose session record is gone. Scanned in batches; the cursor persists.

@@ -21,8 +21,8 @@
 | TASK-14 | Password 獨立登入與上傳 Session 授權 | PASS | 見 Git log（login.ts、login-password.spec.ts、upload-session-creation.spec.ts）；舊 /api/chest、/api/config、TOTP 已刪除 |
 | TASK-15 | TOTP 獨立登入、重放防護 | PASS | 見 Git log（totp.ts、login-totp.spec.ts 18 項）|
 | TASK-16 | Rate Limiting、密碼/TOTP 錯誤冷卻 | PASS | 見 Git log（throttle.ts、ratelimit.ts、auth-throttle.spec.ts 16 項）。Passkey 端點尚未建立，TASK-17/18 須接入 enforceRateLimit 並補測試 |
-| TASK-17 | Passkey 註冊 | TODO | |
-| TASK-18 | Passkey 登入 | TODO | |
+| TASK-17 | Passkey 註冊 | PASS | 見 Git log（passkeys.ts、challenges.ts、passkey-register.spec.ts、login-passkey.spec.ts；@simplewebauthn/server 14.0.3 精確鎖定） |
+| TASK-18 | Passkey 登入 | PASS | 見 Git log（passkeys.ts、challenges.ts、passkey-register.spec.ts、login-passkey.spec.ts；@simplewebauthn/server 14.0.3 精確鎖定） |
 | TASK-19 | 三方式 Toggle 與最後方式保護 | TODO | |
 | TASK-20 | 密碼修改與 Session 輪替 | TODO | |
 | TASK-21 | TOTP 綁定與重綁 | TODO | |

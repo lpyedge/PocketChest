@@ -1,9 +1,18 @@
 import { env } from 'cloudflare:test';
 import { describe, it, expect, beforeAll, beforeEach } from 'vitest';
-import { ownerSignIn, resetStorage, setupTestEnvironment, testFetch, TEST_ORIGIN, TEST_OWNER_PASSWORD } from './utils/test-setup';
+import {
+	ownerSignIn,
+	resetStorage,
+	setupTestEnvironment,
+	testFetch,
+	TEST_ORIGIN,
+	TEST_OWNER_PASSWORD,
+	ownerRecord,
+	objectText,
+} from './utils/test-setup';
 import { loadOwner, mutateOwner, OWNER_KEY } from '../src/worker/auth/owner';
 import { loginWithTotp, reauthWithTotp } from '../src/worker/auth/login';
-import { sealSeed, totpCodeAt, generateSeed } from '../src/worker/auth/totp';
+import { sealSeed, totpCodeAt } from '../src/worker/auth/totp';
 import { sessionKey, sha256Hex } from '../src/worker/auth/sessions';
 import { toBase64Url } from '../src/worker/auth/encoding';
 import { ApiError } from '../src/worker/errors';
@@ -161,7 +170,7 @@ describe('POST /api/auth/login/totp', () => {
 	});
 
 	it('never stores the seed in plain form', async () => {
-		const stored = await (await bucket().get(OWNER_KEY))!.text();
+		const stored = await await objectText(OWNER_KEY);
 		expect(stored).not.toContain(toBase64Url(SEED));
 		expect(stored).not.toContain(toBase64Url(OTHER_SEED));
 		const sealedA = await sealSeed(SEED, REAL_KEY);
@@ -170,12 +179,12 @@ describe('POST /api/auth/login/totp', () => {
 	});
 
 	it('leaves the owner record and its authVersion usable after a sign-in', async () => {
-		const before = (await loadOwner(bucket()))!;
+		const before = await ownerRecord();
 		await loginWithTotp(env, await totpCodeAt(SEED, NOW), NOW);
-		const after = (await loadOwner(bucket()))!;
+		const after = await ownerRecord();
 
-		expect(after.owner.authVersion).toBe(before.owner.authVersion);
-		expect(after.owner.methods.totp.lastAcceptedStep).not.toBeNull();
+		expect(after.authVersion).toBe(before.authVersion);
+		expect(after.methods.totp.lastAcceptedStep).not.toBeNull();
 	});
 });
 

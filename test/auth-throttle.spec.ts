@@ -1,10 +1,18 @@
 import { env, createExecutionContext, waitOnExecutionContext } from 'cloudflare:test';
 import { describe, it, expect, beforeAll, beforeEach } from 'vitest';
 import worker from '../src/worker/index';
-import { ownerSignIn, resetStorage, setupTestEnvironment, testFetch, TEST_ORIGIN, TEST_OWNER_PASSWORD } from './utils/test-setup';
+import {
+	ownerSignIn,
+	resetStorage,
+	setupTestEnvironment,
+	testFetch,
+	TEST_ORIGIN,
+	TEST_OWNER_PASSWORD,
+	objectText,
+} from './utils/test-setup';
 import { loginWithPassword, loginWithTotp } from '../src/worker/auth/login';
 import { mutateOwner } from '../src/worker/auth/owner';
-import { sealSeed, totpCodeAt, generateSeed } from '../src/worker/auth/totp';
+import { sealSeed, totpCodeAt } from '../src/worker/auth/totp';
 import { cleanupThrottles, FAILURE_LIMIT, throttleKey } from '../src/worker/auth/throttle';
 import { cleanupExpired } from '../src/worker/storage';
 import { ApiError } from '../src/worker/errors';
@@ -255,9 +263,9 @@ describe('cleanup of sign-in counters', () => {
 		expect(reset).toBe(1);
 
 		// The running lock survives the cleanup, so the cleanup cannot be used to shorten it
-		const password = JSON.parse(await (await bucket().get(throttleKey('password')))!.text());
+		const password = JSON.parse(await await objectText(throttleKey('password')));
 		expect(password).toMatchObject({ blockedUntil: NOW + 100, strikes: 3 });
-		const totp = JSON.parse(await (await bucket().get(throttleKey('totp')))!.text());
+		const totp = JSON.parse(await await objectText(throttleKey('totp')));
 		expect(totp).toMatchObject({ failureCount: 0, strikes: 0, blockedUntil: null });
 	});
 
@@ -274,6 +282,6 @@ describe('cleanup of sign-in counters', () => {
 	it('refuses to act on a counter it cannot read, instead of resetting it', async () => {
 		await bucket().put(throttleKey('password'), '{"version":1,"blockedUntil":"soon"}');
 		await expect(cleanupThrottles(bucket(), NOW)).rejects.toThrow();
-		expect(await (await bucket().get(throttleKey('password')))!.text()).toContain('soon');
+		expect(await await objectText(throttleKey('password'))).toContain('soon');
 	});
 });

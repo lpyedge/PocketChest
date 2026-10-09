@@ -43,3 +43,9 @@ React 18.3.1、Vite 6.3.5、`@vitejs/plugin-react` 4.7.x、Tailwind 3.4.x、ESLi
 ## 審計狀態
 
 - TASK-02 後：`npm audit --audit-level=high` exit 0，無 high／critical。
+
+## 新增：WebAuthn（TASK-17／18）
+
+- `@simplewebauthn/server` **14.0.3**（精確鎖定）。發佈於 2026-09-25，符合「至少兩週前發佈」的版本政策。
+- 僅用於 Worker 端的註冊／登入驗證；前端 Browser SDK 於 TASK-23 另行加入。
+- 已驗證可通過 `wrangler deploy --dry-run` 打包。

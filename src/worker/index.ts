@@ -1,6 +1,8 @@
-import { assertSameOrigin, clearedSessionCookie, csrfTokenFor, requireOwner } from './auth/sessions';
+import { assertSameOrigin, clearedSessionCookie, csrfTokenFor, issueOwnerSession, requireOwner } from './auth/sessions';
 import { bootstrapOwner } from './auth/bootstrap';
+import type { AuthenticationResponseJSON, RegistrationResponseJSON } from '@simplewebauthn/server';
 import { authMethods, loginWithPassword, loginWithTotp, reauthWithPassword, reauthWithTotp } from './auth/login';
+import { assertionOptions, loginVerify, registrationOptions, registrationVerify, reauthVerify } from './auth/passkeys';
 import { ApiError } from './errors';
 import { enforceRateLimit } from './ratelimit';
 import {
@@ -172,6 +174,30 @@ async function routeApi(request: Request, env: Env, path: string): Promise<Respo
 
 		if (path === '/api/auth/reauth/password' && method === 'POST') {
 			return await handlePasswordReauth(request, env);
+		}
+
+		if (path === '/api/admin/passkeys/register/options' && method === 'POST') {
+			return await handlePasskeyRegisterOptions(request, env);
+		}
+
+		if (path === '/api/admin/passkeys/register/verify' && method === 'POST') {
+			return await handlePasskeyRegisterVerify(request, env);
+		}
+
+		if (path === '/api/auth/passkey/login/options' && method === 'POST') {
+			return await handlePasskeyLoginOptions(request, env);
+		}
+
+		if (path === '/api/auth/passkey/login/verify' && method === 'POST') {
+			return await handlePasskeyLoginVerify(request, env);
+		}
+
+		if (path === '/api/auth/reauth/passkey/options' && method === 'POST') {
+			return await handlePasskeyReauthOptions(request, env);
+		}
+
+		if (path === '/api/auth/reauth/passkey/verify' && method === 'POST') {
+			return await handlePasskeyReauthVerify(request, env);
 		}
 
 		if (path === '/api/auth/login/totp' && method === 'POST') {
@@ -397,6 +423,70 @@ async function handleTotpReauth(request: Request, env: Env): Promise<Response> {
 	await enforceRateLimit(env.AUTH_LIMITER, request, 'reauth-totp');
 	const code = await readTotpCode(request);
 	await reauthWithTotp(env, session, code, getCurrentTimestamp());
+	return json({ reauthenticated: true }, 200, { 'Cache-Control': 'no-store' });
+}
+
+// --- Passkeys ---
+
+// The body of a verify call: the one-time challenge and the authenticator's response
+async function readPasskeyBody<T>(request: Request): Promise<T & { challenge: string }> {
+	const body = await readJson<{ challenge?: unknown; response?: unknown }>(request);
+	if (typeof body.challenge !== 'string' || typeof body.response !== 'object' || body.response === null) {
+		throw new ApiError(400, 'INVALID_REQUEST', 'A challenge and a response are required');
+	}
+	return body as T & { challenge: string };
+}
+
+// POST /api/admin/passkeys/register/options - Owner, with a recent re-entry, starts registering a passkey
+async function handlePasskeyRegisterOptions(request: Request, env: Env): Promise<Response> {
+	const session = await requireOwner(request, env.R2_STORAGE, env.JWT_SECRET, { mutating: true });
+	await enforceRateLimit(env.AUTH_LIMITER, request, 'passkey-register-options');
+	const options = await registrationOptions(env.R2_STORAGE, request, session, getCurrentTimestamp());
+	return json(options, 200, { 'Cache-Control': 'no-store' });
+}
+
+// POST /api/admin/passkeys/register/verify - Stores the new passkey's public key
+async function handlePasskeyRegisterVerify(request: Request, env: Env): Promise<Response> {
+	const session = await requireOwner(request, env.R2_STORAGE, env.JWT_SECRET, { mutating: true });
+	await enforceRateLimit(env.AUTH_LIMITER, request, 'passkey-register-verify');
+	const body = await readPasskeyBody<{ label?: unknown; response: RegistrationResponseJSON }>(request);
+	const result = await registrationVerify(env.R2_STORAGE, request, session, body, getCurrentTimestamp());
+	return json({ registered: true, credentialId: result.credentialId }, 200, { 'Cache-Control': 'no-store' });
+}
+
+// POST /api/auth/passkey/login/options - Starts a passkey sign-in with a one-time challenge
+async function handlePasskeyLoginOptions(request: Request, env: Env): Promise<Response> {
+	assertSameOrigin(request);
+	await enforceRateLimit(env.AUTH_LIMITER, request, 'passkey-login-options');
+	const options = await assertionOptions(env.R2_STORAGE, request, 'login', null, getCurrentTimestamp());
+	return json(options, 200, { 'Cache-Control': 'no-store' });
+}
+
+// POST /api/auth/passkey/login/verify - Starts an owner session when the passkey assertion is valid
+async function handlePasskeyLoginVerify(request: Request, env: Env): Promise<Response> {
+	assertSameOrigin(request);
+	await enforceRateLimit(env.AUTH_LIMITER, request, 'passkey-login-verify');
+	const body = await readPasskeyBody<{ response: AuthenticationResponseJSON }>(request);
+	const now = getCurrentTimestamp();
+	const owner = await loginVerify(env.R2_STORAGE, request, body, now);
+	const issued = await issueOwnerSession(env.R2_STORAGE, env.JWT_SECRET, owner.authVersion, now);
+	return json({ authenticated: true, csrfToken: issued.csrfToken }, 200, { 'Set-Cookie': issued.cookie });
+}
+
+// POST /api/auth/reauth/passkey/options - Signed-in owner re-confirms with a passkey
+async function handlePasskeyReauthOptions(request: Request, env: Env): Promise<Response> {
+	const session = await requireOwner(request, env.R2_STORAGE, env.JWT_SECRET, { mutating: true });
+	await enforceRateLimit(env.AUTH_LIMITER, request, 'passkey-reauth-options');
+	const options = await assertionOptions(env.R2_STORAGE, request, 'reauth', session, getCurrentTimestamp());
+	return json(options, 200, { 'Cache-Control': 'no-store' });
+}
+
+// POST /api/auth/reauth/passkey/verify - Opens the reauth window after a valid passkey assertion
+async function handlePasskeyReauthVerify(request: Request, env: Env): Promise<Response> {
+	const session = await requireOwner(request, env.R2_STORAGE, env.JWT_SECRET, { mutating: true });
+	await enforceRateLimit(env.AUTH_LIMITER, request, 'passkey-reauth-verify');
+	const body = await readPasskeyBody<{ response: AuthenticationResponseJSON }>(request);
+	await reauthVerify(env.R2_STORAGE, request, session, body, getCurrentTimestamp());
 	return json({ reauthenticated: true }, 200, { 'Cache-Control': 'no-store' });
 }
 

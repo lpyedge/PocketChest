@@ -1,3 +1,4 @@
+import { SessionError } from './session';
 import {
 	Env,
 	CreateChestRequest,
@@ -110,6 +111,12 @@ export default {
 			if (error instanceof ApiError) {
 				return errorResponse(error);
 			}
+			if (error instanceof SessionError) {
+				if (error.code === 'NOT_FOUND')
+					return errorResponse(new ApiError(404, 'SESSION_NOT_FOUND', 'Session not found or already completed'));
+				if (error.code === 'CORRUPT_RECORD') console.error('Corrupt session record');
+				if (error.code !== 'CORRUPT_RECORD') return errorResponse(new ApiError(409, 'CONFLICT', 'Session state changed, try again'));
+			}
 			console.error('Error:', error);
 			return errorResponse(new ApiError(500, 'INTERNAL_ERROR', 'Internal Server Error'));
 		}
@@ -161,7 +168,7 @@ async function authorizeUpload(request: Request, env: Env, sessionId: string): P
 		throw new ApiError(400, 'INVALID_SESSION', 'Invalid session');
 	}
 
-	if (!(await isSessionOpen(env.R2_STORAGE, sessionId, payload.iat))) {
+	if (!(await isSessionOpen(env.R2_STORAGE, sessionId))) {
 		throw new ApiError(404, 'SESSION_NOT_FOUND', 'Session not found or already completed');
 	}
 

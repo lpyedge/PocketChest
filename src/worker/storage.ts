@@ -1,4 +1,5 @@
 import { ChestFile, ChestManifest } from './types';
+import { createSessionRecord, getSessionRecord, sessionKey, SessionError, transitionSession } from './session';
 import { generateRetrievalCode } from './utils';
 
 /**
@@ -43,12 +44,21 @@ function expiryKey(expiresAt: number, code: string): string {
 
 // --- Upload sessions ---
 
+// The session record is authoritative; the pending/ marker only lets the cleanup job find the session
 export async function openSession(bucket: R2Bucket, sessionId: string, createdAt: number): Promise<void> {
+	await createSessionRecord(bucket, { sessionId, createdAt });
 	await bucket.put(pendingKey(createdAt, sessionId), '');
 }
 
-export async function isSessionOpen(bucket: R2Bucket, sessionId: string, createdAt: number): Promise<boolean> {
-	return (await bucket.head(pendingKey(createdAt, sessionId))) !== null;
+export async function isSessionOpen(bucket: R2Bucket, sessionId: string): Promise<boolean> {
+	try {
+		return (await getSessionRecord(bucket, sessionId))?.record.status === 'OPEN';
+	} catch (error) {
+		if (error instanceof SessionError && error.code === 'CORRUPT_RECORD') {
+			return false;
+		}
+		throw error;
+	}
 }
 
 async function closeSession(bucket: R2Bucket, sessionId: string, createdAt: number): Promise<void> {
@@ -111,6 +121,26 @@ export async function getSessionFiles(bucket: R2Bucket, sessionId: string, fileI
  * Returns null if no free code was found.
  */
 export async function createChest(bucket: R2Bucket, manifest: ChestManifest): Promise<string | null> {
+	// Claim the session first: only one request can finalize it
+	await transitionSession(bucket, manifest.sessionId, 'FINALIZING');
+
+	const code = await claimRetrievalCode(bucket, manifest);
+	if (!code) {
+		await transitionSession(bucket, manifest.sessionId, 'OPEN');
+		return null;
+	}
+
+	await transitionSession(bucket, manifest.sessionId, 'COMPLETED', {
+		retrievalCode: code,
+		validityDays: manifest.expiresAt === null ? -1 : null,
+		expiresAt: manifest.expiresAt,
+		fileIds: manifest.files.map((file) => file.fileId),
+	});
+	await closeSession(bucket, manifest.sessionId, manifest.createdAt);
+	return code;
+}
+
+async function claimRetrievalCode(bucket: R2Bucket, manifest: ChestManifest): Promise<string | null> {
 	for (let attempt = 0; attempt < 5; attempt++) {
 		const code = generateRetrievalCode();
 		const stored = await bucket.put(codeKey(code), JSON.stringify(manifest), {
@@ -131,7 +161,6 @@ export async function createChest(bucket: R2Bucket, manifest: ChestManifest): Pr
 			}
 		}
 
-		await closeSession(bucket, manifest.sessionId, manifest.createdAt);
 		return code;
 	}
 	return null;
@@ -204,7 +233,8 @@ export async function cleanupExpired(bucket: R2Bucket, now: number): Promise<Cle
 			const manifest = await readManifest(bucket, code);
 			const sessionKeys = manifest ? await listSessionKeys(bucket, manifest.sessionId) : [];
 			// Index entry last: if anything fails, the next run retries this chest
-			await deleteKeys(bucket, [...sessionKeys, codeKey(code), indexKey]);
+			const recordKeys = manifest ? [sessionKey(manifest.sessionId)] : [];
+			await deleteKeys(bucket, [...sessionKeys, ...recordKeys, codeKey(code), indexKey]);
 			result.deletedObjects += sessionKeys.length;
 			result.expiredChests++;
 		} catch (error) {
@@ -215,8 +245,14 @@ export async function cleanupExpired(bucket: R2Bucket, now: number): Promise<Cle
 	for (const markerKey of await listDueKeys(bucket, 'pending/', now - ABANDONED_SESSION_SECONDS)) {
 		const sessionId = markerKey.split('/')[2];
 		try {
+			const current = await getSessionRecord(bucket, sessionId).catch(() => null);
+			if (current?.record.status !== 'OPEN') {
+				// Completed (or unknown) sessions keep their files; only the stale index entry goes
+				await deleteKeys(bucket, [markerKey]);
+				continue;
+			}
 			const sessionKeys = await listSessionKeys(bucket, sessionId);
-			await deleteKeys(bucket, [...sessionKeys, markerKey]);
+			await deleteKeys(bucket, [...sessionKeys, sessionKey(sessionId), markerKey]);
 			result.deletedObjects += sessionKeys.length;
 			result.abandonedSessions++;
 		} catch (error) {

@@ -4,7 +4,7 @@ import worker from '../src/worker/index';
 import { beginFinalize, createSessionRecord, getSessionRecord } from '../src/worker/session';
 import { cleanupExpired } from '../src/worker/storage';
 import { getCurrentTimestamp } from '../src/worker/utils';
-import { resetStorage, setupTestEnvironment, createTestSession, testFetch } from './utils/test-setup';
+import { resetStorage, setupTestEnvironment, createTestSession, testFetch, postRetrieve, fetchDownload } from './utils/test-setup';
 
 const bucket = () => env.R2_STORAGE;
 const HOUR = 3600;
@@ -74,10 +74,10 @@ describe('cleanup recovery', () => {
 
 		await cleanupExpired(bucket(), getCurrentTimestamp() + 49 * HOUR);
 
-		const retrieve = await testFetch(`http://example.com/api/retrieve/${completion.retrievalCode}`);
+		const retrieve = await postRetrieve(completion.retrievalCode);
 		expect(retrieve.status).toBe(200);
 		const { chestToken } = (await retrieve.json()) as any;
-		const download = await testFetch(`http://example.com/api/download/${fileId}`, { headers: { Authorization: `Bearer ${chestToken}` } });
+		const download = await fetchDownload(chestToken, fileId);
 		expect(await download.text()).toBe('keep me');
 	});
 

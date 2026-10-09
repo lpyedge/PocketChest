@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeAll, beforeEach } from 'vitest';
-import { resetStorage, setupTestEnvironment, testFetch } from './utils/test-setup';
+import { resetStorage, setupTestEnvironment, testFetch, postRetrieve, fetchDownload } from './utils/test-setup';
 
 describe('Integration Tests', () => {
 	beforeAll(async () => {
@@ -58,16 +58,14 @@ describe('Integration Tests', () => {
 		const completeData = (await completeResponse.json()) as any;
 
 		// 4. Retrieve chest contents
-		const retrieveResponse = await testFetch(`http://example.com/api/retrieve/${completeData.retrievalCode}`);
+		const retrieveResponse = await postRetrieve(completeData.retrievalCode);
 		expect(retrieveResponse.status).toBe(200);
 		const retrieveData = (await retrieveResponse.json()) as any;
 		expect(retrieveData.files).toHaveLength(2);
 
 		// 5. Download both files
 		for (const file of retrieveData.files) {
-			const downloadResponse = await testFetch(`http://example.com/api/download/${file.fileId}`, {
-				headers: { Authorization: `Bearer ${retrieveData.chestToken}` },
-			});
+			const downloadResponse = await fetchDownload(retrieveData.chestToken, file.fileId);
 			expect(downloadResponse.status).toBe(200);
 
 			const content = await downloadResponse.text();
@@ -156,12 +154,10 @@ describe('Integration Tests', () => {
 		const completeSessionData = (await completeSessionResponse.json()) as any;
 
 		// 6. Retrieve and download
-		const retrieveResponse = await testFetch(`http://example.com/api/retrieve/${completeSessionData.retrievalCode}`);
+		const retrieveResponse = await postRetrieve(completeSessionData.retrievalCode);
 		const retrieveData = (await retrieveResponse.json()) as any;
 
-		const downloadResponse = await testFetch(`http://example.com/api/download/${retrieveData.files[0].fileId}`, {
-			headers: { Authorization: `Bearer ${retrieveData.chestToken}` },
-		});
+		const downloadResponse = await fetchDownload(retrieveData.chestToken, retrieveData.files[0].fileId);
 		expect(downloadResponse.status).toBe(200);
 
 		const content = await downloadResponse.text();
@@ -183,7 +179,7 @@ describe('Integration Tests', () => {
 		expect(uploadResponse.status).toBe(401); // JWT validation fails first
 
 		// 2. Try to retrieve non-existent chest
-		const retrieveResponse = await testFetch('http://example.com/api/retrieve/FAKE01');
+		const retrieveResponse = await postRetrieve('FAKE01');
 		expect(retrieveResponse.status).toBe(404);
 
 		// 3. Try to download non-existent file

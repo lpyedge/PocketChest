@@ -54,7 +54,7 @@ export default function RetrieveApp() {
 	};
 
 	if (showFiles && retrievalCode) {
-		return <RetrieveClient code={retrievalCode} onBack={handleBack} />;
+		return <RetrieveClient key={retrievalCode} code={retrievalCode} onBack={handleBack} />;
 	}
 
 	return (

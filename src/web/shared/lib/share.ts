@@ -6,15 +6,19 @@ export function normalizeRetrievalCode(value: string): string | null {
 	return RETRIEVAL_CODE_PATTERN.test(code) ? code : null;
 }
 
-// Reads the code from /retrieve/#ABC123, falling back to the legacy /retrieve?code=ABC123
-export function readCodeFromLocation(): string | null {
-	const fromHash = decodeURIComponent(window.location.hash.slice(1));
-	if (fromHash) {
-		return normalizeRetrievalCode(fromHash);
+// Reads the code from a fragment such as "#ABC123". Malformed percent-encoding is treated as no code.
+export function parseCodeFromHash(hash: string): string | null {
+	let decoded: string;
+	try {
+		decoded = decodeURIComponent(hash.replace(/^#/, ''));
+	} catch {
+		return null;
 	}
+	return normalizeRetrievalCode(decoded);
+}
 
-	const fromQuery = new URLSearchParams(window.location.search).get('code');
-	return fromQuery ? normalizeRetrievalCode(fromQuery) : null;
+export function readCodeFromLocation(): string | null {
+	return parseCodeFromHash(window.location.hash);
 }
 
 export function getRetrievePageUrl(): string {

@@ -102,6 +102,15 @@ export interface ChestJWTPayload {
 	exp: number;
 }
 
+export interface DownloadJWTPayload {
+	sessionId: string;
+	code: string;
+	fileId: string;
+	type: 'download';
+	iat: number;
+	exp: number;
+}
+
 export interface MultipartJWTPayload {
 	sessionId: string;
 	fileId: string;

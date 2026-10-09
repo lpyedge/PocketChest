@@ -16,30 +16,33 @@ export function RetrieveClient({ code, onBack }: RetrieveClientProps) {
 	const [files, setFiles] = useState<FileWithContent[]>([]);
 	const [expiryDate, setExpiryDate] = useState<string>('');
 	const [chestToken, setChestToken] = useState<string>('');
-	const [hasRetrieved, setHasRetrieved] = useState(false);
 	const [copiedFileId, setCopiedFileId] = useState<string | null>(null);
 
 	const { retrieve, downloadSingleFile, isRetrieving, error } = usePocketChest();
 
+	// Each code is its own retrieval: switching codes aborts the previous request, and a response
+	// that arrives late is dropped, so it can never replace the content of the current code
 	useEffect(() => {
-		if (code && !hasRetrieved) {
-			handleRetrieve();
-		}
+		const controller = new AbortController();
+		setFiles([]);
+		setExpiryDate('');
+		setChestToken('');
+
+		retrieve(code, controller.signal)
+			.then((result) => {
+				if (controller.signal.aborted) return;
+				setFiles(result.files);
+				setExpiryDate(result.expiryDate);
+				setChestToken(result.chestToken);
+			})
+			.catch((err: unknown) => {
+				if (!controller.signal.aborted) {
+					console.error('Retrieval failed:', err);
+				}
+			});
+
+		return () => controller.abort();
 	}, [code]);
-
-	const handleRetrieve = async () => {
-		if (!code) return;
-
-		try {
-			const result = await retrieve(code);
-			setFiles(result.files);
-			setExpiryDate(result.expiryDate);
-			setChestToken(result.chestToken);
-			setHasRetrieved(true);
-		} catch (error) {
-			console.error('Retrieval failed:', error);
-		}
-	};
 
 	const handleDownload = async (file: FileWithContent) => {
 		try {

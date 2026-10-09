@@ -3,7 +3,7 @@ import { env, createExecutionContext, createScheduledController, waitOnExecution
 import worker from '../src/worker/index';
 import { cleanupExpired, ABANDONED_SESSION_SECONDS } from '../src/worker/storage';
 import { getCurrentTimestamp } from '../src/worker/utils';
-import { setupTestEnvironment, createTestSession, testFetch } from './utils/test-setup';
+import { setupTestEnvironment, createTestSession, testFetch, postRetrieve, fetchDownload } from './utils/test-setup';
 
 const DAY = 24 * 60 * 60;
 
@@ -41,7 +41,7 @@ async function createChest(content: string, validityDays: number) {
 }
 
 async function retrieve(code: string) {
-	return testFetch(`http://example.com/api/retrieve/${code}`);
+	return postRetrieve(code);
 }
 
 describe('R2 storage lifecycle', () => {
@@ -118,15 +118,11 @@ describe('R2 storage lifecycle', () => {
 		const second = await createChest('second', 7);
 		const { chestToken } = (await (await retrieve(first.retrievalCode)).json()) as any;
 
-		const own = await testFetch(`http://example.com/api/download/${first.fileId}`, {
-			headers: { Authorization: `Bearer ${chestToken}` },
-		});
+		const own = await fetchDownload(chestToken, first.fileId);
 		expect(own.status).toBe(200);
 		expect(await own.text()).toBe('first');
 
-		const other = await testFetch(`http://example.com/api/download/${second.fileId}`, {
-			headers: { Authorization: `Bearer ${chestToken}` },
-		});
+		const other = await fetchDownload(chestToken, second.fileId);
 		expect(other.status).toBe(404);
 		await other.text();
 	});

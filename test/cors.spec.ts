@@ -28,7 +28,6 @@ describe('Same-origin API', () => {
 		['POST', 'http://example.com/api/chest'],
 		['GET', 'http://example.com/api/nonexistent'],
 		['GET', 'http://example.com/api/config'],
-		['GET', 'http://example.com/api/retrieve/FAKE01'],
 		['GET', 'http://example.com/api/download/fake-file-id'],
 	])('should not include CORS headers on %s %s', async (method, url) => {
 		const response = await testFetch(url, {

@@ -96,10 +96,10 @@
 
 | # | Method | Path | 權限 | 狀態 | 說明 |
 |---|---|---|---|---|---|
-| 29 | POST | `/api/retrieve` | 公開（Body 含取件碼） | [TODO-TASK-10] | `{"code":"ABC123"}`，回檔案清單與取件憑證。 |
-| 30 | GET | `/api/retrieve/{code}` | 舊 | [已實作，舊] | TASK-10 直接移除。 |
-| 31 | POST | `/api/download/authorize` | `Authorization: Bearer <取件憑證>` | [TODO-TASK-11] | Body `{"fileId"}`；下發 60 秒、限 Path 的 Cookie。 |
-| 32 | GET | `/api/download/{fileId}` | 下載 Cookie | [TODO-TASK-11] | 原生串流；不接受 `?token=`、`?filename=`。 |
+| 29 | POST | `/api/retrieve` | 公開（Body 含取件碼） | [已實作] | `{"code":"ABC123"}`，回檔案清單與取件憑證。 |
+| 30 | GET | `/api/retrieve/{code}` | — | [已移除] | 取件碼不再出現在 URL。 |
+| 31 | POST | `/api/download/authorize` | `Authorization: Bearer <取件憑證>` | [已實作] | Body `{"fileId"}`；下發 60 秒、限 Path 的 Cookie。 |
+| 32 | GET | `/api/download/{fileId}` | 下載 Cookie | [已實作] | 原生串流；不接受 `?token=`、`?filename=`、Bearer。 |
 
 ## 成功與失敗樣本
 
@@ -128,15 +128,6 @@
 
 失敗：`404 {"error":"Session not found or already completed","code":"SESSION_NOT_FOUND"}`
 
-### GET /api/retrieve/{code}（舊，待刪除）
-
-```http
-200 OK
-{"files":[{"fileId":"<uuid>","filename":"a.txt","size":12,"mimeType":"text/plain","isText":true,"fileExtension":"txt"}],"chestToken":"<jwt>","expiryDate":null}
-```
-
-失敗：`404 {"error":"Retrieval code not found or expired","code":"CHEST_NOT_FOUND"}`
-
 ### GET /api/auth/methods（目標，TASK-14）
 
 ```http
@@ -159,7 +150,7 @@ Set-Cookie: __Host-pc_owner=<opaque>; HttpOnly; Secure; SameSite=Strict; Path=/
 
 失敗：`401 {"error":"Invalid credentials","code":"AUTH_INVALID_CREDENTIALS"}`；鎖定：`429 {"error":"Please try again later","code":"AUTH_TEMPORARILY_LOCKED"}` 並附正數 `Retry-After`。
 
-### POST /api/retrieve（目標，TASK-10）
+### POST /api/retrieve（已實作）
 
 ```http
 POST /api/retrieve
@@ -173,7 +164,7 @@ Content-Type: application/json
 
 失敗：`400 {"error":"Invalid retrieval code format","code":"INVALID_CODE"}`；不存在或過期：`404 {"error":"Retrieval code not found or expired","code":"CHEST_NOT_FOUND"}`。
 
-### POST /api/download/authorize（目標，TASK-11）
+### POST /api/download/authorize（已實作）
 
 ```http
 POST /api/download/authorize
@@ -186,7 +177,7 @@ Content-Type: application/json
 Set-Cookie: pc_dl_<fileId>=<短效>; HttpOnly; Secure; SameSite=Strict; Path=/api/download/<fileId>; Max-Age=60
 ```
 
-### GET /api/download/{fileId}（目標，TASK-11）
+### GET /api/download/{fileId}（已實作）
 
 ```http
 200 OK
@@ -198,4 +189,4 @@ Content-Type: application/octet-stream
 ## 驗收對照（AC-00-1、AC-00-2）
 
 - AC-00-1：每條新 API 均有 Method／Path／權限／錯誤碼與樣本（上表與本節）。
-- AC-00-2：新協定沒有 `?code=`、`?token=`、`/api/chest`、`/api/retrieve/{code}` 的相容要求；上表所有 `舊` 標記項在 TASK-28 前必須刪除，不新增別名。
+- AC-00-2：新協定沒有 `?code=`、`?token=`、`/api/retrieve/{code}` 的相容要求，這三者已移除。上表仍標記 `舊` 的項目（`/api/chest`、`/api/config`）依賴 TOTP 舊認證，待 G3 的新登入體系完成後於 TASK-28 刪除，不新增別名。

@@ -42,18 +42,18 @@ export function usePocketChest() {
 	);
 
 	const retrieve = useCallback(
-		async (retrievalCode: string) => {
+		async (retrievalCode: string, signal?: AbortSignal) => {
 			setIsRetrieving(true);
 			setError(null);
 
 			try {
-				const { files, chestToken, expiryDate } = await api.retrieveChest(retrievalCode);
+				const { files, chestToken, expiryDate } = await api.retrieveChest(retrievalCode, signal);
 
 				// Only pre-load text content (small), not binary files (large)
 				const filesWithText = await Promise.all(
 					files.map(async (file) => {
 						if (file.isText) {
-							const content = await api.downloadTextContent(file.fileId, chestToken);
+							const content = await api.downloadTextContent(file.fileId, chestToken, signal);
 							return { ...file, content };
 						} else {
 							// Don't pre-download binary files - just return metadata
@@ -68,6 +68,10 @@ export function usePocketChest() {
 					chestToken,
 				};
 			} catch (err) {
+				// A retrieval replaced by another code is not an error for the user
+				if (err instanceof DOMException && err.name === 'AbortError') {
+					throw err;
+				}
 				const message = err instanceof Error ? err.message : 'Retrieval failed';
 				setError(message);
 				throw new Error(message, { cause: err });

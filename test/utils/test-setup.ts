@@ -57,3 +57,27 @@ export async function createTestSession() {
 		uploadToken: createData.uploadToken,
 	};
 }
+
+// Retrieval uses POST with the code in the JSON body, so it never appears in a URL
+export async function postRetrieve(code: unknown, init: { rawBody?: string } = {}): Promise<Response> {
+	return testFetch('http://example.com/api/retrieve', {
+		method: 'POST',
+		headers: { 'Content-Type': 'application/json' },
+		body: init.rawBody ?? JSON.stringify({ code }),
+	});
+}
+
+// Downloads one file the way the browser does: authorize with the retrieval token, then GET with the file's cookie
+export async function fetchDownload(chestToken: string, fileId: string): Promise<Response> {
+	const authorized = await testFetch('http://example.com/api/download/authorize', {
+		method: 'POST',
+		headers: { Authorization: `Bearer ${chestToken}`, 'Content-Type': 'application/json' },
+		body: JSON.stringify({ fileId }),
+	});
+	if (authorized.status !== 200) {
+		return authorized;
+	}
+	const cookie = (authorized.headers.get('Set-Cookie') ?? '').split(';')[0];
+	await authorized.text();
+	return testFetch(`http://example.com/api/download/${fileId}`, { headers: { Cookie: cookie } });
+}

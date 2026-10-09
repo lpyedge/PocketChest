@@ -1,6 +1,6 @@
 // Test helper functions for common operations
 import { expect } from 'vitest';
-import { testFetch } from './test-setup';
+import { testFetch, postRetrieve } from './test-setup';
 
 export class TestWorkflow {
 	/**
@@ -42,7 +42,7 @@ export class TestWorkflow {
 		const { retrievalCode } = (await completeResponse.json()) as any;
 
 		// 4. Get retrieval info
-		const retrieveResponse = await testFetch(`http://example.com/api/retrieve/${retrievalCode}`);
+		const retrieveResponse = await postRetrieve(retrievalCode);
 		const retrieveData = (await retrieveResponse.json()) as any;
 
 		return {

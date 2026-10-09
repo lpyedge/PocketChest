@@ -1,4 +1,4 @@
-import { UploadJWTPayload, ChestJWTPayload, MultipartJWTPayload } from './types';
+import { UploadJWTPayload, ChestJWTPayload, MultipartJWTPayload, DownloadJWTPayload } from './types';
 
 // TOTP utility functions
 function base32Encode(buffer: Uint8Array): string {
@@ -221,6 +221,32 @@ async function verifyJWT(token: string, secret: string): Promise<any> {
 	return payload;
 }
 
+// Download cookies: one per file, valid for a minute, and bound to a single file of a single chest
+export const DOWNLOAD_COOKIE_SECONDS = 60;
+
+export async function createDownloadJWT(
+	claims: { sessionId: string; code: string; fileId: string },
+	secret: string,
+	lifetimeSeconds: number = DOWNLOAD_COOKIE_SECONDS,
+	now: number = Math.floor(Date.now() / 1000),
+): Promise<string> {
+	const payload: DownloadJWTPayload = {
+		...claims,
+		type: 'download',
+		iat: now,
+		exp: now + lifetimeSeconds,
+	};
+	return signJWT(payload, secret);
+}
+
+export async function verifyDownloadJWT(token: string, secret: string): Promise<DownloadJWTPayload> {
+	const payload = await verifyJWT(token, secret);
+	if (payload.type !== 'download' || typeof payload.fileId !== 'string') {
+		throw new Error('Invalid token type');
+	}
+	return payload as DownloadJWTPayload;
+}
+
 export async function createUploadJWT(sessionId: string, secret: string, now: number = getCurrentTimestamp()): Promise<string> {
 	const payload: UploadJWTPayload = {
 		sessionId,
@@ -232,6 +258,9 @@ export async function createUploadJWT(sessionId: string, secret: string, now: nu
 	return signJWT(payload, secret);
 }
 
+// Retrieval tokens are short-lived; the page asks again when one runs out
+export const RETRIEVAL_TOKEN_SECONDS = 60 * 60;
+
 export async function createChestJWT(sessionId: string, code: string, expiryTimestamp: number | null, secret: string): Promise<string> {
 	const now = Math.floor(Date.now() / 1000);
 	const payload: ChestJWTPayload = {
@@ -239,7 +268,8 @@ export async function createChestJWT(sessionId: string, code: string, expiryTime
 		code,
 		type: 'chest',
 		iat: now,
-		exp: expiryTimestamp || now + 365 * 24 * 60 * 60, // Use session expiry or 1 year for permanent
+		// Never longer than the chest itself, and never longer than RETRIEVAL_TOKEN_SECONDS
+		exp: Math.min(expiryTimestamp ?? Infinity, now + RETRIEVAL_TOKEN_SECONDS),
 	};
 
 	return signJWT(payload, secret);

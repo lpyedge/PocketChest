@@ -361,12 +361,21 @@ export class PocketChestAPI {
 		return response.json();
 	}
 
-	async retrieveChest(retrievalCode: string): Promise<RetrieveResponse> {
-		const response = await fetch(`${this.baseUrl}/api/retrieve/${retrievalCode}`);
+	// The code goes in the request body, so it never appears in a URL, a log line or a Referer
+	async retrieveChest(retrievalCode: string, signal?: AbortSignal): Promise<RetrieveResponse> {
+		const response = await fetch(`${this.baseUrl}/api/retrieve`, {
+			method: 'POST',
+			headers: { 'Content-Type': 'application/json' },
+			body: JSON.stringify({ code: retrievalCode }),
+			signal,
+		});
 
 		if (!response.ok) {
 			if (response.status === 404) {
 				throw new Error('Retrieval code not found or expired');
+			}
+			if (response.status === 400) {
+				throw new Error('Invalid retrieval code');
 			}
 			throw new Error('Failed to retrieve chest');
 		}
@@ -374,56 +383,44 @@ export class PocketChestAPI {
 		return response.json();
 	}
 
-	async downloadFile(fileId: string, chestToken: string): Promise<Blob> {
-		const response = await fetch(`${this.baseUrl}/api/download/${fileId}`, {
+	// Step 1 of a download: exchange the retrieval token for a download Cookie valid for this file only
+	async authorizeDownload(fileId: string, chestToken: string): Promise<void> {
+		const response = await fetch(`${this.baseUrl}/api/download/authorize`, {
+			method: 'POST',
 			headers: {
 				Authorization: `Bearer ${chestToken}`,
+				'Content-Type': 'application/json',
 			},
+			body: JSON.stringify({ fileId }),
 		});
 
 		if (!response.ok) {
-			throw new Error('Failed to download file');
+			throw new Error('Download is not authorized');
 		}
-
-		return response.blob();
+		await response.text();
 	}
 
-	async downloadTextContent(fileId: string, chestToken: string): Promise<string> {
-		const response = await fetch(`${this.baseUrl}/api/download/${fileId}`, {
-			headers: {
-				Authorization: `Bearer ${chestToken}`,
-			},
-		});
+	// Small text items are read through the same two steps as a download
+	async downloadTextContent(fileId: string, chestToken: string, signal?: AbortSignal): Promise<string> {
+		await this.authorizeDownload(fileId, chestToken);
+		const response = await fetch(`${this.baseUrl}/api/download/${fileId}`, { signal });
 
 		if (!response.ok) {
 			throw new Error('Failed to download text');
 		}
-
 		return response.text();
 	}
 
-	triggerDownload(blob: Blob, filename: string) {
-		const url = window.URL.createObjectURL(blob);
-		const a = document.createElement('a');
-		a.href = url;
-		a.download = filename;
-		document.body.appendChild(a);
-		a.click();
-		window.URL.revokeObjectURL(url);
-		document.body.removeChild(a);
-	}
-
+	// Binary files are never read into memory: after authorizing, the browser streams the file itself
 	async downloadFileDirectly(fileId: string, chestToken: string, filename: string): Promise<void> {
-		// Create direct download link that bypasses JavaScript memory entirely
-		const downloadUrl = `${this.baseUrl}/api/download/${fileId}?token=${encodeURIComponent(chestToken)}&filename=${encodeURIComponent(filename)}`;
+		await this.authorizeDownload(fileId, chestToken);
 
-		// Use direct link approach - browser handles download natively
-		const a = document.createElement('a');
-		a.href = downloadUrl;
-		a.download = filename;
-		document.body.appendChild(a);
-		a.click();
-		document.body.removeChild(a);
+		const link = document.createElement('a');
+		link.href = `${this.baseUrl}/api/download/${fileId}`;
+		link.download = filename;
+		document.body.appendChild(link);
+		link.click();
+		document.body.removeChild(link);
 	}
 
 	// Multipart upload methods

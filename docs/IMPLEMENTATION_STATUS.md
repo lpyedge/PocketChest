@@ -14,8 +14,8 @@
 | TASK-07 | Multipart 狀態、Abort | PASS | 見 Git log |
 | TASK-08 | Cron 清理與故障自修復 | PASS | 見 Git log |
 | TASK-09 | 上傳配額與前端真取消 | PASS | 見 Git log |
-| TASK-10 | POST 查碼 | TODO | |
-| TASK-11 | 下載授權 Cookie 與串流 | TODO | |
+| TASK-10 | POST 查碼 | PASS | 見 Git log |
+| TASK-11 | 下載授權 Cookie 與串流 | PASS | 見 Git log |
 | TASK-12 | Owner 原子資料與首次初始化 | TODO | |
 | TASK-13 | Owner Cookie Session、CSRF | TODO | |
 | TASK-14 | Password 獨立登入 | TODO | |
@@ -66,7 +66,7 @@
 - `src/worker/`：`index.ts`（路由與 handler）、`storage.ts`（R2 key 與清理）、`types.ts`、`utils.ts`（JWT、TOTP、取件碼）。
 - `src/web/`：`index.html`（首頁）、`upload/`、`retrieve/`、`shared/{components,hooks,lib}`。
 - `test/`：14 個 spec 檔與 `utils/`。
-- `scripts/`：`generate-secrets.js`、`migrate-d1-to-r2.mjs`（TASK-28 刪除）、`test-ci.sh`。
+- `scripts/`：`generate-secrets.js`、`test-ci.sh`。
 
 ### 依賴版本（基準）
 

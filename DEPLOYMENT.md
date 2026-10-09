@@ -158,23 +158,6 @@ This builds the frontend into `dist/` and deploys the Worker together with the s
 
 PocketChest will be available at `https://pocket-chest.your-subdomain.workers.dev` (or your custom domain if configured).
 
-### Upgrading from the D1 + Pages version
-
-Earlier versions used a Cloudflare Pages frontend, a `pocket-chest-backend` Worker and a D1 database. To upgrade:
-
-1. Keep the same R2 bucket (`bucket_name` in `wrangler.jsonc`); files stay where they are.
-2. Set the secrets on the new Worker (`npx wrangler secret put JWT_SECRET`, and `TOTP_SECRETS` if used) — it is named `pocket-chest`, so it is a new Worker.
-3. Deploy with `npm run deploy`.
-4. Copy the chest index from D1 into R2 (use the `database_id` from your old `wrangler.jsonc`):
-
-   ```bash
-   node scripts/migrate-d1-to-r2.mjs --database-id <your-database-id> --remote --dry-run   # preview
-   node scripts/migrate-d1-to-r2.mjs --database-id <your-database-id> --remote
-   ```
-
-   Existing retrieval codes keep working. Download links opened before the migration need the code entered again.
-5. Move your custom domain to the new Worker, then delete the old Worker, the Pages project and (once you are happy) the D1 database.
-
 ## Post-Deployment Configuration
 
 ### 1. Test Deployment

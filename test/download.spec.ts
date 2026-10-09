@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeAll, beforeEach } from 'vitest';
-import { resetStorage, setupTestEnvironment, createTestSession, testFetch } from './utils/test-setup';
+import { resetStorage, setupTestEnvironment, createTestSession, testFetch, postRetrieve, fetchDownload } from './utils/test-setup';
 
 describe('GET /api/download/:fileId - Download File', () => {
 	let chestToken: string;
@@ -13,139 +13,108 @@ describe('GET /api/download/:fileId - Download File', () => {
 	beforeEach(async () => {
 		await setupTestEnvironment();
 
-		// Create and complete a chest for download tests
 		const session = await createTestSession();
-		const sessionId = session.sessionId;
 		const uploadToken = session.uploadToken;
 
-		// Upload files
 		const formData = new FormData();
 		formData.append('files', new File(['download test content'], 'download-test.txt', { type: 'text/plain' }));
-		const textItem = JSON.stringify({
-			content: 'Text download content',
-			filename: 'text-download.txt',
-		});
-		formData.append('textItems', textItem);
+		formData.append('textItems', JSON.stringify({ content: 'Text download content', filename: 'text-download.txt' }));
 
-		const uploadResponse = await testFetch(`http://example.com/api/chest/${sessionId}/upload`, {
-			method: 'POST',
-			headers: { Authorization: `Bearer ${uploadToken}` },
-			body: formData,
-		});
-		const uploadData = (await uploadResponse.json()) as any;
+		const uploadData = (await (
+			await testFetch(`http://example.com/api/chest/${session.sessionId}/upload`, {
+				method: 'POST',
+				headers: { Authorization: `Bearer ${uploadToken}` },
+				body: formData,
+			})
+		).json()) as any;
 		const fileIds = uploadData.uploadedFiles.map((f: any) => f.fileId);
 		fileId = uploadData.uploadedFiles.find((f: any) => !f.isText).fileId;
 		textFileId = uploadData.uploadedFiles.find((f: any) => f.isText).fileId;
 
-		// Complete upload
-		const completeResponse = await testFetch(`http://example.com/api/chest/${sessionId}/complete`, {
-			method: 'POST',
-			headers: {
-				Authorization: `Bearer ${uploadToken}`,
-				'Content-Type': 'application/json',
-			},
-			body: JSON.stringify({
-				fileIds,
-				validityDays: 7,
-			}),
-		});
-		const completeData = (await completeResponse.json()) as any;
+		const completeData = (await (
+			await testFetch(`http://example.com/api/chest/${session.sessionId}/complete`, {
+				method: 'POST',
+				headers: { Authorization: `Bearer ${uploadToken}`, 'Content-Type': 'application/json' },
+				body: JSON.stringify({ fileIds, validityDays: 7 }),
+			})
+		).json()) as any;
 
-		// Get chest token
-		const retrieveResponse = await testFetch(`http://example.com/api/retrieve/${completeData.retrievalCode}`, {
-			method: 'GET',
-		});
-		const retrieveData = (await retrieveResponse.json()) as any;
-		chestToken = retrieveData.chestToken;
+		chestToken = ((await (await postRetrieve(completeData.retrievalCode)).json()) as any).chestToken;
 	});
 
-	it('should download file with correct content and headers', async () => {
-		const response = await testFetch(`http://example.com/api/download/${fileId}`, {
-			method: 'GET',
-			headers: {
-				Authorization: `Bearer ${chestToken}`,
-			},
-		});
+	it('downloads the file with its content and headers, through an authorized download', async () => {
+		const response = await fetchDownload(chestToken, fileId);
 
 		expect(response.status).toBe(200);
 		expect(response.headers.get('Content-Type')).toBe('text/plain');
 		expect(response.headers.get('Content-Disposition')).toContain('filename="download-test.txt"');
-
-		const content = await response.text();
-		expect(content).toBe('download test content');
-	});
-
-	it('should sanitize the filename override in Content-Disposition', async () => {
-		const filename = '報告 "final"\r\nX-Injected: 1.txt';
-		const response = await testFetch(
-			`http://example.com/api/download/${fileId}?token=${encodeURIComponent(chestToken)}&filename=${encodeURIComponent(filename)}`,
-		);
-
-		expect(response.status).toBe(200);
 		expect(await response.text()).toBe('download test content');
-		expect(response.headers.get('X-Injected')).toBeNull();
-		const disposition = response.headers.get('Content-Disposition')!;
-		expect(disposition).toBe(
-			`attachment; filename="__ _final___X-Injected: 1.txt"; filename*=UTF-8''${encodeURIComponent('報告 _final___X-Injected: 1.txt')}`,
-		);
 	});
 
-	it('should download text files correctly', async () => {
-		const response = await testFetch(`http://example.com/api/download/${textFileId}`, {
-			method: 'GET',
-			headers: {
-				Authorization: `Bearer ${chestToken}`,
-			},
-		});
+	it('downloads text items correctly', async () => {
+		const response = await fetchDownload(chestToken, textFileId);
 
 		expect(response.status).toBe(200);
-		const content = await response.text();
-		expect(content).toBe('Text download content');
+		expect(await response.text()).toBe('Text download content');
 	});
 
-	it('should support token in query parameter', async () => {
-		const response = await testFetch(`http://example.com/api/download/${fileId}?token=${chestToken}`, {
-			method: 'GET',
+	it('ignores a filename supplied in the query string', async () => {
+		const response = await fetchDownload(chestToken, fileId);
+		const again = await testFetch(`http://example.com/api/download/${fileId}?filename=other.exe`, {
+			headers: { Cookie: (response.headers.get('Set-Cookie') ?? '').split(';')[0] },
 		});
+		await response.text();
 
-		expect(response.status).toBe(200);
-		const content = await response.text();
-		expect(content).toBe('download test content');
+		expect(again.status).toBe(401);
+		await again.text();
 	});
 
-	// Note: Custom filename test removed due to R2 storage cleanup issues in test environment
-	// The functionality is tested in the main download tests
-
-	it('should reject downloads without authorization', async () => {
-		const response = await testFetch(`http://example.com/api/download/${fileId}`, {
-			method: 'GET',
-		});
+	it('refuses the retired ?token= query form', async () => {
+		const response = await testFetch(`http://example.com/api/download/${fileId}?token=${chestToken}`);
 
 		expect(response.status).toBe(401);
+		expect(((await response.json()) as any).code).toBe('AUTH_REQUIRED');
 	});
 
-	it('should reject downloads with invalid token', async () => {
-		const response = await testFetch(`http://example.com/api/download/${fileId}`, {
-			method: 'GET',
-			headers: {
-				Authorization: 'Bearer invalid-token',
-			},
-		});
+	it('refuses a download without any authorization', async () => {
+		const response = await testFetch(`http://example.com/api/download/${fileId}`);
 
 		expect(response.status).toBe(401);
+		await response.text();
 	});
 
-	it('should reject downloads of non-existent files', async () => {
-		const response = await testFetch('http://example.com/api/download/00000000-0000-4000-8000-000000000000', {
-			method: 'GET',
-			headers: {
-				Authorization: `Bearer ${chestToken}`,
-			},
-		});
+	it('returns 404 for a file id that is not in the chest', async () => {
+		const response = await fetchDownload(chestToken, '00000000-0000-4000-8000-000000000000');
 
 		expect(response.status).toBe(404);
+		await response.text();
 	});
 
-	// Note: CORS and Content-Length header tests removed due to R2 storage cleanup issues
-	// These headers are tested in other test suites that don't have the same storage complexity
+	it('quotes unusual characters in the name sent back in Content-Disposition', async () => {
+		const session = await createTestSession();
+		const formData = new FormData();
+		formData.append('files', new File(['x'], 'bad "name" 報告.txt', { type: 'text/plain' }));
+		const uploaded = (await (
+			await testFetch(`http://example.com/api/chest/${session.sessionId}/upload`, {
+				method: 'POST',
+				headers: { Authorization: `Bearer ${session.uploadToken}` },
+				body: formData,
+			})
+		).json()) as any;
+		const completed = (await (
+			await testFetch(`http://example.com/api/chest/${session.sessionId}/complete`, {
+				method: 'POST',
+				headers: { Authorization: `Bearer ${session.uploadToken}`, 'Content-Type': 'application/json' },
+				body: JSON.stringify({ fileIds: [uploaded.uploadedFiles[0].fileId], validityDays: 7 }),
+			})
+		).json()) as any;
+		const token = ((await (await postRetrieve(completed.retrievalCode)).json()) as any).chestToken;
+
+		const response = await fetchDownload(token, uploaded.uploadedFiles[0].fileId);
+
+		expect(response.status).toBe(200);
+		expect(response.headers.get('Content-Disposition')).not.toMatch(/[\r\n]/);
+		expect(response.headers.get('Content-Disposition')).toContain("filename*=UTF-8''");
+		await response.text();
+	});
 });

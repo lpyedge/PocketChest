@@ -36,6 +36,9 @@ import {
 	createChestJWT,
 	verifyUploadJWT,
 	verifyChestJWT,
+	createDownloadJWT,
+	verifyDownloadJWT,
+	DOWNLOAD_COOKIE_SECONDS,
 	createMultipartJWT,
 	verifyMultipartJWT,
 	isValidUUID,
@@ -74,10 +77,10 @@ class ApiError extends Error {
 // A write lease lasts this long; a write that outlives it can no longer register its file
 const UPLOAD_LEASE_SECONDS = 15 * 60;
 
-function json(data: unknown, status = 200): Response {
+function json(data: unknown, status = 200, extraHeaders: Record<string, string> = {}): Response {
 	return new Response(JSON.stringify(data), {
 		status,
-		headers: { 'Content-Type': 'application/json' },
+		headers: { 'Content-Type': 'application/json', ...extraHeaders },
 	});
 }
 
@@ -159,8 +162,12 @@ export default {
 				return await handleCompleteUpload(request, env, segments[3]);
 			}
 
-			if (path.match(/^\/api\/retrieve\/[^\/]+$/) && method === 'GET') {
-				return await handleRetrieveChest(env, segments[3]);
+			if (path === '/api/retrieve' && method === 'POST') {
+				return await handleRetrieveChest(request, env);
+			}
+
+			if (path === '/api/download/authorize' && method === 'POST') {
+				return await handleAuthorizeDownload(request, env);
 			}
 
 			if (path.match(/^\/api\/download\/[^\/]+$/) && method === 'GET') {
@@ -544,61 +551,122 @@ function completionResponse(retrievalCode: string, expiresAt: number | null): Re
 	return json(response);
 }
 
-// GET /api/retrieve/:retrievalCode - Get chest contents
-async function handleRetrieveChest(env: Env, retrievalCode: string): Promise<Response> {
-	if (!isValidRetrievalCode(retrievalCode)) {
+// POST /api/retrieve - Look up a chest. The code travels in the JSON body, never in the URL.
+async function handleRetrieveChest(request: Request, env: Env): Promise<Response> {
+	const body = await readJson<{ code?: unknown }>(request);
+	if (typeof body.code !== 'string') {
+		throw new ApiError(400, 'INVALID_REQUEST', 'Retrieval code is required');
+	}
+	if (!isValidRetrievalCode(body.code)) {
 		throw new ApiError(400, 'INVALID_CODE', 'Invalid retrieval code format');
 	}
 
-	const manifest = await getChest(env.R2_STORAGE, retrievalCode, getCurrentTimestamp());
+	const manifest = await getChest(env.R2_STORAGE, body.code, getCurrentTimestamp());
 	if (!manifest) {
 		throw new ApiError(404, 'CHEST_NOT_FOUND', 'Retrieval code not found or expired');
 	}
 
 	const response: RetrieveChestResponse = {
 		files: manifest.files,
-		chestToken: await createChestJWT(manifest.sessionId, retrievalCode, manifest.expiresAt, env.JWT_SECRET),
+		chestToken: await createChestJWT(manifest.sessionId, body.code, manifest.expiresAt, env.JWT_SECRET),
 		expiryDate: manifest.expiresAt ? new Date(manifest.expiresAt * 1000).toISOString() : null,
 	};
-	return json(response);
+	return json(response, 200, { 'Cache-Control': 'no-store' });
 }
 
-// GET /api/download/:fileId - Download file
-async function handleDownloadFile(request: Request, env: Env, fileId: string): Promise<Response> {
-	// Token from header, or from the query string for direct browser downloads
-	const url = new URL(request.url);
-	const tokenFromQuery = url.searchParams.get('token');
-	const token = request.headers.has('Authorization') || !tokenFromQuery ? bearerToken(request) : tokenFromQuery;
+const DOWNLOAD_COOKIE_PREFIX = 'pc_dl_';
 
-	let payload;
+function downloadCookieName(fileId: string): string {
+	return `${DOWNLOAD_COOKIE_PREFIX}${fileId}`;
+}
+
+// Reads one cookie by name from a Cookie header
+function cookieValue(header: string | null, name: string): string | null {
+	for (const part of (header ?? '').split(';')) {
+		const [key, ...rest] = part.trim().split('=');
+		if (key === name) {
+			return rest.join('=');
+		}
+	}
+	return null;
+}
+
+// POST /api/download/authorize - Trade the retrieval token for a download Cookie for one file
+async function handleAuthorizeDownload(request: Request, env: Env): Promise<Response> {
+	let chest;
 	try {
-		payload = await verifyChestJWT(token, env.JWT_SECRET);
-	} catch {
+		chest = await verifyChestJWT(bearerToken(request), env.JWT_SECRET);
+	} catch (error) {
+		if (error instanceof ApiError) throw error;
 		throw new ApiError(401, 'AUTH_INVALID', 'Invalid token');
 	}
 
-	if (!isValidUUID(fileId)) {
+	const { fileId } = await readJson<{ fileId?: unknown }>(request);
+	if (typeof fileId !== 'string' || !isValidUUID(fileId)) {
 		throw new ApiError(400, 'INVALID_REQUEST', 'Invalid file ID format');
 	}
 
-	// The manifest decides which files belong to the chest and whether it is still valid
-	const manifest = await getChest(env.R2_STORAGE, payload.code, getCurrentTimestamp());
-	const file = manifest?.sessionId === payload.sessionId ? manifest.files.find((f) => f.fileId === fileId) : undefined;
-	if (!file) {
-		throw new ApiError(404, 'FILE_NOT_FOUND', 'File not found or session expired');
+	const manifest = await getChest(env.R2_STORAGE, chest.code, getCurrentTimestamp());
+	if (!manifest || manifest.sessionId !== chest.sessionId) {
+		throw new ApiError(404, 'CHEST_NOT_FOUND', 'Retrieval code not found or expired');
+	}
+	if (!manifest.files.some((file) => file.fileId === fileId)) {
+		throw new ApiError(404, 'FILE_NOT_FOUND', 'File not found in this chest');
 	}
 
-	const r2Object = await env.R2_STORAGE.get(fileKey(payload.sessionId, fileId));
+	const token = await createDownloadJWT({ sessionId: chest.sessionId, code: chest.code, fileId }, env.JWT_SECRET);
+	// Path-scoped to this file, so the browser sends it only to this file's download URL
+	const cookie = [
+		`${downloadCookieName(fileId)}=${token}`,
+		'HttpOnly',
+		'Secure',
+		'SameSite=Strict',
+		`Path=/api/download/${fileId}`,
+		`Max-Age=${DOWNLOAD_COOKIE_SECONDS}`,
+	].join('; ');
+
+	return json({ authorized: true, fileId }, 200, { 'Cache-Control': 'no-store', 'Set-Cookie': cookie });
+}
+
+// GET /api/download/:fileId - Stream one file. Authorized only by the download Cookie for that file.
+async function handleDownloadFile(request: Request, env: Env, fileId: string): Promise<Response> {
+	const token = cookieValue(request.headers.get('Cookie'), downloadCookieName(fileId));
+	if (!token) {
+		throw new ApiError(401, 'AUTH_REQUIRED', 'Download authorization required');
+	}
+
+	let claims;
+	try {
+		claims = await verifyDownloadJWT(token, env.JWT_SECRET);
+	} catch {
+		throw new ApiError(401, 'AUTH_INVALID', 'Download authorization expired');
+	}
+	if (claims.fileId !== fileId || !isValidUUID(fileId)) {
+		throw new ApiError(401, 'AUTH_INVALID', 'Download authorization does not match this file');
+	}
+
+	// The cookie says who may download; the chest decides whether it still may (expiry, revocation)
+	const manifest = await getChest(env.R2_STORAGE, claims.code, getCurrentTimestamp());
+	const file = manifest?.sessionId === claims.sessionId ? manifest.files.find((candidate) => candidate.fileId === fileId) : undefined;
+	if (!file) {
+		throw new ApiError(404, 'FILE_NOT_FOUND', 'File not found or chest expired');
+	}
+
+	const r2Object = await env.R2_STORAGE.get(fileKey(claims.sessionId, fileId));
 	if (!r2Object) {
 		throw new ApiError(404, 'FILE_NOT_FOUND', 'File not found in storage');
 	}
 
+	// The name comes from the chest manifest, never from the request
 	return new Response(r2Object.body, {
 		status: 200,
 		headers: {
 			'Content-Type': file.mimeType,
-			'Content-Disposition': contentDisposition(url.searchParams.get('filename') || file.filename),
+			'Content-Disposition': contentDisposition(file.filename),
 			'Content-Length': String(r2Object.size),
+			'Cache-Control': 'no-store',
+			'X-Content-Type-Options': 'nosniff',
+			'Referrer-Policy': 'no-referrer',
 		},
 	});
 }

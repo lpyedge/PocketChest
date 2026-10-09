@@ -24,8 +24,8 @@ for (const { path, heading } of pages) {
 
 test('home page links to both applications', async ({ page }) => {
 	await page.goto('/');
-	await expect(page.getByRole('link', { name: /Share Files/ })).toHaveAttribute('href', '/upload/');
-	await expect(page.getByRole('link', { name: /Retrieve Files/ })).toHaveAttribute('href', '/retrieve/');
+	await expect(page.getByRole('link', { name: /分享檔案/ })).toHaveAttribute('href', '/upload/');
+	await expect(page.getByRole('link', { name: /取回檔案/ })).toHaveAttribute('href', '/retrieve/');
 });
 
 test('home page ships no application script', async ({ request }) => {

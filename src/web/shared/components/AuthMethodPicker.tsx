@@ -1,36 +1,34 @@
 import { useState } from 'react';
 import { startAuthentication } from '@simplewebauthn/browser';
 import { authApi, AuthMethodsStatus, AuthRequestError } from '@/lib/auth-api';
+import { codeKeyFor } from '@/lib/errors';
+import { MessageKey, useI18n } from '@/i18n/I18nProvider';
 
 interface AuthMethodPickerProps {
 	status: AuthMethodsStatus;
 	onSignedIn: (csrfToken: string) => void;
 }
 
-// Explains a failed attempt in words. Lockouts show how long to wait, so the page never looks stuck.
-export function describeAuthError(error: unknown): string {
+// Explains a failed attempt in the current language. Lockouts show how long to wait, so the page never looks stuck.
+// Server text is never shown: the code is looked up in the local table, and anything unknown gets a generic line.
+export function describeAuthError(error: unknown, t: (key: MessageKey, params?: Record<string, string | number>) => string): string {
 	if (error instanceof AuthRequestError) {
 		if (error.status === 429 && error.retryAfter !== null) {
-			return `Too many attempts. Try again in ${error.retryAfter} seconds.`;
+			return t('auth.locked', { seconds: error.retryAfter });
 		}
 		if (error.status === 429) {
-			return 'Too many attempts. Please wait a moment and try again.';
+			return t('auth.lockedNoTime');
 		}
-		if (error.code === 'AUTH_METHOD_DISABLED') {
-			return 'That sign-in method is switched off.';
-		}
-		if (error.code === 'AUTH_INVALID_CREDENTIALS') {
-			return 'That did not match. Check it and try again.';
-		}
-		return error.message;
+		return t(codeKeyFor(error.code) ?? 'auth.failed');
 	}
 	if (error instanceof DOMException && error.name === 'NotAllowedError') {
-		return 'The passkey prompt was cancelled or timed out.';
+		return t('auth.passkeyCancelled');
 	}
-	return 'Sign-in failed. Please try again.';
+	return t('auth.failed');
 }
 
 export function AuthMethodPicker({ status, onSignedIn }: AuthMethodPickerProps) {
+	const { t } = useI18n();
 	const [password, setPassword] = useState('');
 	const [code, setCode] = useState('');
 	const [busy, setBusy] = useState(false);
@@ -42,7 +40,7 @@ export function AuthMethodPicker({ status, onSignedIn }: AuthMethodPickerProps) 
 		try {
 			onSignedIn(await action());
 		} catch (caught) {
-			setError(describeAuthError(caught));
+			setError(describeAuthError(caught, t));
 		} finally {
 			setBusy(false);
 		}
@@ -63,9 +61,9 @@ export function AuthMethodPicker({ status, onSignedIn }: AuthMethodPickerProps) 
 					});
 				}}
 			>
-				<p className="text-gray-600">First-time setup: enter the deployment administrator password to create the owner account.</p>
+				<p className="text-gray-600">{t('auth.setupTitle')}</p>
 				<label className="block text-sm font-medium text-gray-700">
-					Administrator password
+					{t('auth.adminPassword')}
 					<input
 						type="password"
 						autoComplete="new-password"
@@ -81,7 +79,7 @@ export function AuthMethodPicker({ status, onSignedIn }: AuthMethodPickerProps) 
 					disabled={busy}
 					className="w-full py-3 bg-blue-500 text-white rounded-lg hover:bg-blue-600 font-semibold disabled:opacity-50"
 				>
-					Set up and sign in
+					{t('auth.setupSubmit')}
 				</button>
 			</form>
 		);
@@ -90,7 +88,7 @@ export function AuthMethodPicker({ status, onSignedIn }: AuthMethodPickerProps) 
 	const { password: passwordOn, totp: totpOn, passkey: passkeyOn } = status.methods;
 	if (!passwordOn.enabled && !totpOn.enabled && !passkeyOn.enabled) {
 		// Fail closed: with no usable method the page never falls back to open uploads
-		return <p className="text-gray-700">No sign-in method is available on this page. Please contact the deployment administrator.</p>;
+		return <p className="text-gray-700">{t('auth.noMethod')}</p>;
 	}
 
 	return (
@@ -106,7 +104,7 @@ export function AuthMethodPicker({ status, onSignedIn }: AuthMethodPickerProps) 
 					}}
 				>
 					<label className="block text-sm font-medium text-gray-700">
-						Password
+						{t('auth.password')}
 						<input
 							type="password"
 							autoComplete="current-password"
@@ -121,7 +119,7 @@ export function AuthMethodPicker({ status, onSignedIn }: AuthMethodPickerProps) 
 						disabled={busy}
 						className="w-full py-3 bg-blue-500 text-white rounded-lg hover:bg-blue-600 font-semibold disabled:opacity-50"
 					>
-						Sign in with password
+						{t('auth.passwordSubmit')}
 					</button>
 				</form>
 			)}
@@ -137,7 +135,7 @@ export function AuthMethodPicker({ status, onSignedIn }: AuthMethodPickerProps) 
 					}}
 				>
 					<label className="block text-sm font-medium text-gray-700">
-						Authenticator code
+						{t('auth.code')}
 						<input
 							inputMode="numeric"
 							autoComplete="one-time-code"
@@ -153,7 +151,7 @@ export function AuthMethodPicker({ status, onSignedIn }: AuthMethodPickerProps) 
 						disabled={busy}
 						className="w-full py-3 bg-blue-500 text-white rounded-lg hover:bg-blue-600 font-semibold disabled:opacity-50"
 					>
-						Sign in with authenticator
+						{t('auth.codeSubmit')}
 					</button>
 				</form>
 			)}
@@ -171,7 +169,7 @@ export function AuthMethodPicker({ status, onSignedIn }: AuthMethodPickerProps) 
 					}
 					className="w-full py-3 bg-gray-800 text-white rounded-lg hover:bg-gray-900 font-semibold disabled:opacity-50"
 				>
-					Sign in with passkey
+					{t('auth.passkeySubmit')}
 				</button>
 			)}
 

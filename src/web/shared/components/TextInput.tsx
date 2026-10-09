@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import { TextItem } from '@/lib/types';
+import { useI18n } from '@/i18n/I18nProvider';
 
 interface TextInputProps {
 	onTextItemsChange: (items: TextItem[]) => void;
@@ -7,13 +8,14 @@ interface TextInputProps {
 }
 
 export function TextInput({ onTextItemsChange, textItems }: TextInputProps) {
+	const { t } = useI18n();
 	const [currentText, setCurrentText] = useState('');
 	const [currentFilename, setCurrentFilename] = useState('');
 
 	const addTextItem = () => {
 		if (!currentText.trim()) return;
 
-		const defaultName = `Text ${textItems.length + 1}`;
+		const defaultName = t('text.defaultName', { n: textItems.length + 1 });
 		const displayName = currentFilename.trim() || defaultName;
 		const newItem: TextItem = {
 			content: currentText,
@@ -41,24 +43,24 @@ export function TextInput({ onTextItemsChange, textItems }: TextInputProps) {
 			<div className="border border-gray-300 rounded-lg p-4">
 				<div className="space-y-3">
 					<div>
-						<label className="block text-sm font-medium text-gray-700 mb-1">Text Content</label>
+						<label className="block text-sm font-medium text-gray-700 mb-1">{t('text.content')}</label>
 						<textarea
 							value={currentText}
 							onChange={(e) => setCurrentText(e.target.value)}
 							onKeyDown={handleKeyDown}
-							placeholder="Enter text content, code snippets, notes... (Ctrl/Cmd + Enter to add)"
+							placeholder={t('text.placeholder')}
 							className="w-full h-48 p-4 border-2 border-gray-300 rounded-lg resize-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 font-mono text-sm"
 						/>
 					</div>
 
 					<div className="flex gap-2">
 						<div className="flex-1">
-							<label className="block text-sm font-medium text-gray-700 mb-1">Label (optional)</label>
+							<label className="block text-sm font-medium text-gray-700 mb-1">{t('text.label')}</label>
 							<input
 								type="text"
 								value={currentFilename}
 								onChange={(e) => setCurrentFilename(e.target.value)}
-								placeholder={`Text ${textItems.length + 1}`}
+								placeholder={t('text.defaultName', { n: textItems.length + 1 })}
 								className="w-full p-2 border border-gray-300 rounded focus:ring-2 focus:ring-blue-500 focus:border-transparent"
 							/>
 						</div>
@@ -68,7 +70,7 @@ export function TextInput({ onTextItemsChange, textItems }: TextInputProps) {
 								disabled={!currentText.trim()}
 								className="px-4 py-2 bg-blue-500 text-white rounded hover:bg-blue-600 disabled:bg-gray-300 disabled:cursor-not-allowed"
 							>
-								Add Text
+								{t('text.add')}
 							</button>
 						</div>
 					</div>
@@ -77,10 +79,12 @@ export function TextInput({ onTextItemsChange, textItems }: TextInputProps) {
 
 			{textItems.length > 0 && (
 				<div className="space-y-2">
-					<h3 className="font-medium">Text Items ({textItems.length})</h3>
+					<h3 className="font-medium">{t('text.items', { count: textItems.length })}</h3>
 					{textItems.map((item, index) => {
 						// Remove .txt extension for display
-						const displayName = item.filename?.endsWith('.txt') ? item.filename.slice(0, -4) : item.filename || `Text ${index + 1}`;
+						const displayName = item.filename?.endsWith('.txt')
+							? item.filename.slice(0, -4)
+							: item.filename || t('text.defaultName', { n: index + 1 });
 						return (
 							<div key={index} className="p-3 bg-gray-50 rounded">
 								<div className="flex items-start justify-between">
@@ -90,9 +94,13 @@ export function TextInput({ onTextItemsChange, textItems }: TextInputProps) {
 											{item.content.slice(0, 100)}
 											{item.content.length > 100 ? '...' : ''}
 										</p>
-										<p className="text-xs text-gray-400 mt-1">{item.content.length} characters</p>
+										<p className="text-xs text-gray-400 mt-1">{t('text.characters', { count: item.content.length })}</p>
 									</div>
-									<button onClick={() => removeTextItem(index)} className="ml-2 text-red-500 hover:text-red-700">
+									<button
+										onClick={() => removeTextItem(index)}
+										aria-label={t('common.remove')}
+										className="ml-2 text-red-500 hover:text-red-700"
+									>
 										✕
 									</button>
 								</div>

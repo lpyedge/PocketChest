@@ -1,4 +1,5 @@
 import { useState, useRef, DragEvent } from 'react';
+import { useI18n } from '@/i18n/I18nProvider';
 
 interface FileUploadProps {
 	onFilesChange: (files: File[]) => void;
@@ -6,6 +7,7 @@ interface FileUploadProps {
 }
 
 export function FileUpload({ onFilesChange, files }: FileUploadProps) {
+	const { t, locale } = useI18n();
 	const [isDragOver, setIsDragOver] = useState(false);
 	const fileInputRef = useRef<HTMLInputElement>(null);
 
@@ -46,11 +48,12 @@ export function FileUpload({ onFilesChange, files }: FileUploadProps) {
 	};
 
 	const formatFileSize = (bytes: number): string => {
-		if (bytes === 0) return '0 Bytes';
+		if (bytes === 0) return t('size.zero');
 		const k = 1024;
 		const sizes = ['Bytes', 'KB', 'MB', 'GB'];
 		const i = Math.floor(Math.log(bytes) / Math.log(k));
-		return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i];
+		// Number formatting follows the interface language
+		return new Intl.NumberFormat(locale, { maximumFractionDigits: 2 }).format(bytes / Math.pow(k, i)) + ' ' + sizes[i];
 	};
 
 	return (
@@ -69,8 +72,8 @@ export function FileUpload({ onFilesChange, files }: FileUploadProps) {
 				<div className="space-y-2">
 					<div className="text-4xl">📁</div>
 					<div>
-						<p className="text-lg font-medium">Drop files here or click to browse</p>
-						<p className="text-sm text-gray-500">Select multiple files to share</p>
+						<p className="text-lg font-medium">{t('files.dropHere')}</p>
+						<p className="text-sm text-gray-500">{t('files.selectMultiple')}</p>
 					</div>
 				</div>
 
@@ -79,7 +82,7 @@ export function FileUpload({ onFilesChange, files }: FileUploadProps) {
 
 			{files.length > 0 && (
 				<div className="mt-4 space-y-2">
-					<h3 className="font-medium">Selected Files ({files.length})</h3>
+					<h3 className="font-medium">{t('files.selected', { count: files.length })}</h3>
 					{files.map((file, index) => (
 						<div key={index} className="flex items-center justify-between p-3 bg-gray-50 rounded">
 							<div className="flex-1 min-w-0">
@@ -91,6 +94,7 @@ export function FileUpload({ onFilesChange, files }: FileUploadProps) {
 									e.stopPropagation();
 									removeFile(index);
 								}}
+								aria-label={t('files.remove', { name: file.name })}
 								className="ml-2 text-red-500 hover:text-red-700"
 							>
 								✕

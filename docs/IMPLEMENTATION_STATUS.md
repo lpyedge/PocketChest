@@ -29,9 +29,9 @@
 | TASK-22 | 離線密碼恢復 CLI | PASS | 見 Git log（scripts/recovery-core.mjs、reset-owner-password.mjs、docs/RECOVERY.md、recovery-cli.spec.ts 6 項） |
 | TASK-23 | Upload 登入頁：三種已啟用方式動態顯示 | PASS | 見 Git log（AuthMethodPicker.tsx、auth-api.ts、auth-login.spec.ts 8 項含真實密碼登入） |
 | TASK-24 | Security Settings Modal | PASS | 見 Git log（SecuritySettingsModal.tsx、security-settings.spec.ts，含 Chromium 虛擬 Passkey 完整流程） |
-| TASK-25 | i18n 核心 | TODO | |
-| TASK-26 | 三語完整翻譯 | TODO | |
-| TASK-27 | 無 JS 三語首頁 | TODO | |
+| TASK-25 | i18n Core、分語言 Dynamic Import 與語言偏好 | PASS | 見 Git log（i18n/index.ts、I18nProvider.tsx、i18n-keys.spec.ts 8 項；build 產生三個語言 chunk） |
+| TASK-26 | Upload／Retrieve／登入／Settings 的三語完整翻譯 | PASS | 見 Git log（199 個鍵；i18n-flow.spec.ts 三語完整流程、複製訊息、375px 溢出）；限流三語訊息僅英文路徑有 E2E 覆蓋 |
+| TASK-27 | 無 JS 三語靜態首頁與靜態路由 | PASS | 見 Git log（/、/ja/、/en/ 純 HTML；static-home.spec.ts 4 項 JS 關閉） |
 | TASK-28 | 刪除舊協定 | TODO | |
 | TASK-29 | 測試完善與 CI Gate | TODO | |
 | TASK-30 | 新部署文檔 | TODO | |

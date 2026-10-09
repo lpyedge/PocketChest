@@ -9,9 +9,13 @@ import { PocketChestAPI } from '@/lib/api';
 import { authApi, AuthMethodsStatus } from '@/lib/auth-api';
 import { AuthMethodPicker } from '@/components/AuthMethodPicker';
 import { SecuritySettingsModal } from '@/components/SecuritySettingsModal';
+import { LanguageSwitcher } from '@/components/LanguageSwitcher';
+import { useI18n } from '@/i18n/I18nProvider';
+import { ClientError, messageKeyFor } from '@/lib/errors';
 import { TextItem, ValidityDays } from '@/lib/types';
 
 export default function UploadApp() {
+	const { t } = useI18n();
 	const [files, setFiles] = useState<File[]>([]);
 	const [textItems, setTextItems] = useState<TextItem[]>([]);
 	const [validityDays, setValidityDays] = useState<ValidityDays>(7);
@@ -25,6 +29,10 @@ export default function UploadApp() {
 	const [signOutError, setSignOutError] = useState<string | null>(null);
 	const [showSecurity, setShowSecurity] = useState(false);
 	const [startError, setStartError] = useState<string | null>(null);
+
+	useEffect(() => {
+		document.title = t('upload.docTitle');
+	}, [t]);
 
 	const { uploadWithSession, retryUpload, cancelUpload, isUploading, uploadProgress, uploadStatus, fileProgress, error, clearError } =
 		usePocketChest();
@@ -58,14 +66,14 @@ export default function UploadApp() {
 			setUploadResult(null);
 			await loadAuth();
 		} catch {
-			setSignOutError('Sign-out failed. Please try again.');
+			setSignOutError(t('upload.signOutFailed'));
 		}
 	};
 
 	// Every upload runs in its own session: a session is closed by completing it, cancelling it or a failed attempt
 	const startSession = async (): Promise<{ sessionId: string; uploadToken: string }> => {
 		if (!csrfToken) {
-			throw new Error('Sign in as the owner to upload');
+			throw new ClientError('error.signInRequired');
 		}
 		const session = await api.createUploadSession(csrfToken);
 		const started = { sessionId: session.sessionId, uploadToken: session.uploadToken };
@@ -75,7 +83,7 @@ export default function UploadApp() {
 
 	const runUpload = async (retry: boolean) => {
 		if (files.length === 0 && textItems.length === 0) {
-			alert('Please add files or text to share');
+			alert(t('error.noItems'));
 			return;
 		}
 
@@ -98,7 +106,7 @@ export default function UploadApp() {
 		try {
 			session = await startSession();
 		} catch (error) {
-			setStartError(error instanceof Error ? error.message : 'Could not start the upload');
+			setStartError(t(messageKeyFor(error)));
 			return;
 		}
 
@@ -129,7 +137,7 @@ export default function UploadApp() {
 	if (!authChecked) {
 		return (
 			<main className="min-h-screen bg-gray-50 py-8">
-				<div className="max-w-2xl mx-auto px-4 text-center text-gray-600">Checking sign-in...</div>
+				<div className="max-w-2xl mx-auto px-4 text-center text-gray-600">{t('upload.checking')}</div>
 			</main>
 		);
 	}
@@ -143,8 +151,11 @@ export default function UploadApp() {
 						<a href="/" className="text-blue-600 hover:text-blue-800 text-sm">
 							← Back to Home
 						</a>
-						<h1 className="text-4xl font-bold text-gray-900 mt-4 mb-2">📤 Share Files & Text</h1>
-						<p className="text-lg text-gray-600">Sign in to upload</p>
+						<h1 className="text-4xl font-bold text-gray-900 mt-4 mb-2">{t('upload.pageTitle')}</h1>
+						<p className="text-lg text-gray-600">{t('upload.signInSubtitle')}</p>
+						<div className="flex justify-center mt-2">
+							<LanguageSwitcher />
+						</div>
 					</div>
 					<div className="bg-white rounded-lg shadow-md p-8">
 						{methods ? (
@@ -156,7 +167,7 @@ export default function UploadApp() {
 								}}
 							/>
 						) : (
-							<p className="text-gray-700">Could not reach sign-in. Reload the page to try again.</p>
+							<p className="text-gray-700">{t('upload.reachFailed')}</p>
 						)}
 					</div>
 				</div>
@@ -172,14 +183,14 @@ export default function UploadApp() {
 						<a href="/" className="text-blue-600 hover:text-blue-800 text-sm">
 							← Back to Home
 						</a>
-						<h1 className="text-4xl font-bold text-gray-900 mt-4 mb-2">Upload Successful!</h1>
+						<h1 className="text-4xl font-bold text-gray-900 mt-4 mb-2">{t('upload.resultTitle')}</h1>
 					</div>
 
 					<div className="bg-white rounded-lg shadow-md p-8">
 						<div className="text-center">
 							<div className="text-8xl mb-6">✅</div>
-							<h2 className="text-3xl font-bold text-green-700 mb-4">Files Shared Successfully</h2>
-							<p className="text-gray-600 mb-8 text-lg">Your files are uploaded and ready to share!</p>
+							<h2 className="text-3xl font-bold text-green-700 mb-4">{t('upload.resultHeading')}</h2>
+							<p className="text-gray-600 mb-8 text-lg">{t('upload.resultBody')}</p>
 
 							<ShareResult code={uploadResult} />
 
@@ -191,7 +202,7 @@ export default function UploadApp() {
 									}}
 									className="w-full py-3 bg-blue-500 text-white rounded-lg hover:bg-blue-600 font-semibold"
 								>
-									Share More Files
+									{t('upload.shareMore')}
 								</button>
 								<a href="/" className="block w-full py-3 bg-gray-500 text-white rounded-lg hover:bg-gray-600 font-semibold text-center">
 									Back to Home
@@ -211,14 +222,17 @@ export default function UploadApp() {
 					<a href="/" className="text-blue-600 hover:text-blue-800 text-sm">
 						← Back to Home
 					</a>
-					<h1 className="text-4xl font-bold text-gray-900 mt-4 mb-2">📤 Share Files & Text</h1>
-					<p className="text-xl text-gray-600">Upload files or text to get a shareable code</p>
+					<h1 className="text-4xl font-bold text-gray-900 mt-4 mb-2">{t('upload.pageTitle')}</h1>
+					<p className="text-xl text-gray-600">{t('upload.subtitle')}</p>
+					<div className="flex justify-center mt-2">
+						<LanguageSwitcher />
+					</div>
 					<div className="flex justify-center gap-4 mt-4 text-sm">
 						<button type="button" onClick={() => setShowSecurity(true)} className="text-blue-600 hover:text-blue-800 underline">
-							Security settings
+							{t('upload.security')}
 						</button>
 						<button type="button" onClick={signOut} className="text-gray-700 hover:text-gray-900 underline">
-							Sign out
+							{t('upload.signOut')}
 						</button>
 					</div>
 					{signOutError && <p className="text-red-700 text-sm mt-2">{signOutError}</p>}
@@ -263,13 +277,13 @@ export default function UploadApp() {
 					<div className="space-y-8">
 						{/* Text Section */}
 						<div>
-							<h2 className="text-2xl font-bold text-gray-900 mb-4">📝 Text Content</h2>
+							<h2 className="text-2xl font-bold text-gray-900 mb-4">{t('upload.textSection')}</h2>
 							<TextInput textItems={textItems} onTextItemsChange={setTextItems} />
 						</div>
 
 						{/* Files Section */}
 						<div>
-							<h2 className="text-2xl font-bold text-gray-900 mb-4">📁 Files</h2>
+							<h2 className="text-2xl font-bold text-gray-900 mb-4">{t('upload.filesSection')}</h2>
 							<FileUpload files={files} onFilesChange={setFiles} />
 						</div>
 
@@ -283,10 +297,10 @@ export default function UploadApp() {
 							{isUploading ? (
 								<span className="flex items-center justify-center gap-2">
 									<div className="animate-spin text-xl">⏳</div>
-									Uploading...
+									{t('upload.uploadingShort')}
 								</span>
 							) : (
-								'Upload & Generate Code'
+								t('upload.submit')
 							)}
 						</button>
 					</div>

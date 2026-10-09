@@ -1,22 +1,24 @@
 import { ValidityDays } from '@/lib/types';
+import { MessageKey, useI18n } from '@/i18n/I18nProvider';
 
 interface ExpirySelectorProps {
 	value: ValidityDays;
 	onChange: (days: ValidityDays) => void;
 }
 
-const expiryOptions = [
-	{ value: 1 as ValidityDays, label: '1 Day', description: 'Expires tomorrow' },
-	{ value: 3 as ValidityDays, label: '3 Days', description: 'Expires in 3 days' },
-	{ value: 7 as ValidityDays, label: '1 Week', description: 'Expires in 1 week' },
-	{ value: 15 as ValidityDays, label: '2 Weeks', description: 'Expires in 2 weeks' },
-	{ value: -1 as ValidityDays, label: 'Permanent', description: 'Never expires' },
+const expiryOptions: { value: ValidityDays; label: MessageKey; description: MessageKey }[] = [
+	{ value: 1, label: 'expiry.1d', description: 'expiry.1d.desc' },
+	{ value: 3, label: 'expiry.3d', description: 'expiry.3d.desc' },
+	{ value: 7, label: 'expiry.1w', description: 'expiry.1w.desc' },
+	{ value: 15, label: 'expiry.2w', description: 'expiry.2w.desc' },
+	{ value: -1, label: 'expiry.permanent', description: 'expiry.permanent.desc' },
 ];
 
 export function ExpirySelector({ value, onChange }: ExpirySelectorProps) {
+	const { t } = useI18n();
 	return (
 		<div className="space-y-2">
-			<label className="block text-sm font-medium text-gray-700">Expiry Time</label>
+			<label className="block text-sm font-medium text-gray-700">{t('expiry.label')}</label>
 			<div className="grid grid-cols-1 sm:grid-cols-5 gap-2">
 				{expiryOptions.map((option) => (
 					<button
@@ -31,8 +33,8 @@ export function ExpirySelector({ value, onChange }: ExpirySelectorProps) {
 							}
             `}
 					>
-						<div className="font-medium text-sm">{option.label}</div>
-						<div className="text-xs text-gray-500 mt-1">{option.description}</div>
+						<div className="font-medium text-sm">{t(option.label)}</div>
+						<div className="text-xs text-gray-500 mt-1">{t(option.description)}</div>
 					</button>
 				))}
 			</div>

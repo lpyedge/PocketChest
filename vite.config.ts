@@ -29,6 +29,8 @@ export default defineConfig({
 				home: resolve(webRoot, 'index.html'),
 				upload: resolve(webRoot, 'upload/index.html'),
 				retrieve: resolve(webRoot, 'retrieve/index.html'),
+				ja: resolve(webRoot, 'ja/index.html'),
+				en: resolve(webRoot, 'en/index.html'),
 			},
 		},
 	},

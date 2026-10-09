@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import { getRetrievePageUrl, getShareLink } from '@/lib/share';
+import { useI18n } from '@/i18n/I18nProvider';
 
 interface ShareResultProps {
 	code: string;
@@ -8,11 +9,14 @@ interface ShareResultProps {
 type CopyTarget = 'link' | 'page' | 'code' | 'message';
 
 export function ShareResult({ code }: ShareResultProps) {
+	const { t } = useI18n();
 	const [copied, setCopied] = useState<CopyTarget | null>(null);
+	const [message, setMessage] = useState<string | null>(null);
 
 	const shareLink = getShareLink(code);
 	const retrievePageUrl = getRetrievePageUrl();
-	const shareMessage = `Open ${retrievePageUrl} and enter retrieval code ${code}`;
+	// The message is written in the current language around the direct link, which always has the /retrieve/#CODE form
+	const shareMessage = t('share.message', { url: shareLink });
 
 	const copy = async (target: CopyTarget, text: string) => {
 		try {
@@ -21,6 +25,7 @@ export function ShareResult({ code }: ShareResultProps) {
 			setTimeout(() => setCopied(null), 2000);
 		} catch (error) {
 			console.error('Copy failed:', error);
+			setMessage(t('share.copyFailed'));
 		}
 	};
 
@@ -34,7 +39,7 @@ export function ShareResult({ code }: ShareResultProps) {
 		}
 	};
 
-	const copyButton = (target: CopyTarget, text: string, label = 'Copy') => (
+	const copyButton = (target: CopyTarget, text: string, label = t('share.copy')) => (
 		<button
 			onClick={() => copy(target, text)}
 			className={`shrink-0 px-3 py-2 rounded-lg border-2 text-sm font-medium transition-colors ${
@@ -43,14 +48,19 @@ export function ShareResult({ code }: ShareResultProps) {
 					: 'text-blue-600 hover:bg-blue-50 border-blue-200 hover:border-blue-300'
 			}`}
 		>
-			{copied === target ? '✓ Copied' : label}
+			{copied === target ? t('share.copied') : label}
 		</button>
 	);
 
 	return (
 		<div className="space-y-4 mb-8 text-left">
+			{message && (
+				<p role="status" className="text-sm text-red-700">
+					{message}
+				</p>
+			)}
 			<div className="bg-gray-50 rounded-lg p-5">
-				<p className="text-sm text-gray-600 mb-2 font-medium">🔗 Direct link — opens the files right away</p>
+				<p className="text-sm text-gray-600 mb-2 font-medium">{t('share.directLink')}</p>
 				<div className="flex items-center gap-2">
 					<code className="flex-1 min-w-0 truncate font-mono text-blue-600 bg-white px-3 py-2 rounded-lg border-2 border-blue-200">
 						{shareLink}
@@ -62,13 +72,13 @@ export function ShareResult({ code }: ShareResultProps) {
 						onClick={nativeShare}
 						className="mt-3 w-full py-2 rounded-lg border-2 border-blue-200 text-blue-600 hover:bg-blue-50 font-medium"
 					>
-						Share…
+						{t('share.share')}
 					</button>
 				)}
 			</div>
 
 			<div className="bg-gray-50 rounded-lg p-5">
-				<p className="text-sm text-gray-600 mb-2 font-medium">🔑 Page address + retrieval code — send them separately</p>
+				<p className="text-sm text-gray-600 mb-2 font-medium">{t('share.pageAndCode')}</p>
 				<div className="flex items-center gap-2 mb-2">
 					<code className="flex-1 min-w-0 truncate font-mono text-gray-700 bg-white px-3 py-2 rounded-lg border-2 border-gray-200">
 						{retrievePageUrl}
@@ -81,7 +91,7 @@ export function ShareResult({ code }: ShareResultProps) {
 					</code>
 					{copyButton('code', code)}
 				</div>
-				{copyButton('message', shareMessage, 'Copy as message')}
+				{copyButton('message', shareMessage, t('share.copyAsMessage'))}
 			</div>
 		</div>
 	);

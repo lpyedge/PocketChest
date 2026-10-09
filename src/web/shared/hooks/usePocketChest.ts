@@ -1,8 +1,11 @@
 import { useState, useCallback } from 'react';
 import { PocketChestAPI } from '@/lib/api';
 import { TextItem, ValidityDays, FileUploadProgress } from '@/lib/types';
+import { messageKeyFor } from '@/lib/errors';
+import { useI18n } from '@/i18n/I18nProvider';
 
 export function usePocketChest() {
+	const { t } = useI18n();
 	const [isUploading, setIsUploading] = useState(false);
 	const [isRetrieving, setIsRetrieving] = useState(false);
 	const [error, setError] = useState<string | null>(null);
@@ -44,9 +47,9 @@ export function usePocketChest() {
 				if (err instanceof DOMException && err.name === 'AbortError') {
 					throw err;
 				}
-				const message = err instanceof Error ? err.message : 'Retrieval failed';
-				setError(message);
-				throw new Error(message, { cause: err });
+				// Shown in the current language; the original error is passed on so its code stays available
+				setError(t(messageKeyFor(err)));
+				throw err;
 			} finally {
 				setIsRetrieving(false);
 			}
@@ -59,9 +62,9 @@ export function usePocketChest() {
 			try {
 				await api.downloadFileDirectly(fileId, chestToken, filename);
 			} catch (err) {
-				const message = err instanceof Error ? err.message : 'Download failed';
-				setError(message);
-				throw new Error(message, { cause: err });
+				// Shown in the current language; the original error is passed on so its code stays available
+				setError(t(messageKeyFor(err)));
+				throw err;
 			}
 		},
 		[api],
@@ -118,10 +121,9 @@ export function usePocketChest() {
 					setUploadStatus('cancelled');
 					throw err;
 				}
-				const message = err instanceof Error ? err.message : 'Upload failed';
-				setError(message);
+				setError(t(messageKeyFor(err)));
 				setUploadStatus('error');
-				throw new Error(message, { cause: err });
+				throw err;
 			} finally {
 				setIsUploading(false);
 			}

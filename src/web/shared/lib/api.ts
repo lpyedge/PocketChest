@@ -1,3 +1,4 @@
+import { ClientError, failureFrom } from './errors';
 import { runWithConcurrency } from './concurrency';
 import {
 	CreateChestResponse,
@@ -47,8 +48,7 @@ export class PocketChestAPI {
 		});
 
 		if (!response.ok) {
-			const error = (await response.json().catch(() => ({}))) as { error?: string };
-			throw new Error(error.error || 'Failed to start upload');
+			throw await failureFrom(response, 'error.startUpload');
 		}
 
 		return response.json();
@@ -127,7 +127,7 @@ export class PocketChestAPI {
 
 			const result = await this.uploadContentRegular(sessionId, uploadToken, [], textItems, undefined, signal);
 			if (result.uploadedFiles.length !== textItems.length) {
-				throw new Error('Unexpected response while uploading text items');
+				throw new ClientError('error.uploadUnexpected');
 			}
 
 			textItems.forEach((_, index) => {
@@ -172,7 +172,7 @@ export class PocketChestAPI {
 				signal,
 			);
 			if (result.uploadedFiles.length !== 1) {
-				throw new Error(`Unexpected response while uploading ${file.name}`);
+				throw new ClientError('error.uploadUnexpected');
 			}
 
 			fileIds[index] = result.uploadedFiles[0].fileId;
@@ -225,7 +225,7 @@ export class PocketChestAPI {
 			...textItems.map((_, index) => ({ fileId: textIds[index], filename: textNames[index], isText: true })),
 		];
 		if (uploadedFiles.some((uploaded) => !uploaded.fileId)) {
-			throw new Error('Upload incomplete: some files were not stored');
+			throw new ClientError('error.uploadIncomplete');
 		}
 
 		return { uploadedFiles };
@@ -277,15 +277,15 @@ export class PocketChestAPI {
 							const result = JSON.parse(xhr.responseText);
 							resolve(result);
 						} catch (error) {
-							reject(new Error('Failed to parse response'));
+							reject(new ClientError('error.parse'));
 						}
 					} else {
-						reject(new Error(`Upload failed with status ${xhr.status}`));
+						reject(new ClientError('error.uploadFailed'));
 					}
 				});
 
 				xhr.addEventListener('error', () => {
-					reject(new Error('Network error during upload'));
+					reject(new ClientError('error.network'));
 				});
 
 				bindXhrAbort(xhr, signal, reject);
@@ -306,7 +306,7 @@ export class PocketChestAPI {
 		});
 
 		if (!response.ok) {
-			throw new Error('Failed to upload files');
+			throw await failureFrom(response, 'error.uploadFiles');
 		}
 
 		return response.json();
@@ -322,7 +322,7 @@ export class PocketChestAPI {
 		});
 
 		if (!response.ok) {
-			throw new Error('Failed to cancel upload');
+			throw await failureFrom(response, 'error.cancel');
 		}
 	}
 
@@ -345,7 +345,7 @@ export class PocketChestAPI {
 		});
 
 		if (!response.ok) {
-			throw new Error('Failed to complete upload');
+			throw await failureFrom(response, 'error.complete');
 		}
 
 		return response.json();
@@ -362,12 +362,12 @@ export class PocketChestAPI {
 
 		if (!response.ok) {
 			if (response.status === 404) {
-				throw new Error('Retrieval code not found or expired');
+				throw new ClientError('error.codeNotFound');
 			}
 			if (response.status === 400) {
-				throw new Error('Invalid retrieval code');
+				throw new ClientError('error.codeInvalid');
 			}
-			throw new Error('Failed to retrieve chest');
+			throw await failureFrom(response, 'error.retrieve');
 		}
 
 		return response.json();
@@ -385,7 +385,7 @@ export class PocketChestAPI {
 		});
 
 		if (!response.ok) {
-			throw new Error('Download is not authorized');
+			throw await failureFrom(response, 'error.downloadUnauthorized');
 		}
 		await response.text();
 	}
@@ -396,7 +396,7 @@ export class PocketChestAPI {
 		const response = await fetch(`${this.baseUrl}/api/download/${fileId}`, { signal });
 
 		if (!response.ok) {
-			throw new Error('Failed to download text');
+			throw await failureFrom(response, 'error.downloadText');
 		}
 		return response.text();
 	}
@@ -435,7 +435,7 @@ export class PocketChestAPI {
 		});
 
 		if (!response.ok) {
-			throw new Error('Failed to create multipart upload');
+			throw await failureFrom(response, 'error.multipartCreate');
 		}
 
 		return response.json();
@@ -467,15 +467,15 @@ export class PocketChestAPI {
 							const result = JSON.parse(xhr.responseText);
 							resolve(result);
 						} catch (error) {
-							reject(new Error('Failed to parse response'));
+							reject(new ClientError('error.parse'));
 						}
 					} else {
-						reject(new Error(`Failed to upload part ${partNumber} with status ${xhr.status}`));
+						reject(new ClientError('error.part'));
 					}
 				});
 
 				xhr.addEventListener('error', () => {
-					reject(new Error(`Network error during part ${partNumber} upload`));
+					reject(new ClientError('error.network'));
 				});
 
 				bindXhrAbort(xhr, signal, reject);
@@ -498,7 +498,7 @@ export class PocketChestAPI {
 		});
 
 		if (!response.ok) {
-			throw new Error(`Failed to upload part ${partNumber}`);
+			throw await failureFrom(response, 'error.part');
 		}
 
 		return response.json();
@@ -520,7 +520,7 @@ export class PocketChestAPI {
 		});
 
 		if (!response.ok) {
-			throw new Error('Failed to complete multipart upload');
+			throw await failureFrom(response, 'error.multipartComplete');
 		}
 
 		return response.json();

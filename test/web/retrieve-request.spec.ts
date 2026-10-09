@@ -26,7 +26,7 @@ describe('retrieving a chest', () => {
 	it('maps a 404 to a readable error', async () => {
 		vi.spyOn(globalThis, 'fetch').mockResolvedValue(new Response(JSON.stringify({ code: 'CHEST_NOT_FOUND' }), { status: 404 }));
 
-		await expect(new PocketChestAPI('').retrieveChest('ABC123')).rejects.toThrow('Retrieval code not found or expired');
+		await expect(new PocketChestAPI('').retrieveChest('ABC123')).rejects.toMatchObject({ key: 'error.codeNotFound' });
 	});
 });
 

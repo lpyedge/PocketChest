@@ -15,6 +15,7 @@ import {
 	transitionSession,
 } from './session';
 import { describeFailure, generateRetrievalCode } from './utils';
+import { ApiError } from './errors';
 
 /**
  * All state lives in R2; there is no database. Key layout:
@@ -245,19 +246,56 @@ async function readManifest(bucket: R2Bucket, code: string): Promise<ChestManife
 	return object ? ((await object.json()) as ChestManifest) : null;
 }
 
-// Returns the chest for a code, or null if it does not exist or has expired
+/**
+ * Returns the chest for a code, or null if it does not exist, has expired, or cannot be trusted.
+ *
+ * The session record is the authority: the manifest is only a copy that retrieval reads quickly. A chest is
+ * served only when both agree on the expiry; if they do not, it is refused (and reported by session id, never
+ * by code) until the cleanup job repairs them. A storage fault is not "not found": it is thrown as 503 so the
+ * caller can retry, and a corrupt record fails closed.
+ */
 export async function getChest(bucket: R2Bucket, code: string, now: number): Promise<ChestManifest | null> {
-	const manifest = await readManifest(bucket, code);
-	if (!manifest || (manifest.expiresAt !== null && manifest.expiresAt <= now)) {
+	let manifest: ChestManifest | null;
+	try {
+		manifest = await readManifest(bucket, code);
+	} catch (error) {
+		if (error instanceof SyntaxError) {
+			console.error('A chest manifest is not valid JSON');
+			return null;
+		}
+		throw storageUnavailable(error);
+	}
+	if (!manifest) {
 		return null;
 	}
 
 	// The manifest alone is not enough: the session must agree that this code was issued for it
-	const session = await getSessionRecord(bucket, manifest.sessionId).catch(() => null);
+	let session: Awaited<ReturnType<typeof getSessionRecord>>;
+	try {
+		session = await getSessionRecord(bucket, manifest.sessionId);
+	} catch (error) {
+		if (error instanceof SessionError && error.code === 'CORRUPT_RECORD') {
+			console.error(`Session record ${manifest.sessionId} is corrupt; its chest is not served`);
+			return null;
+		}
+		throw storageUnavailable(error);
+	}
 	if (!session || session.record.status !== 'COMPLETED' || session.record.retrievalCode !== code) {
 		return null;
 	}
+	if (session.record.expiresAt !== manifest.expiresAt) {
+		console.warn(`Expiry of the chest of session ${manifest.sessionId} differs between manifest and session; refusing it until repaired`);
+		return null;
+	}
+	if (manifest.expiresAt !== null && manifest.expiresAt <= now) {
+		return null;
+	}
 	return manifest;
+}
+
+function storageUnavailable(error: unknown): ApiError {
+	console.error('Storage read failed:', describeFailure(error));
+	return new ApiError(503, 'STORAGE_UNAVAILABLE', 'Storage is temporarily unavailable, try again', { 'Retry-After': '5' });
 }
 
 /**

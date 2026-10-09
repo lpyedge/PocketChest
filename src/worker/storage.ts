@@ -14,7 +14,7 @@ import {
 	SessionError,
 	transitionSession,
 } from './session';
-import { generateRetrievalCode } from './utils';
+import { describeFailure, generateRetrievalCode } from './utils';
 
 /**
  * All state lives in R2; there is no database. Key layout:
@@ -389,8 +389,10 @@ export async function cleanupExpired(bucket: R2Bucket, now: number): Promise<Cle
 	result.backlog.expired = expired.hasMore;
 	for (const indexKey of expired.keys) {
 		const code = indexKey.split('/')[2];
+		let owner: string | null = null; // session id, for the report: it is not a secret, the code is
 		try {
 			const manifest = await readManifest(bucket, code);
+			owner = manifest?.sessionId ?? null;
 			// Only a real "not found" (null) means the session is gone. A failed or unreadable read throws to the
 			// handler below, which keeps everything and tries again on the next run.
 			const session = manifest ? await getSessionRecord(bucket, manifest.sessionId) : null;
@@ -409,7 +411,7 @@ export async function cleanupExpired(bucket: R2Bucket, now: number): Promise<Cle
 				if (truth !== null) await bucket.put(expiryKey(truth, code), '');
 				if (truth !== indexTimestamp) await deleteKeys(bucket, [indexKey]);
 				result.repairedExpiry++;
-				result.errors.push(`Expiry of chest ${code} disagreed between index, manifest and session; repaired`);
+				result.errors.push(`Expiry of the chest of session ${manifest.sessionId} disagreed between index, manifest and session; repaired`);
 			} else if (manifest && owns) {
 				result.deletedObjects += await removeSession(bucket, manifest.sessionId, session.record.multipartUploads);
 				await deleteKeys(bucket, [codeKey(code), indexKey]);
@@ -419,7 +421,10 @@ export async function cleanupExpired(bucket: R2Bucket, now: number): Promise<Cle
 				result.orphanClaims++;
 			}
 		} catch (error) {
-			result.errors.push(`Failed to clean up chest ${code}: ${error}`);
+			// Named by the index entry's time, never by the retrieval code (see redactSecrets)
+			result.errors.push(
+				`Failed to clean up the chest due at ${indexKey.split('/')[1]}${owner ? ` (session ${owner})` : ''}: ${describeFailure(error)}`,
+			);
 		}
 	}
 
@@ -440,7 +445,7 @@ export async function cleanupExpired(bucket: R2Bucket, now: number): Promise<Cle
 			// Completed sessions keep their files; a leftover marker is only an index entry
 			await deleteKeys(bucket, [markerKey]);
 		} catch (error) {
-			result.errors.push(`Failed to clean up session ${sessionId}: ${error}`);
+			result.errors.push(`Failed to clean up session ${sessionId}: ${describeFailure(error)}`);
 		}
 	}
 
@@ -460,7 +465,7 @@ export async function cleanupExpired(bucket: R2Bucket, now: number): Promise<Cle
 			}
 			await deleteKeys(bucket, [indexKey]);
 		} catch (error) {
-			result.errors.push(`Failed to repair session ${sessionId}: ${error}`);
+			result.errors.push(`Failed to repair session ${sessionId}: ${describeFailure(error)}`);
 		}
 	}
 
@@ -470,14 +475,14 @@ export async function cleanupExpired(bucket: R2Bucket, now: number): Promise<Cle
 		result.sessionsRemoved = await cleanupOwnerSessions(bucket, now, undefined, sessionScan);
 		result.backlog.sessions = sessionScan.more;
 	} catch (error) {
-		result.errors.push(`Failed to clean up owner sessions: ${error}`);
+		result.errors.push(`Failed to clean up owner sessions: ${describeFailure(error)}`);
 	}
 
 	// 4b. Sign-in failure counters that have been quiet for a long time; locked counters are never touched
 	try {
 		result.throttlesReset = await cleanupThrottles(bucket, now);
 	} catch (error) {
-		result.errors.push(`Failed to reset sign-in throttles: ${error}`);
+		result.errors.push(`Failed to reset sign-in throttles: ${describeFailure(error)}`);
 	}
 
 	// 4c. WebAuthn challenges past their expiry; live ones are never removed
@@ -486,21 +491,21 @@ export async function cleanupExpired(bucket: R2Bucket, now: number): Promise<Cle
 		result.challengesRemoved = await cleanupChallenges(bucket, now, undefined, challengeScan);
 		result.backlog.challenges = challengeScan.more;
 	} catch (error) {
-		result.errors.push(`Failed to clean up passkey challenges: ${error}`);
+		result.errors.push(`Failed to clean up passkey challenges: ${describeFailure(error)}`);
 	}
 
 	// 4d. Code claims that no session owns any more
 	try {
 		result.orphanCodeClaims = await cleanupOrphanClaims(bucket, now);
 	} catch (error) {
-		result.errors.push(`Failed to scan for orphaned code claims: ${error}`);
+		result.errors.push(`Failed to scan for orphaned code claims: ${describeFailure(error)}`);
 	}
 
 	// 5. Orphaned file objects: content whose session record is gone. Scanned in batches; the cursor persists.
 	try {
 		result.orphanObjects = await cleanupOrphanObjects(bucket, now, result);
 	} catch (error) {
-		result.errors.push(`Failed to scan for orphaned objects: ${error}`);
+		result.errors.push(`Failed to scan for orphaned objects: ${describeFailure(error)}`);
 	}
 
 	return result;

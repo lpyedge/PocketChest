@@ -243,3 +243,20 @@ export function calculateExpiry(validityDays: number): number | null {
 export function getCurrentTimestamp(): number {
 	return Math.floor(Date.now() / 1000);
 }
+
+/**
+ * Text that is safe to put in a log or a job report. Storage keys carry retrieval codes (`codes/ABC123`,
+ * `expiry/{time}/ABC123`), so anything shaped like one is masked: an error from R2 often repeats the key.
+ */
+export function redactSecrets(text: string): string {
+	return text
+		.replace(/codes\/[A-Z0-9]{6}\b/g, 'codes/[hidden]')
+		.replace(/(expiry\/\d+\/)[A-Z0-9]{6}\b/g, '$1[hidden]')
+		.replace(/(Bearer\s+)[A-Za-z0-9._~+/=-]+/gi, '$1[hidden]')
+		.replace(/(pc_owner=)[^;\s]+/g, '$1[hidden]');
+}
+
+export function describeFailure(error: unknown): string {
+	const text = error instanceof Error ? `${error.name}: ${error.message}` : String(error);
+	return redactSecrets(text);
+}

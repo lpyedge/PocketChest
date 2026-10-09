@@ -52,6 +52,8 @@ import {
 	isValidUUID,
 	isValidRetrievalCode,
 	calculateExpiry,
+	describeFailure,
+	redactSecrets,
 	getCurrentTimestamp,
 	isValidValidityDays,
 	contentDisposition,
@@ -140,7 +142,7 @@ export default {
 		// Partial failures are kept and retried by the next run; the invocation is still reported as failed
 		// so that the problem shows up in the Worker's logs and observability
 		if (errors.length > 0) {
-			console.error(`❌ Cleanup finished with ${errors.length} error(s):`, errors.slice(0, 20).join(' | '));
+			console.error(`❌ Cleanup finished with ${errors.length} error(s):`, redactSecrets(errors.slice(0, 20).join(' | ')));
 			throw new Error(`Cleanup finished with ${errors.length} error(s); remaining work will be retried`);
 		}
 		console.log('✅ Cleanup completed without errors');
@@ -293,7 +295,7 @@ async function routeApi(request: Request, env: Env, path: string): Promise<Respo
 		if (error instanceof SessionError) {
 			return errorResponse(sessionErrorToApi(error));
 		}
-		console.error('Error:', error);
+		console.error('Error:', describeFailure(error));
 		return errorResponse(new ApiError(500, 'INTERNAL_ERROR', 'Internal Server Error'));
 	}
 }

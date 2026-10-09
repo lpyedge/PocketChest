@@ -20,7 +20,7 @@
 ### 1. 暫停登入入口
 
 在維護窗口期間，停止對外的登入流程（例如暫時關閉 `/upload/` 的部署或將其指向維護頁）。
-理由：Cloudflare R2 的 `object put` 不提供條件寫入（ETag 比對），腳本只能在寫入前重新讀取比對；如果登入同時改寫 `auth/owner.json`（例如 TOTP 步長、Passkey 計數器），就可能被覆蓋。
+理由：R2 本身支援條件寫入，Worker 內部也以此（CAS）保護 Owner 紀錄；但本工具使用的 `wrangler r2 object put` 沒有提供與 Worker SDK 相同的條件寫入操作，腳本只能在寫入前重新讀取比對。如果登入同時改寫 `auth/owner.json`（例如 TOTP 步長、Passkey 計數器），就可能被覆蓋，所以必須有維護窗口。
 
 ### 2. 準備憑證
 
@@ -54,7 +54,7 @@ node scripts/reset-owner-password.mjs --bucket pocket-chest --backup ./owner-bac
 
 | 情況 | 結果 | 處理 |
 | --- | --- | --- |
-| 找不到 Owner 紀錄 | 不寫入 | 此工具只恢復既有 Owner；首次設定請用 Bootstrap。 |
+| 找不到 Owner 紀錄 | 不寫入 | 此工具只恢復既有 Owner。若 `auth/bootstrap-marker` 存在但沒有 Owner，請改用下方「首次設定被中斷」。若兩者都不存在，請用 Bootstrap 正常初始化。 |
 | 紀錄不是合法 JSON 或欄位不認識 | 不寫入 | 先從 R2 的版本記錄或備份還原，再試。 |
 | 讀取兩次之間紀錄改變 | 不寫入，提示重試 | 確認登入入口已暫停後再執行。 |
 | 寫入後驗證失敗 | 提示立即以備份還原 | 用 wrangler 將 `owner-backup.json` 寫回 `auth/owner.json`。 |
@@ -69,3 +69,17 @@ node scripts/reset-owner-password.mjs --bucket pocket-chest --backup ./owner-bac
 
 - 核心邏輯（讀取、驗證、備份、比對、寫入、讀回驗證、競爭中止、損壞紀錄拒絕）由 `test/recovery-cli.spec.ts` 以模擬儲存層驗證，並以 Worker 的實際密碼驗證器核對新雜湊。
 - 正式環境**不得**自動執行會寫入 Owner 紀錄的測試。完整人工演練請在隔離的 R2 Bucket 進行。
+
+## 首次設定被中斷（有 marker、沒有 Owner）
+
+Worker 會在首次設定時先計算密碼 hash，再領取 `auth/bootstrap-marker`，最後寫入 `auth/owner.json`。若 hash 失敗（例如 Free 計畫 CPU 超額），不會留下 marker，可直接重試。若 marker 已寫入但 Owner 寫入失敗，網站會顯示需要離線恢復，此時請用部署者專用工具建立首個 Owner：
+
+```bash
+node scripts/recover-bootstrap.mjs --bucket pocket-chest
+# 或從標準輸入讀取密碼：  --password-stdin
+```
+
+- 只在「marker 存在且 Owner 不存在」時才會寫入；Owner 已存在則拒絕（請改用上面的密碼恢復）。
+- 密碼至少 16 字元，在本機計算 hash，不經過 Worker，因此不受 Worker CPU 限制。
+- 寫入後會重新讀取並驗證密碼；寫入前會再確認一次 Owner 仍不存在。
+- **不會**刪除 marker，也**沒有**任何匿名 HTTP 重新初始化入口。同樣需要維護窗口（wrangler 無條件寫入）。

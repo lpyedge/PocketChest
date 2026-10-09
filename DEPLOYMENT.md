@@ -58,7 +58,7 @@ npx wrangler secret delete ADMIN_BOOTSTRAP_PASSWORD
 npx wrangler deploy
 ```
 
-Never remove the setup marker in R2 to reopen setup. If setup was interrupted, use [offline recovery](docs/RECOVERY.md).
+Never remove the setup marker in R2 to reopen setup. If setup was interrupted, run `node scripts/recover-bootstrap.mjs` (see [offline recovery](docs/RECOVERY.md)).
 
 ## 3. Secrets and settings
 

@@ -65,7 +65,7 @@ A run logs a `Cleanup summary` with counts. A run that finishes with errors logs
 | `auth/bootstrap-marker` | Records that first-time setup was claimed |
 | `maintenance/*` | Cursors for the scans that continue across runs |
 
-Never delete `auth/bootstrap-marker` to reopen setup. If setup was interrupted, use [offline recovery](RECOVERY.md).
+Never delete `auth/bootstrap-marker` to reopen setup. If setup was interrupted (marker present, no owner), run `node scripts/recover-bootstrap.mjs` as described in [offline recovery](RECOVERY.md).
 
 ## Known limits
 

@@ -58,7 +58,7 @@ npx wrangler secret delete ADMIN_BOOTSTRAP_PASSWORD
 npx wrangler deploy
 ```
 
-初期設定を再び開くために、R2 の初期設定マーカーを削除してはいけません。初期設定が途中で止まった場合は、[オフライン復旧](docs/RECOVERY.md)を使います。
+初期設定を再び開くために、R2 の初期設定マーカーを削除してはいけません。初期設定が途中で止まった場合は、`node scripts/recover-bootstrap.mjs` を実行します（[オフライン復旧](docs/RECOVERY.md)参照）。
 
 ## 3. シークレットと設定
 

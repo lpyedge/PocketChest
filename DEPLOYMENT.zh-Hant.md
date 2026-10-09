@@ -58,7 +58,7 @@ npx wrangler secret delete ADMIN_BOOTSTRAP_PASSWORD
 npx wrangler deploy
 ```
 
-不要為了重新開放初始化而刪除 R2 中的初始化標記。若初始化被中斷，請使用[離線復原](docs/RECOVERY.md)。
+不要為了重新開放初始化而刪除 R2 中的初始化標記。若初始化被中斷，請執行 `node scripts/recover-bootstrap.mjs`（見[離線復原](docs/RECOVERY.md)）。
 
 ## 3. Secrets 與設定
 

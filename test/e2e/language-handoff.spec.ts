@@ -57,3 +57,43 @@ test('an unsupported ?lang= is ignored', async ({ page }) => {
 	await page.goto('/retrieve/?lang=klingon');
 	expect(await page.getAttribute('html', 'lang')).toBe('en');
 });
+
+// C21: a language file that cannot be downloaded must not leave a blank page
+test.describe('language file failure', () => {
+	test.use({ locale: 'ja-JP' });
+
+	test('shows a retry page, and retrying after the network recovers loads the app', async ({ page }) => {
+		await useClientAddress(page, randomClientIp());
+		// Clear storage once only: the page is reloaded during the test and must keep what it stored
+		await page.addInitScript(
+			`if (!window.sessionStorage.getItem('cleared')) { window.localStorage.clear(); window.sessionStorage.setItem('cleared', '1'); }`,
+		);
+		await page.route('**/assets/ja-*.js', (route) => route.fulfill({ status: 503, body: 'unavailable' }));
+
+		await page.goto('/retrieve/');
+		const alert = page.getByRole('alert');
+		await expect(alert).toBeVisible();
+		await expect(alert).toContainText('Retry');
+		expect((await page.locator('body').innerText()).trim().length).toBeGreaterThan(20);
+
+		await page.unroute('**/assets/ja-*.js');
+		await alert.getByRole('button', { name: /Retry/ }).click();
+		await expect(page.getByRole('heading').first()).toContainText(/ファイルを取り出す|取り出し/);
+		expect(await page.getAttribute('html', 'lang')).toBe('ja');
+	});
+
+	test('offers English when the Japanese file keeps failing', async ({ page }) => {
+		await useClientAddress(page, randomClientIp());
+		// Clear storage once only: the page is reloaded during the test and must keep what it stored
+		await page.addInitScript(
+			`if (!window.sessionStorage.getItem('cleared')) { window.localStorage.clear(); window.sessionStorage.setItem('cleared', '1'); }`,
+		);
+		await page.route('**/assets/ja-*.js', (route) => route.fulfill({ status: 503, body: 'unavailable' }));
+
+		await page.goto('/retrieve/?lang=ja');
+		await page.getByRole('alert').getByRole('button', { name: 'English' }).click();
+
+		await expect(page.getByRole('heading').first()).toContainText(/Retrieve Files/);
+		expect(await page.getAttribute('html', 'lang')).toBe('en');
+	});
+});

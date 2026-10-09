@@ -1,5 +1,6 @@
 import { FileUploadProgress } from '@/lib/types';
 import { useI18n } from '@/i18n/I18nProvider';
+import { formatBytes } from '@/lib/format';
 
 interface UploadProgressProps {
 	files: File[];
@@ -32,13 +33,7 @@ export function UploadProgress({
 	if (uploadStatus === 'idle' || uploadStatus === 'cancelled') return null;
 
 	const totalItems = files.length + textItems.length;
-	const formatFileSize = (bytes: number): string => {
-		if (bytes === 0) return t('size.zero');
-		const k = 1024;
-		const sizes = [t('size.bytes'), 'KB', 'MB', 'GB'];
-		const i = Math.floor(Math.log(bytes) / Math.log(k));
-		return new Intl.NumberFormat(locale, { maximumFractionDigits: 2 }).format(bytes / Math.pow(k, i)) + ' ' + sizes[i];
-	};
+	const formatFileSize = (bytes: number): string => formatBytes(bytes, locale, { zero: t('size.zero'), bytes: t('size.bytes') });
 
 	const getStatusIcon = (status: FileUploadProgress['status']): string => {
 		switch (status) {

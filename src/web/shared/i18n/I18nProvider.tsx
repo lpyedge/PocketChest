@@ -55,14 +55,31 @@ export function I18nProvider({ children }: { children: ReactNode }) {
 	// The messages for the last locale that finished loading; the old ones stay on screen until the new ones arrive
 	const [loaded, setLoaded] = useState<{ locale: Locale; messages: Messages } | null>(null);
 
+	// The language whose messages could not be downloaded, if the last attempt failed
+	const [failedLocale, setFailedLocale] = useState<Locale | null>(null);
+
 	useEffect(() => {
 		let cancelled = false;
-		loaders[locale]().then((module) => {
-			if (!cancelled) setLoaded({ locale, messages: module.default });
-		});
+		loaders[locale]()
+			.then((module) => {
+				if (cancelled) return;
+				setFailedLocale(null);
+				setLoaded({ locale, messages: module.default });
+			})
+			.catch((error: unknown) => {
+				if (cancelled) return;
+				console.error('Could not load the language file:', error);
+				if (loaded) {
+					// A language switch failed: stay in the language that is on screen, in step with the page's lang
+					setLocaleState(loaded.locale);
+				} else {
+					setFailedLocale(locale);
+				}
+			});
 		return () => {
 			cancelled = true;
 		};
+		// `loaded` is only read to decide how to recover, it must not restart the download
 	}, [locale]);
 
 	useEffect(() => {
@@ -95,8 +112,9 @@ export function I18nProvider({ children }: { children: ReactNode }) {
 
 	const value = useMemo(() => ({ locale, t, setLocale }), [locale, t, setLocale]);
 
-	// Nothing is shown until the first language arrives, so no text appears in the wrong language
-	if (!loaded) return null;
+	// Nothing is shown until the first language arrives, so no text appears in the wrong language.
+	// If it cannot arrive, say so (the texts are fixed here because the messages are exactly what is missing).
+	if (!loaded) return failedLocale ? <LoadFailure locale={failedLocale} /> : null;
 	return <I18nContext.Provider value={value}>{children}</I18nContext.Provider>;
 }
 
@@ -106,4 +124,32 @@ export function useI18n(): I18nValue {
 		throw new Error('useI18n must be used inside I18nProvider');
 	}
 	return value;
+}
+
+// Shown only when the first language file cannot be downloaded. It cannot use the message files, so it speaks all three.
+function LoadFailure({ locale }: { locale: Locale }) {
+	const useEnglish = () => {
+		writeStoredLocale('en');
+		// ?lang= would ask for the failed language again
+		window.location.assign(`${window.location.pathname}${window.location.hash}`);
+	};
+	return (
+		<main role="alert" className="min-h-screen flex items-center justify-center bg-gray-50 p-4">
+			<div className="max-w-md w-full bg-white rounded-lg shadow-md p-6 text-center space-y-3">
+				<p className="text-gray-900">Could not load the page text. Check your connection and try again.</p>
+				<p className="text-gray-600 text-sm">頁面文字載入失敗，請檢查網路後重試。</p>
+				<p className="text-gray-600 text-sm">ページの文言を読み込めませんでした。接続を確認して、もう一度お試しください。</p>
+				<div className="flex flex-wrap justify-center gap-2 pt-2">
+					<button type="button" onClick={() => window.location.reload()} className="px-4 py-2 bg-blue-500 text-white rounded">
+						Retry / 重試 / 再試行
+					</button>
+					{locale !== 'en' && (
+						<button type="button" onClick={useEnglish} className="px-4 py-2 border border-gray-300 rounded text-gray-700">
+							English
+						</button>
+					)}
+				</div>
+			</div>
+		</main>
+	);
 }

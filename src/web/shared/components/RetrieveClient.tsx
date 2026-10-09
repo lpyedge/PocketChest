@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react';
 import { usePocketChest } from '@/hooks/usePocketChest';
 import { FileInfo } from '@/lib/types';
 import { describeExpiry } from '@/lib/expiry';
+import { formatBytes } from '@/lib/format';
 import { useI18n } from '@/i18n/I18nProvider';
 
 interface FileWithContent extends FileInfo {
@@ -55,13 +56,7 @@ export function RetrieveClient({ code, onBack }: RetrieveClientProps) {
 		}
 	};
 
-	const formatFileSize = (bytes: number): string => {
-		if (bytes === 0) return t('size.zero');
-		const k = 1024;
-		const sizes = [t('size.bytes'), 'KB', 'MB', 'GB'];
-		const i = Math.floor(Math.log(bytes) / Math.log(k));
-		return new Intl.NumberFormat(locale, { maximumFractionDigits: 2 }).format(bytes / Math.pow(k, i)) + ' ' + sizes[i];
-	};
+	const formatFileSize = (bytes: number): string => formatBytes(bytes, locale, { zero: t('size.zero'), bytes: t('size.bytes') });
 
 	const copyTextToClipboard = (content: string, fileId: string) => {
 		navigator.clipboard.writeText(content);

@@ -50,3 +50,21 @@ test.describe('static home pages without JavaScript', () => {
 		expect(response?.status()).toBe(404);
 	});
 });
+
+// The footer must describe the service as it is: guests retrieve without signing in, uploading needs the owner,
+// and only time-limited shares expire
+const FOOTERS: [string, string][] = [
+	['/', '訪客取件不需登入；上傳需管理員登入。有期限的分享會在到期後清除。'],
+	['/ja/', '受け取りにログインは不要です。アップロードには管理者のサインインが必要です。期限付きの共有は有効期限後に削除されます。'],
+	[
+		'/en/',
+		'Recipients can retrieve files without signing in. Uploading requires owner sign-in. Time-limited shares are deleted after they expire.',
+	],
+];
+for (const [path, footer] of FOOTERS) {
+	test(`${path} footer is accurate about sign-in and expiry`, async ({ page }) => {
+		await page.goto(path);
+		await expect(page.getByText(footer)).toBeVisible();
+		await expect(page.getByText(/No account required|アカウントは不要|無需帳號/)).toHaveCount(0);
+	});
+}

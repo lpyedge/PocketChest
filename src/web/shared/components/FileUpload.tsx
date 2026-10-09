@@ -1,5 +1,6 @@
 import { useState, useRef, DragEvent } from 'react';
 import { useI18n } from '@/i18n/I18nProvider';
+import { formatBytes } from '@/lib/format';
 
 interface FileUploadProps {
 	onFilesChange: (files: File[]) => void;
@@ -47,14 +48,7 @@ export function FileUpload({ onFilesChange, files }: FileUploadProps) {
 		onFilesChange(newFiles);
 	};
 
-	const formatFileSize = (bytes: number): string => {
-		if (bytes === 0) return t('size.zero');
-		const k = 1024;
-		const sizes = ['Bytes', 'KB', 'MB', 'GB'];
-		const i = Math.floor(Math.log(bytes) / Math.log(k));
-		// Number formatting follows the interface language
-		return new Intl.NumberFormat(locale, { maximumFractionDigits: 2 }).format(bytes / Math.pow(k, i)) + ' ' + sizes[i];
-	};
+	const formatFileSize = (bytes: number): string => formatBytes(bytes, locale, { zero: t('size.zero'), bytes: t('size.bytes') });
 
 	return (
 		<div className="w-full">

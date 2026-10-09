@@ -119,3 +119,12 @@ for (const [lang, pattern] of Object.entries(permanentText)) {
 		expect(body).not.toMatch(/1970|Invalid Date/);
 	});
 }
+
+// C23: sizes are shown in binary units with binary names
+test('a 1024-byte file is shown as 1 KiB', async ({ page, request }) => {
+	const chest = await createChest(request, [], { name: 'kib.bin', body: 'x'.repeat(1024) });
+	await page.goto(`/retrieve/?lang=en#${chest.code}`);
+	await expect(page.getByText('kib.bin')).toBeVisible();
+	await expect(page.getByText(/^1 KiB • /)).toBeVisible();
+	await expect(page.getByText(/\bKB\b/)).toHaveCount(0);
+});

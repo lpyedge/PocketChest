@@ -334,11 +334,17 @@ function bearerToken(request: Request): string {
 }
 
 async function readJson<T>(request: Request): Promise<T> {
+	let value: unknown;
 	try {
-		return await request.json();
+		value = await request.json();
 	} catch {
 		throw new ApiError(400, 'INVALID_REQUEST', 'Invalid JSON body');
 	}
+	// Every endpoint reads named fields, so anything but an object (null, an array, a number) is a bad request
+	if (typeof value !== 'object' || value === null || Array.isArray(value)) {
+		throw new ApiError(400, 'INVALID_REQUEST', 'Invalid JSON body');
+	}
+	return value as T;
 }
 
 // Verifies the upload token for a session and that the session is still open
@@ -1154,6 +1160,9 @@ function validateParts(parts: unknown): { partNumber: number; etag: string }[] {
 	}
 	const seen = new Set<number>();
 	for (const part of parts) {
+		if (typeof part !== 'object' || part === null || Array.isArray(part)) {
+			throw new ApiError(400, 'INVALID_REQUEST', 'Invalid part');
+		}
 		const { partNumber, etag } = part as { partNumber?: unknown; etag?: unknown };
 		if (!Number.isInteger(partNumber) || (partNumber as number) < 1 || (partNumber as number) > LIMITS.maxPartsPerUpload) {
 			throw new ApiError(400, 'INVALID_REQUEST', 'Invalid part number');

@@ -21,16 +21,22 @@ function abortError(): DOMException {
 	return new DOMException('Upload cancelled', 'AbortError');
 }
 
-// Ties an XMLHttpRequest to an AbortSignal: aborting the signal aborts the request and rejects with AbortError
-function bindXhrAbort(xhr: XMLHttpRequest, signal: AbortSignal | undefined, reject: (reason: unknown) => void): void {
-	if (!signal) return;
-	const onAbort = () => xhr.abort();
+// Ties an XMLHttpRequest to an AbortSignal: aborting the signal aborts the request and rejects with AbortError.
+// Returns true when the signal was already aborted; the caller must then not open or send the request.
+function bindXhrAbort(xhr: XMLHttpRequest, signal: AbortSignal | undefined, reject: (reason: unknown) => void): boolean {
+	if (!signal) return false;
 	if (signal.aborted) {
 		reject(abortError());
-		return;
+		return true;
 	}
+	const onAbort = () => {
+		// An unsent request fires no abort event, so the rejection does not wait for one
+		reject(abortError());
+		xhr.abort();
+	};
 	signal.addEventListener('abort', onAbort, { once: true });
-	xhr.addEventListener('abort', () => reject(abortError()));
+	xhr.addEventListener('loadend', () => signal.removeEventListener('abort', onAbort));
+	return false;
 }
 
 export class PocketChestAPI {
@@ -257,6 +263,8 @@ export class PocketChestAPI {
 
 		// Use XMLHttpRequest for progress tracking if onProgress is provided
 		if (onProgress) {
+			// Refuse before an XMLHttpRequest exists, so nothing can be sent for a request that is already cancelled
+			signal?.throwIfAborted();
 			return new Promise((resolve, reject) => {
 				const xhr = new XMLHttpRequest();
 
@@ -288,7 +296,7 @@ export class PocketChestAPI {
 					reject(new ClientError('error.network'));
 				});
 
-				bindXhrAbort(xhr, signal, reject);
+				if (bindXhrAbort(xhr, signal, reject)) return;
 				xhr.open('POST', `${this.baseUrl}/api/upload-sessions/${sessionId}/files`);
 				xhr.setRequestHeader('Authorization', `Bearer ${uploadToken}`);
 				xhr.send(formData);
@@ -452,6 +460,7 @@ export class PocketChestAPI {
 	): Promise<UploadPartResponse> {
 		// Use XMLHttpRequest for progress tracking
 		if (onPartProgress) {
+			signal?.throwIfAborted();
 			return new Promise((resolve, reject) => {
 				const xhr = new XMLHttpRequest();
 
@@ -478,7 +487,7 @@ export class PocketChestAPI {
 					reject(new ClientError('error.network'));
 				});
 
-				bindXhrAbort(xhr, signal, reject);
+				if (bindXhrAbort(xhr, signal, reject)) return;
 				xhr.open('PUT', `${this.baseUrl}/api/upload-sessions/${sessionId}/multipart/${fileId}/parts/${partNumber}`);
 				xhr.setRequestHeader('Authorization', `Bearer ${multipartToken}`);
 				xhr.setRequestHeader('Content-Type', 'application/octet-stream');

@@ -59,11 +59,11 @@ describe('write leases and the completion barrier', () => {
 		const now = getCurrentTimestamp();
 		await acquireLease(bucket(), sessionId, { id: 'lease-1', expiresAt: now + LEASE_SECONDS }, now);
 
-		expect(await errorCodeOf(beginFinalize(bucket(), sessionId, now))).toBe('LEASE_ACTIVE');
+		expect(await errorCodeOf(beginFinalize(bucket(), sessionId, 'fp', now))).toBe('LEASE_ACTIVE');
 		expect((await getSessionRecord(bucket(), sessionId))?.record.status).toBe('OPEN');
 
 		await releaseLease(bucket(), sessionId, 'lease-1', [], now);
-		const finalizing = await beginFinalize(bucket(), sessionId, now);
+		const finalizing = await beginFinalize(bucket(), sessionId, 'fp', now);
 		expect(finalizing.status).toBe('FINALIZING');
 	});
 
@@ -72,7 +72,7 @@ describe('write leases and the completion barrier', () => {
 		const now = getCurrentTimestamp();
 		await acquireLease(bucket(), sessionId, { id: 'slow', expiresAt: now - 1 }, now - LEASE_SECONDS - 10);
 
-		await beginFinalize(bucket(), sessionId, now);
+		await beginFinalize(bucket(), sessionId, 'fp', now);
 		const late = {
 			fileId: crypto.randomUUID(),
 			filename: 'late.txt',
@@ -88,7 +88,7 @@ describe('write leases and the completion barrier', () => {
 	it('refuses new leases once the session is no longer OPEN', async () => {
 		const sessionId = await newOpenSession();
 		const now = getCurrentTimestamp();
-		await beginFinalize(bucket(), sessionId, now);
+		await beginFinalize(bucket(), sessionId, 'fp', now);
 
 		expect(await errorCodeOf(acquireLease(bucket(), sessionId, { id: 'x', expiresAt: now + 60 }, now))).toBe('NOT_OPEN');
 	});

@@ -26,6 +26,10 @@ export interface SessionRecord {
 	leases: SessionLease[];
 	// Verified (size-checked) files registered by finished uploads
 	files: ChestFile[];
+	// Set when completion starts; a repeated Complete must match it exactly
+	completionFingerprint: string | null;
+	// Retrieval code reserved for this completion; kept so a retry reuses it
+	candidateCode: string | null;
 	retrievalCode: string | null;
 	validityDays: number | null;
 	expiresAt: number | null;
@@ -33,7 +37,15 @@ export interface SessionRecord {
 }
 
 export type SessionErrorCode =
-	'NOT_FOUND' | 'NOT_OPEN' | 'ALREADY_EXISTS' | 'INVALID_TRANSITION' | 'LEASE_ACTIVE' | 'LEASE_LOST' | 'CONFLICT' | 'CORRUPT_RECORD';
+	| 'NOT_FOUND'
+	| 'NOT_OPEN'
+	| 'ALREADY_EXISTS'
+	| 'INVALID_TRANSITION'
+	| 'LEASE_ACTIVE'
+	| 'LEASE_LOST'
+	| 'COMPLETION_MISMATCH'
+	| 'CONFLICT'
+	| 'CORRUPT_RECORD';
 
 export class SessionError extends Error {
 	constructor(
@@ -56,7 +68,9 @@ const TRANSITIONS: Record<SessionStatus, readonly SessionStatus[]> = {
 const STATUSES: readonly SessionStatus[] = ['OPEN', 'FINALIZING', 'COMPLETED', 'ABANDONED'];
 const MAX_ATTEMPTS = 5;
 
-export type SessionPatch = Partial<Pick<SessionRecord, 'retrievalCode' | 'validityDays' | 'expiresAt' | 'fileIds'>>;
+export type SessionPatch = Partial<
+	Pick<SessionRecord, 'retrievalCode' | 'validityDays' | 'expiresAt' | 'fileIds' | 'candidateCode' | 'completionFingerprint'>
+>;
 
 export function sessionKey(sessionId: string): string {
 	return `sessions/${sessionId}`;
@@ -101,6 +115,8 @@ export function parseSessionRecord(value: unknown): SessionRecord {
 		!r.leases.every(isLease) ||
 		!Array.isArray(r.files) ||
 		!r.files.every(isFile) ||
+		!isNullableString(r.completionFingerprint) ||
+		!isNullableString(r.candidateCode) ||
 		!isNullableString(r.retrievalCode) ||
 		!isNullableNumber(r.validityDays) ||
 		!isNullableNumber(r.expiresAt) ||
@@ -121,6 +137,8 @@ export function parseSessionRecord(value: unknown): SessionRecord {
 		createdAt: r.createdAt,
 		leases: r.leases as SessionLease[],
 		files: r.files as ChestFile[],
+		completionFingerprint: r.completionFingerprint,
+		candidateCode: r.candidateCode,
 		retrievalCode: r.retrievalCode,
 		validityDays: r.validityDays,
 		expiresAt: r.expiresAt,
@@ -137,6 +155,8 @@ export async function createSessionRecord(bucket: R2Bucket, init: { sessionId: s
 		createdAt: init.createdAt,
 		leases: [],
 		files: [],
+		completionFingerprint: null,
+		candidateCode: null,
 		retrievalCode: null,
 		validityDays: null,
 		expiresAt: null,
@@ -272,8 +292,14 @@ export function releaseLease(
 /**
  * Starts completion: OPEN -> FINALIZING, but only when no unexpired lease is held.
  * Expired leases are removed here, so their late writes will fail to register.
+ * The fingerprint of the request is stored so that a repeated Complete can be recognised.
  */
-export function beginFinalize(bucket: R2Bucket, sessionId: string, now: number = Math.floor(Date.now() / 1000)): Promise<SessionRecord> {
+export function beginFinalize(
+	bucket: R2Bucket,
+	sessionId: string,
+	fingerprint: string,
+	now: number = Math.floor(Date.now() / 1000),
+): Promise<SessionRecord> {
 	return updateSession(
 		bucket,
 		sessionId,
@@ -284,8 +310,49 @@ export function beginFinalize(bucket: R2Bucket, sessionId: string, now: number =
 			if (current.leases.some((lease) => lease.expiresAt > at)) {
 				throw new SessionError('LEASE_ACTIVE', 'Uploads are still in progress for this session');
 			}
-			return { ...current, status: 'FINALIZING', leases: [] };
+			return { ...current, status: 'FINALIZING', leases: [], completionFingerprint: fingerprint, candidateCode: null };
 		},
 		now,
+	);
+}
+
+/** Throws COMPLETION_MISMATCH unless the stored completion matches `fingerprint`. */
+export function assertSameCompletion(record: SessionRecord, fingerprint: string): void {
+	if (record.completionFingerprint !== fingerprint) {
+		throw new SessionError('COMPLETION_MISMATCH', 'This session was completed with different files or validity');
+	}
+}
+
+/**
+ * Records the retrieval code to try next. If a different candidate was already stored (another
+ * request got there first), that one is kept and returned, so all retries agree on one code.
+ */
+export function reserveCandidateCode(bucket: R2Bucket, sessionId: string, candidate: string, now?: number): Promise<SessionRecord> {
+	return updateSession(
+		bucket,
+		sessionId,
+		(current) => {
+			if (current.status !== 'FINALIZING') {
+				throw new SessionError('INVALID_TRANSITION', `Cannot reserve a code in state ${current.status}`);
+			}
+			return { ...current, candidateCode: current.candidateCode ?? candidate };
+		},
+		now ?? Math.floor(Date.now() / 1000),
+	);
+}
+
+/** Replaces the candidate only if it is still the colliding one. */
+export function replaceCandidateCode(
+	bucket: R2Bucket,
+	sessionId: string,
+	colliding: string,
+	replacement: string,
+	now?: number,
+): Promise<SessionRecord> {
+	return updateSession(
+		bucket,
+		sessionId,
+		(current) => (current.candidateCode === colliding ? { ...current, candidateCode: replacement } : current),
+		now ?? Math.floor(Date.now() / 1000),
 	);
 }

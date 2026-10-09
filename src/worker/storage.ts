@@ -1,5 +1,13 @@
 import { ChestFile, ChestManifest } from './types';
-import { createSessionRecord, getSessionRecord, sessionKey, SessionError, transitionSession } from './session';
+import {
+	createSessionRecord,
+	getSessionRecord,
+	replaceCandidateCode,
+	reserveCandidateCode,
+	sessionKey,
+	SessionError,
+	transitionSession,
+} from './session';
 import { generateRetrievalCode } from './utils';
 
 /**
@@ -128,47 +136,78 @@ export async function verifyStoredFile(
  * The conditional put only succeeds if the code is unused, so collisions retry with a new code.
  * Returns null if no free code was found.
  */
-export async function createChest(bucket: R2Bucket, manifest: ChestManifest): Promise<string | null> {
-	// The caller has already moved the session to FINALIZING (see beginFinalize)
-	const code = await claimRetrievalCode(bucket, manifest);
-	if (!code) {
-		await transitionSession(bucket, manifest.sessionId, 'OPEN');
-		return null;
-	}
-
-	await transitionSession(bucket, manifest.sessionId, 'COMPLETED', {
-		retrievalCode: code,
-		validityDays: manifest.expiresAt === null ? -1 : null,
-		expiresAt: manifest.expiresAt,
-		fileIds: manifest.files.map((file) => file.fileId),
-	});
-	await closeSession(bucket, manifest.sessionId, manifest.createdAt);
-	return code;
+export interface FinalizePlan {
+	createdAt: number;
+	files: ChestFile[];
+	expiresAt: number | null;
+	validityDays: number;
+	fingerprint: string;
 }
 
-async function claimRetrievalCode(bucket: R2Bucket, manifest: ChestManifest): Promise<string | null> {
+/**
+ * Publishes a chest for a session that is already FINALIZING. Safe to call again after any failure:
+ * every step either repeats harmlessly or is detected as already done.
+ *
+ *  1. Reserve the candidate code on the session (the same code is used on every retry)
+ *  2. Claim codes/{code} with If-None-Match; a code owned by another session is replaced, never overwritten
+ *  3. Write the expiry index (timed chests only)
+ *  4. Move the session to COMPLETED with the result
+ *  5. Remove the pending index entry
+ *
+ * Returns null only when no free code was found; the session is then rolled back to OPEN.
+ */
+export async function finalizeChest(bucket: R2Bucket, sessionId: string, plan: FinalizePlan): Promise<string | null> {
+	let reserved = await reserveCandidateCode(bucket, sessionId, generateRetrievalCode());
+
 	for (let attempt = 0; attempt < 5; attempt++) {
-		const code = generateRetrievalCode();
-		const stored = await bucket.put(codeKey(code), JSON.stringify(manifest), {
+		const code = reserved.candidateCode as string;
+		const manifest: ChestManifest = {
+			version: 1,
+			sessionId,
+			createdAt: plan.createdAt,
+			expiresAt: plan.expiresAt,
+			files: plan.files,
+		};
+
+		const claimed = await bucket.put(codeKey(code), JSON.stringify(manifest), {
 			httpMetadata: { contentType: 'application/json' },
 			onlyIf: new Headers({ 'If-None-Match': '*' }),
 		});
-		if (stored === null) {
-			continue;
+		if (claimed === null) {
+			const owner = await readManifest(bucket, code);
+			if (owner?.sessionId !== sessionId) {
+				// Another chest already uses this code: pick a new one and try again
+				reserved = await replaceCandidateCode(bucket, sessionId, code, generateRetrievalCode());
+				continue;
+			}
+			// Claimed by an earlier attempt of this same completion: carry on
 		}
 
-		if (manifest.expiresAt !== null) {
-			try {
-				await bucket.put(expiryKey(manifest.expiresAt, code), '');
-			} catch (error) {
-				// Without an index entry the chest would never be cleaned up, so don't leave it behind
-				await bucket.delete(codeKey(code));
+		if (plan.expiresAt !== null) {
+			await bucket.put(expiryKey(plan.expiresAt, code), '');
+		}
+
+		try {
+			await transitionSession(bucket, sessionId, 'COMPLETED', {
+				retrievalCode: code,
+				validityDays: plan.validityDays,
+				expiresAt: plan.expiresAt,
+				fileIds: plan.files.map((file) => file.fileId),
+			});
+		} catch (error) {
+			// A concurrent retry may have completed the session already, with the same code
+			const current =
+				error instanceof SessionError && error.code === 'INVALID_TRANSITION' ? await getSessionRecord(bucket, sessionId) : null;
+			if (current?.record.status !== 'COMPLETED' || current.record.retrievalCode !== code) {
 				throw error;
 			}
 		}
 
+		await closeSession(bucket, sessionId, plan.createdAt);
 		return code;
 	}
+
+	await transitionSession(bucket, sessionId, 'OPEN', { candidateCode: null, completionFingerprint: null });
 	return null;
 }
 
@@ -181,6 +220,12 @@ async function readManifest(bucket: R2Bucket, code: string): Promise<ChestManife
 export async function getChest(bucket: R2Bucket, code: string, now: number): Promise<ChestManifest | null> {
 	const manifest = await readManifest(bucket, code);
 	if (!manifest || (manifest.expiresAt !== null && manifest.expiresAt <= now)) {
+		return null;
+	}
+
+	// The manifest alone is not enough: the session must agree that this code was issued for it
+	const session = await getSessionRecord(bucket, manifest.sessionId).catch(() => null);
+	if (!session || session.record.status !== 'COMPLETED' || session.record.retrievalCode !== code) {
 		return null;
 	}
 	return manifest;

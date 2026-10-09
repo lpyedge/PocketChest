@@ -1,4 +1,13 @@
-import { acquireLease, beginFinalize, releaseLease, SessionError, transitionSession } from './session';
+import {
+	acquireLease,
+	assertSameCompletion,
+	beginFinalize,
+	getSessionRecord,
+	releaseLease,
+	SessionError,
+	SessionRecord,
+	transitionSession,
+} from './session';
 import {
 	Env,
 	CreateChestRequest,
@@ -13,7 +22,6 @@ import {
 	CompleteMultipartUploadRequest,
 	CompleteMultipartUploadResponse,
 	ChestFile,
-	ChestManifest,
 	UploadJWTPayload,
 	MultipartJWTPayload,
 } from './types';
@@ -35,7 +43,7 @@ import {
 } from './utils';
 import {
 	cleanupExpired,
-	createChest,
+	finalizeChest,
 	fileKey,
 	fileUploadOptions,
 	getChest,
@@ -74,6 +82,8 @@ function sessionErrorToApi(error: SessionError): ApiError {
 			return new ApiError(404, 'SESSION_NOT_FOUND', 'Session not found or already completed');
 		case 'LEASE_ACTIVE':
 			return new ApiError(409, 'UPLOAD_IN_PROGRESS', 'Uploads are still in progress; try again shortly');
+		case 'COMPLETION_MISMATCH':
+			return new ApiError(409, 'COMPLETION_MISMATCH', 'This upload was already completed with different files or validity');
 		case 'LEASE_LOST':
 			return new ApiError(409, 'UPLOAD_LEASE_LOST', 'The upload expired before it finished; please upload again');
 		case 'CORRUPT_RECORD':
@@ -184,6 +194,22 @@ async function readJson<T>(request: Request): Promise<T> {
 }
 
 // Verifies the upload token for a session and that the session is still open
+// Checks the upload token and that it belongs to this session, whatever state the session is in
+async function authorizeUploadToken(request: Request, env: Env, sessionId: string): Promise<UploadJWTPayload> {
+	const token = bearerToken(request);
+	let payload: UploadJWTPayload;
+	try {
+		payload = await verifyUploadJWT(token, env.JWT_SECRET);
+	} catch {
+		throw new ApiError(401, 'AUTH_INVALID', 'Invalid token');
+	}
+
+	if (payload.sessionId !== sessionId || !isValidUUID(sessionId)) {
+		throw new ApiError(400, 'INVALID_SESSION', 'Invalid session');
+	}
+	return payload;
+}
+
 async function authorizeUpload(request: Request, env: Env, sessionId: string): Promise<UploadJWTPayload> {
 	const token = bearerToken(request);
 	let payload: UploadJWTPayload;
@@ -331,8 +357,13 @@ async function handleUploadFiles(request: Request, env: Env, sessionId: string):
 }
 
 // POST /api/chest/:sessionId/complete - Complete upload and generate retrieval code
+// Completion requests are fingerprinted, so a repeat with the same files and validity returns the same result
+function completionFingerprint(fileIds: string[], validityDays: number): string {
+	return `${[...fileIds].sort().join(',')}|${validityDays}`;
+}
+
 async function handleCompleteUpload(request: Request, env: Env, sessionId: string): Promise<Response> {
-	const payload = await authorizeUpload(request, env, sessionId);
+	const payload = await authorizeUploadToken(request, env, sessionId);
 	const { fileIds, validityDays } = await readJson<CompleteUploadRequest>(request);
 
 	if (
@@ -348,32 +379,74 @@ async function handleCompleteUpload(request: Request, env: Env, sessionId: strin
 		throw new ApiError(400, 'INVALID_REQUEST', 'Invalid validity period');
 	}
 
-	// Fails while any upload is still running; after this no new upload can start for this session
-	const finalizing = await beginFinalize(env.R2_STORAGE, sessionId);
+	const bucket = env.R2_STORAGE;
+	const fingerprint = completionFingerprint(fileIds, validityDays);
+	const expiresAt = calculateExpiry(validityDays);
 
-	const registered = new Map(finalizing.files.map((file) => [file.fileId, file]));
-	const files = fileIds.map((fileId) => registered.get(fileId));
-	if (files.some((file) => file === undefined)) {
-		await transitionSession(env.R2_STORAGE, sessionId, 'OPEN');
-		throw new ApiError(400, 'FILE_NOT_IN_SESSION', 'Some files do not belong to this session');
+	// Other requests may move the session while we look at it, so re-read and try a few times
+	for (let attempt = 0; attempt < 3; attempt++) {
+		const current = await getSessionRecord(bucket, sessionId);
+		if (!current || current.record.status === 'ABANDONED') {
+			throw new ApiError(404, 'SESSION_NOT_FOUND', 'Session not found or already completed');
+		}
+		const record = current.record;
+
+		if (record.status === 'COMPLETED') {
+			assertSameCompletion(record, fingerprint);
+			return completionResponse(record.retrievalCode as string, record.expiresAt);
+		}
+
+		let finalizing: SessionRecord;
+		try {
+			if (record.status === 'FINALIZING') {
+				// An earlier attempt is unfinished, or a concurrent request is finishing it: resume with the same input
+				assertSameCompletion(record, fingerprint);
+				finalizing = record;
+			} else {
+				finalizing = await beginFinalize(bucket, sessionId, fingerprint);
+			}
+		} catch (error) {
+			if (error instanceof SessionError && error.code === 'INVALID_TRANSITION') {
+				continue; // another request changed the state first; re-read
+			}
+			throw error;
+		}
+
+		const registered = new Map(finalizing.files.map((file) => [file.fileId, file]));
+		const files = fileIds.map((fileId) => registered.get(fileId));
+		if (files.some((file) => file === undefined)) {
+			await transitionSession(bucket, sessionId, 'OPEN', { completionFingerprint: null, candidateCode: null });
+			throw new ApiError(400, 'FILE_NOT_IN_SESSION', 'Some files do not belong to this session');
+		}
+
+		const code = await finalizeChest(bucket, sessionId, {
+			createdAt: payload.iat,
+			files: files as ChestFile[],
+			expiresAt,
+			validityDays,
+			fingerprint,
+		}).catch((error) => {
+			if (error instanceof SessionError && error.code === 'INVALID_TRANSITION') {
+				return undefined; // completed by a concurrent request; handled below
+			}
+			throw error;
+		});
+
+		if (code === null) {
+			throw new ApiError(500, 'CODE_GENERATION_FAILED', 'Failed to generate unique retrieval code');
+		}
+		if (code !== undefined) {
+			return completionResponse(code, expiresAt);
+		}
 	}
 
-	const manifest: ChestManifest = {
-		version: 1,
-		sessionId,
-		createdAt: payload.iat,
-		expiresAt: calculateExpiry(validityDays),
-		files: files as ChestFile[],
-	};
+	throw new ApiError(409, 'CONFLICT', 'Session state changed, try again');
+}
 
-	const retrievalCode = await createChest(env.R2_STORAGE, manifest);
-	if (!retrievalCode) {
-		throw new ApiError(500, 'CODE_GENERATION_FAILED', 'Failed to generate unique retrieval code');
-	}
-
+function completionResponse(retrievalCode: string, expiresAt: number | null): Response {
 	const response: CompleteUploadResponse = {
 		retrievalCode,
-		expiryDate: manifest.expiresAt ? new Date(manifest.expiresAt * 1000).toISOString() : null,
+		expiryDate: expiresAt ? new Date(expiresAt * 1000).toISOString() : null,
 	};
 	return json(response);
 }

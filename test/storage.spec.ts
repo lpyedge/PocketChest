@@ -71,14 +71,26 @@ describe('R2 storage lifecycle', () => {
 		expect(await listKeys('expiry/')).toEqual([]);
 	});
 
-	it('rejects completing the same session twice', async () => {
+	it('returns the same code when the same session is completed again with the same input', async () => {
 		const { sessionId, uploadToken } = await createTestSession();
-		const fileId = await uploadText(sessionId, uploadToken, 'once');
+		const formData = new FormData();
+		formData.append('textItems', JSON.stringify({ content: 'once', filename: 'once.txt' }));
+		const upload = await testFetch(`http://example.com/api/chest/${sessionId}/upload`, {
+			method: 'POST',
+			headers: { Authorization: `Bearer ${uploadToken}` },
+			body: formData,
+		});
+		const fileId = ((await upload.json()) as any).uploadedFiles[0].fileId;
 
-		expect((await complete(sessionId, uploadToken, [fileId], 7)).status).toBe(200);
-		const second = await complete(sessionId, uploadToken, [fileId], 7);
-		expect(second.status).toBe(404);
-		expect(((await second.json()) as any).code).toBe('SESSION_NOT_FOUND');
+		const body = JSON.stringify({ fileIds: [fileId], validityDays: 7 });
+		const headers = { Authorization: `Bearer ${uploadToken}`, 'Content-Type': 'application/json' };
+		const first = (await (
+			await testFetch(`http://example.com/api/chest/${sessionId}/complete`, { method: 'POST', headers, body })
+		).json()) as any;
+		const second = await testFetch(`http://example.com/api/chest/${sessionId}/complete`, { method: 'POST', headers, body });
+
+		expect(second.status).toBe(200);
+		expect(((await second.json()) as any).retrievalCode).toBe(first.retrievalCode);
 	});
 
 	it('rejects duplicate file IDs', async () => {

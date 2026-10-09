@@ -13,6 +13,7 @@ async function createChest(
 	request: APIRequestContext,
 	texts: { content: string; filename: string }[],
 	file?: { name: string; body: string },
+	validityDays = 7,
 ) {
 	const session = await (await request.post('/api/upload-sessions', { headers: await ownerHeaders(request, clientIp), data: {} })).json();
 	const headers = { Authorization: `Bearer ${session.uploadToken}`, 'CF-Connecting-IP': clientIp };
@@ -29,7 +30,7 @@ async function createChest(
 	).json();
 	const fileIds = uploaded.uploadedFiles.map((f: { fileId: string }) => f.fileId);
 	const completed = await (
-		await request.post(`/api/upload-sessions/${session.sessionId}/complete`, { headers, data: { fileIds, validityDays: 7 } })
+		await request.post(`/api/upload-sessions/${session.sessionId}/complete`, { headers, data: { fileIds, validityDays } })
 	).json();
 	return {
 		code: completed.retrievalCode as string,
@@ -102,3 +103,19 @@ test('the old ?code= form is no longer used', async ({ page, request }) => {
 	expect(requests.some((url) => url.includes('/api/retrieve/'))).toBe(false);
 	expect(requests.some((url) => url.endsWith('/api/retrieve'))).toBe(false);
 });
+
+// FIX-09: a permanent chest has no expiry date, and must not be shown as 1970
+const permanentText: Record<string, RegExp> = { '': /never|permanent/i, ja: /無期限/, 'zh-Hant': /永久有效/ };
+for (const [lang, pattern] of Object.entries(permanentText)) {
+	test(`a permanent file share says so${lang ? ` (${lang})` : ''}`, async ({ page, request }) => {
+		const chest = await createChest(request, [], { name: 'forever.txt', body: 'kept' }, -1);
+		// String form: this file is type-checked without the DOM lib
+		if (lang) await page.addInitScript(`window.localStorage.setItem('pocketchest.locale', '${lang}')`);
+		await page.goto(`/retrieve/#${chest.code}`);
+		await expect(page.getByText('forever.txt')).toBeVisible();
+
+		await expect(page.getByText(pattern).first()).toBeVisible();
+		const body = await page.locator('body').innerText();
+		expect(body).not.toMatch(/1970|Invalid Date/);
+	});
+}

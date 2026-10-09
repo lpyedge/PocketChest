@@ -111,6 +111,7 @@
 	"retrieve.enterAnother": "← 輸入其他取件碼",
 	"retrieve.enterCode": "輸入 6 位取件碼即可取得分享的檔案",
 	"retrieve.expires": "到期：{date}",
+	"retrieve.expiresNever": "到期：永久有效",
 	"retrieve.failedTitle": "取件失敗",
 	"retrieve.fileMeta": "{size} • {type}",
 	"retrieve.filesSection": "📁 檔案（{count}）",

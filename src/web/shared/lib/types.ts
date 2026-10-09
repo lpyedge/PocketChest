@@ -16,7 +16,8 @@ export interface UploadResponse {
 
 export interface CompleteUploadResponse {
 	retrievalCode: string;
-	expiryDate: string;
+	// null for a permanent chest
+	expiryDate: string | null;
 }
 
 export interface FileInfo {
@@ -31,7 +32,8 @@ export interface FileInfo {
 export interface RetrieveResponse {
 	files: FileInfo[];
 	chestToken: string;
-	expiryDate: string;
+	// null for a permanent chest
+	expiryDate: string | null;
 }
 
 export interface TextItem {

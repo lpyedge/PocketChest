@@ -111,6 +111,7 @@
 	"retrieve.enterAnother": "← 別の取り出しコードを入力",
 	"retrieve.enterCode": "6 文字の取り出しコードを入力して、共有されたファイルを開きます",
 	"retrieve.expires": "期限：{date}",
+	"retrieve.expiresNever": "期限：無期限",
 	"retrieve.failedTitle": "取り出しに失敗しました",
 	"retrieve.fileMeta": "{size} • {type}",
 	"retrieve.filesSection": "📁 ファイル（{count}）",

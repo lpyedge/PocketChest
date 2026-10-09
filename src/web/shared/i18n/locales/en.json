@@ -111,6 +111,7 @@
 	"retrieve.enterAnother": "← Enter Another Code",
 	"retrieve.enterCode": "Enter your 6-character retrieval code to access shared files",
 	"retrieve.expires": "Expires: {date}",
+	"retrieve.expiresNever": "Expires: never (permanent)",
 	"retrieve.failedTitle": "Retrieval Failed",
 	"retrieve.fileMeta": "{size} • {type}",
 	"retrieve.filesSection": "📁 Files ({count})",

@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react';
 import { usePocketChest } from '@/hooks/usePocketChest';
 import { FileInfo } from '@/lib/types';
+import { describeExpiry } from '@/lib/expiry';
 import { useI18n } from '@/i18n/I18nProvider';
 
 interface FileWithContent extends FileInfo {
@@ -16,7 +17,7 @@ interface RetrieveClientProps {
 export function RetrieveClient({ code, onBack }: RetrieveClientProps) {
 	const { t, locale } = useI18n();
 	const [files, setFiles] = useState<FileWithContent[]>([]);
-	const [expiryDate, setExpiryDate] = useState<string>('');
+	const [expiryDate, setExpiryDate] = useState<string | null>(null);
 	const [chestToken, setChestToken] = useState<string>('');
 	const [copiedFileId, setCopiedFileId] = useState<string | null>(null);
 
@@ -27,7 +28,7 @@ export function RetrieveClient({ code, onBack }: RetrieveClientProps) {
 	useEffect(() => {
 		const controller = new AbortController();
 		setFiles([]);
-		setExpiryDate('');
+		setExpiryDate(null);
 		setChestToken('');
 
 		retrieve(code, controller.signal)
@@ -60,10 +61,6 @@ export function RetrieveClient({ code, onBack }: RetrieveClientProps) {
 		const sizes = [t('size.bytes'), 'KB', 'MB', 'GB'];
 		const i = Math.floor(Math.log(bytes) / Math.log(k));
 		return new Intl.NumberFormat(locale, { maximumFractionDigits: 2 }).format(bytes / Math.pow(k, i)) + ' ' + sizes[i];
-	};
-
-	const formatDate = (dateString: string): string => {
-		return new Date(dateString).toLocaleString(locale);
 	};
 
 	const copyTextToClipboard = (content: string, fileId: string) => {
@@ -162,7 +159,7 @@ export function RetrieveClient({ code, onBack }: RetrieveClientProps) {
 									<h2 className="text-2xl font-bold text-gray-900">
 										{t('retrieve.filesSection', { count: files.filter((f) => !f.isText).length })}
 									</h2>
-									<p className="text-gray-600">{t('retrieve.expires', { date: formatDate(expiryDate) })}</p>
+									<p className="text-gray-600">{describeExpiry(expiryDate, locale, t)}</p>
 								</div>
 
 								<div className="space-y-4">

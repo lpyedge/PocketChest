@@ -74,6 +74,7 @@ import {
 	fileUploadOptions,
 	getChest,
 	revokeShare,
+	extendShare,
 	listShares,
 	SHARES_PAGE_DEFAULT,
 	SHARES_PAGE_MAX,
@@ -213,6 +214,10 @@ async function routeApi(request: Request, env: Env, path: string): Promise<Respo
 
 		if (path === '/api/admin/shares' && method === 'GET') {
 			return await handleListShares(request, env);
+		}
+
+		if (path.match(/^\/api\/admin\/shares\/[^\/]+$/) && method === 'PATCH') {
+			return await handleExtendShare(request, env, segments[4]);
 		}
 
 		if (path.match(/^\/api\/admin\/shares\/[^\/]+$/) && method === 'DELETE') {
@@ -578,6 +583,25 @@ async function handleListShares(request: Request, env: Env): Promise<Response> {
 		throw new ApiError(400, 'INVALID_REQUEST', 'Invalid cursor');
 	}
 	return json(await listShares(env.R2_STORAGE, getCurrentTimestamp(), limit, cursor), 200, { 'Cache-Control': 'no-store' });
+}
+
+// PATCH /api/admin/shares/:sessionId {validityDays} - Owner moves a live share's expiry later, or to permanent (-1)
+async function handleExtendShare(request: Request, env: Env, sessionId: string): Promise<Response> {
+	await requireOwner(request, env.R2_STORAGE, env.JWT_SECRET, { mutating: true });
+	const { validityDays } = await readJson<{ validityDays?: unknown }>(request);
+	if (!isValidValidityDays(validityDays)) {
+		throw new ApiError(400, 'INVALID_REQUEST', 'validityDays must be one of 1, 3, 7, 14 or -1 (permanent)');
+	}
+	try {
+		const expiresAt = await extendShare(env.R2_STORAGE, sessionId, validityDays, getCurrentTimestamp());
+		return json({ expiresAt }, 200, { 'Cache-Control': 'no-store' });
+	} catch (error) {
+		if (error instanceof SessionError && (error.code === 'NOT_FOUND' || error.code === 'INVALID_TRANSITION')) {
+			throw new ApiError(404, 'SHARE_NOT_FOUND', 'Share not found');
+		}
+		if (error instanceof SessionError) throw sessionErrorToApi(error);
+		throw error;
+	}
 }
 
 // DELETE /api/admin/shares/:sessionId - Owner withdraws a share; the code stops working at once

@@ -56,12 +56,16 @@ test('create, list, extend, revoke: the recipient is refused afterwards', async 
 	const dialog = page.getByRole('dialog', { name: 'Share records' });
 	await expect(dialog).toBeVisible();
 	const row = rows(page).filter({ hasText: code });
-	// The shared development server may hold many shares from earlier runs: page on until this one is listed
-	for (let guard = 0; guard < 50 && !(await row.isVisible()); guard++) {
+	// "Loading..." is the first-page placeholder and the label of the "Load more" button while a page loads
+	const loading = dialog.getByText('Loading...');
+	// The shared development server may hold many shares from earlier tests, sorted by code, 20 a page: page on until
+	// this one is listed. Each page must have finished loading before deciding there is no further page.
+	for (let guard = 0; guard < 50; guard++) {
+		await expect(loading).toHaveCount(0);
+		if (await row.isVisible()) break;
 		const more = dialog.getByRole('button', { name: 'Load more' });
 		if (!(await more.isVisible())) break;
-		await more.click();
-		await page.waitForTimeout(150);
+		await Promise.all([page.waitForResponse((response) => response.url().includes('/api/admin/shares?')), more.click()]);
 	}
 	await expect(row).toBeVisible();
 	await expect(row).toContainText('Expires');
@@ -77,15 +81,17 @@ test('create, list, extend, revoke: the recipient is refused afterwards', async 
 	await row.getByRole('button', { name: 'Extend', exact: true }).click();
 	await expect(dialog.getByRole('alert')).toBeVisible();
 
-	// The recipient can still retrieve before revoking
-	const before = await request.post('/api/retrieve', { data: { code } });
+	// The recipient can still retrieve before revoking. A client address of its own, like every other client here, so
+	// the per-address retrieve limit counts only this recipient
+	const recipient = { 'CF-Connecting-IP': randomClientIp() };
+	const before = await request.post('/api/retrieve', { headers: recipient, data: { code } });
 	expect(before.status()).toBe(200);
 
 	await row.getByRole('button', { name: 'Revoke' }).click();
 	await expect(dialog.getByText(/Share revoked/)).toBeVisible();
 	await expect(rows(page).filter({ hasText: code })).toHaveCount(0);
 
-	const after = await request.post('/api/retrieve', { data: { code } });
+	const after = await request.post('/api/retrieve', { headers: recipient, data: { code } });
 	expect(after.status()).toBe(404);
 });
 

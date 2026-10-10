@@ -74,10 +74,11 @@ export function ShareManagementModal({ csrfToken, onClose, onSignedOut }: ShareM
 		load(null, true);
 	}, [load]);
 
-	// Every row on screen was revoked but the server has more: keep going instead of showing an empty list
+	// Every row on screen was revoked but the server has more: keep going instead of showing an empty list. Not after a
+	// failed load: nothing would change, so it would ask again at once, forever; "Load more" stays there to retry.
 	useEffect(() => {
-		if (shares !== null && shares.length === 0 && cursor && !loading) load(cursor, false);
-	}, [shares, cursor, loading, load]);
+		if (shares !== null && shares.length === 0 && cursor && !loading && message?.kind !== 'error') load(cursor, false);
+	}, [shares, cursor, loading, load, message]);
 
 	// Keyboard: focus moves into the dialog, Tab stays inside it, Escape closes it, focus returns to where it was
 	useEffect(() => {

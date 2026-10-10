@@ -65,6 +65,9 @@ export function prepareUpdate({
 	if (!merged.ok) {
 		const files = git(['diff', '--name-only', '--diff-filter=U'], { allowFailure: true }).out.split('\n').filter(Boolean);
 		restore();
+		// No unmerged files means git refused for another reason (no committer identity, an untracked file in the
+		// way); that is not a conflict, so say what git said instead of sending the person to resolve nothing
+		if (files.length === 0) throw new Error(`git merge ${upstreamRef} failed: ${merged.out.split('\n')[0]}`);
 		return {
 			status: 'conflict',
 			upstreamSha,

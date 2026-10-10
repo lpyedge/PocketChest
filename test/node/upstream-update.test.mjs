@@ -6,8 +6,12 @@ import { execFileSync } from 'node:child_process';
 import { mkdtempSync, readFileSync, writeFileSync, mkdirSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import process from 'node:process';
 import { prepareUpdate } from '../../scripts/prepare-upstream-update.mjs';
 
+// The merge inside prepareUpdate needs a committer identity; CI runners have none, so the fixtures bring their own
+const IDENTITY = { GIT_AUTHOR_NAME: 't', GIT_AUTHOR_EMAIL: 't@example.com', GIT_COMMITTER_NAME: 't', GIT_COMMITTER_EMAIL: 't@example.com' };
+Object.assign(process.env, IDENTITY);
 const git = (cwd, ...args) => execFileSync('git', args, { cwd, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] }).trim();
 const config = (name = 'pocket-chest', bucket = 'pocket-chest', extra = '') =>
 	`{\n\t"name": "${name}",\n\t"r2_buckets": [{ "bucket_name": "${bucket}", "binding": "R2_STORAGE" }],\n\t"compatibility_date": "2025-08-13"${extra}\n}\n`;
@@ -18,7 +22,7 @@ function write(dir, file, text) {
 }
 function commit(dir, message) {
 	git(dir, 'add', '-A');
-	git(dir, '-c', 'user.name=t', '-c', 'user.email=t@example.com', 'commit', '-q', '-m', message);
+	git(dir, 'commit', '-q', '-m', message);
 }
 
 // upstream repo + a copy (clone) of it, as a person's own instance
@@ -161,6 +165,31 @@ test('refuses to start on a dirty working tree', () => {
 		assert.equal(prepareUpdate({ cwd: f.copy }).status, 'dirty');
 		assert.equal(readFileSync(join(f.copy, 'scratch.txt'), 'utf8'), 'unsaved\n');
 	} finally {
+		f.done();
+	}
+});
+
+test('a merge git refuses for another reason is reported as that reason, not as a conflict', () => {
+	const f = fixture();
+	const saved = { ...process.env };
+	try {
+		write(f.upstream, 'src/app.txt', 'line one\nline two changed upstream\nline three\n');
+		commit(f.upstream, 'upstream code');
+		git(f.copy, 'fetch', '-q', 'upstream', 'master');
+		const before = own(f.copy);
+		// No committer identity anywhere: git refuses the merge before touching a file
+		for (const key of Object.keys(IDENTITY)) delete process.env[key];
+		process.env.HOME = f.root;
+		process.env.XDG_CONFIG_HOME = f.root;
+		process.env.GIT_CONFIG_NOSYSTEM = '1';
+		process.env.GIT_COMMITTER_NAME = '';
+		assert.throws(() => prepareUpdate({ cwd: f.copy }), /git merge upstream\/master failed/);
+		Object.assign(process.env, saved);
+		assert.deepEqual(own(f.copy), before);
+		assert.equal(git(f.copy, 'branch', '--list', 'update/*'), '');
+	} finally {
+		for (const key of Object.keys(process.env)) if (!(key in saved)) delete process.env[key];
+		Object.assign(process.env, saved);
 		f.done();
 	}
 });

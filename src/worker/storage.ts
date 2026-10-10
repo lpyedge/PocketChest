@@ -16,7 +16,7 @@ import {
 	transitionSession,
 	updateSession,
 } from './session';
-import { calculateExpiry, describeFailure, generateRetrievalCode } from './utils';
+import { describeFailure, generateRetrievalCode } from './utils';
 import { ApiError } from './errors';
 
 /**
@@ -727,7 +727,7 @@ export async function extendShare(bucket: R2Bucket, sessionId: string, validityD
 		throw new SessionError('NOT_FOUND', 'No live share for this session');
 	}
 	const code = found.record.retrievalCode;
-	const target = validityDays === -1 ? null : calculateExpiry(validityDays);
+	const target = validityDays === -1 ? null : now + validityDays * 24 * 60 * 60;
 	// Throws unless the share is unexpired and `target` is really later than its current expiry
 	const checkLater = (current: number | null) => {
 		if (current !== null && current <= now) throw new ApiError(409, 'SHARE_EXPIRED', 'This share has expired');

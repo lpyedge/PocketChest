@@ -89,6 +89,40 @@ describe('DELETE /api/admin/shares/:sessionId', () => {
 		expect((await revoke(share.sessionId)).status).toBe(404);
 	});
 
+	it('answers 404 for an id that is not a session id', async () => {
+		expect((await revoke('not-a-session-id')).status).toBe(404);
+	});
+
+	it('a Complete retried after the share was revoked is refused as gone, not as a conflict', async () => {
+		const { sessionId, uploadToken } = await createTestSession();
+		const form = new FormData();
+		form.append('files', new File(['retried'], 'r.txt', { type: 'text/plain' }));
+		const uploaded = await testFetch(`${TEST_ORIGIN}/api/upload-sessions/${sessionId}/files`, {
+			method: 'POST',
+			headers: { Authorization: `Bearer ${uploadToken}` },
+			body: form,
+		});
+		const fileIds = ((await uploaded.json()) as any).uploadedFiles.map((f: any) => f.fileId);
+		const complete = () =>
+			testFetch(`${TEST_ORIGIN}/api/upload-sessions/${sessionId}/complete`, {
+				method: 'POST',
+				headers: { Authorization: `Bearer ${uploadToken}`, 'Content-Type': 'application/json' },
+				body: JSON.stringify({ fileIds, validityDays: 7 }),
+			});
+		expect((await complete()).status).toBe(200);
+
+		// Content removal fails, so the REVOKED record is still there when the retry arrives
+		const spy = vi.spyOn(env.R2_STORAGE, 'delete').mockRejectedValue(new Error('R2 unavailable'));
+		try {
+			expect((await revoke(sessionId)).status).toBe(200);
+		} finally {
+			spy.mockRestore();
+		}
+		const retried = await complete();
+		expect(retried.status).toBe(404);
+		expect(((await retried.json()) as any).code).toBe('SESSION_NOT_FOUND');
+	});
+
 	it('works for a permanent share', async () => {
 		const share = await makeShare('p.txt', -1);
 		expect((await revoke(share.sessionId)).status).toBe(200);

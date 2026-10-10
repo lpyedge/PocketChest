@@ -610,6 +610,7 @@ async function handleListShares(request: Request, env: Env): Promise<Response> {
 // PATCH /api/admin/shares/:sessionId {validityDays} - Owner moves a live share's expiry later, or to permanent (-1)
 async function handleExtendShare(request: Request, env: Env, sessionId: string): Promise<Response> {
 	await requireOwner(request, env.R2_STORAGE, env.JWT_SECRET, { mutating: true });
+	if (!isValidUUID(sessionId)) throw new ApiError(404, 'SHARE_NOT_FOUND', 'Share not found');
 	const { validityDays } = await readJson<{ validityDays?: unknown }>(request);
 	if (!isValidValidityDays(validityDays)) {
 		throw new ApiError(400, 'INVALID_REQUEST', 'validityDays must be one of 1, 3, 7, 14 or -1 (permanent)');
@@ -629,6 +630,7 @@ async function handleExtendShare(request: Request, env: Env, sessionId: string):
 // DELETE /api/admin/shares/:sessionId - Owner withdraws a share; the code stops working at once
 async function handleRevokeShare(request: Request, env: Env, sessionId: string): Promise<Response> {
 	await requireOwner(request, env.R2_STORAGE, env.JWT_SECRET, { mutating: true });
+	if (!isValidUUID(sessionId)) throw new ApiError(404, 'SHARE_NOT_FOUND', 'Share not found');
 	try {
 		const removed = await revokeShare(env.R2_STORAGE, sessionId, getCurrentTimestamp());
 		return json({ revoked: true, contentRemoved: removed }, 200, { 'Cache-Control': 'no-store' });
@@ -1056,7 +1058,7 @@ async function handleCompleteUpload(request: Request, env: Env, sessionId: strin
 	// Other requests may move the session while we look at it, so re-read and try a few times
 	for (let attempt = 0; attempt < 3; attempt++) {
 		const current = await getSessionRecord(bucket, sessionId);
-		if (!current || current.record.status === 'ABANDONED') {
+		if (!current || current.record.status === 'ABANDONED' || current.record.status === 'REVOKED') {
 			throw new ApiError(404, 'SESSION_NOT_FOUND', 'Session not found or already completed');
 		}
 		const record = current.record;

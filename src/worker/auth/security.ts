@@ -3,10 +3,12 @@
  * authenticator enrolment. Every change is one owner CAS that bumps authVersion, and the caller's own
  * session is then replaced, so every other session stops working.
  *
- * One deliberate exception: adding a passkey (auth/passkeys.ts) does not bump authVersion. It needs a fresh
- * re-entry, does not switch the method on, and ending the owner's sessions for it would sign them out of the
- * page they just used. It still checks, in the same CAS as the write, that the session belongs to the current
- * version, so a session from before a reset cannot add one.
+ * Setting up a method for the first time switches it on in the same change (a first authenticator confirmed with a
+ * code, a first passkey registered): it was just proved to work, so a separate "turn on" step would only repeat that.
+ * A method the owner switched off on purpose stays off when it is replaced or added to. Adding a further passkey to a
+ * method that already has one does not bump authVersion at all (auth/passkeys.ts): it needs a fresh re-entry, changes
+ * nothing about how the owner signs in, and still checks in the same CAS as the write that the session belongs to the
+ * current version, so a session from before a reset cannot add one.
  */
 import { ApiError } from '../errors';
 import { toBase64Url } from './encoding';
@@ -94,7 +96,7 @@ function withEnabled(owner: OwnerRecord, method: Method, enabled: boolean): Owne
  * Ends the current session, and starts a new one for the same caller with the same re-entry time.
  * Called after authVersion changed, so the old session and every other session are already invalid.
  */
-async function rotate(
+export async function rotate(
 	env: { R2_STORAGE: R2Bucket; JWT_SECRET: string },
 	session: LoadedSession,
 	written: OwnerRecord,
@@ -239,10 +241,10 @@ export async function changePassword(
 	}
 	assertCurrent(loaded.owner, session);
 	const current = loaded.owner.methods.password.hash;
-	if (current && (await verifyPassword(newPassword, current))) {
+	if (current && (await verifyPassword(newPassword, current, env.JWT_SECRET))) {
 		throw new ApiError(400, 'PASSWORD_UNCHANGED', 'Choose a password different from the current one');
 	}
-	const hash = await hashPassword(newPassword);
+	const hash = await hashPassword(newPassword, env.JWT_SECRET);
 	let written: OwnerRecord;
 	try {
 		written = await mutateAsSession(env.R2_STORAGE, session, (owner) => ({
@@ -257,10 +259,10 @@ export async function changePassword(
 }
 
 /** Step one of TOTP enrolment: a new seed is made and kept sealed under a single-use challenge. */
-export async function prepareTotp(env: { R2_STORAGE: R2Bucket; AUTH_ENCRYPTION_KEY?: string }, session: LoadedSession, now: number) {
+export async function prepareTotp(env: { R2_STORAGE: R2Bucket; JWT_SECRET: string }, session: LoadedSession, now: number) {
 	assertRecentReauth(session, now);
 	const seed = generateSeed();
-	const sealed = await sealSeed(seed, env.AUTH_ENCRYPTION_KEY);
+	const sealed = await sealSeed(seed, env.JWT_SECRET);
 	const challenge = toBase64Url(crypto.getRandomValues(new Uint8Array(32)));
 	await storeChallenge(env.R2_STORAGE, challenge, 'totp-enroll', await sha256Hex(session.sid), now, {
 		ttlSeconds: ENROLL_SECONDS,
@@ -275,7 +277,7 @@ export async function prepareTotp(env: { R2_STORAGE: R2Bucket; AUTH_ENCRYPTION_K
  * old seed stays in use. Success resets the replay record and rotates the session.
  */
 export async function confirmTotp(
-	env: { R2_STORAGE: R2Bucket; JWT_SECRET: string; AUTH_ENCRYPTION_KEY?: string },
+	env: { R2_STORAGE: R2Bucket; JWT_SECRET: string },
 	session: LoadedSession,
 	challenge: string,
 	code: string,
@@ -294,7 +296,7 @@ export async function confirmTotp(
 	if (payload === null) {
 		throw new ApiError(400, 'CHALLENGE_INVALID', 'The sign-in step expired or was already used; start again');
 	}
-	const seed = await openSeed(payload, env.AUTH_ENCRYPTION_KEY);
+	const seed = await openSeed(payload, env.JWT_SECRET);
 	const step = await matchTotpStep(seed, code, now);
 	if (step === null) {
 		const { ended } = await attempts.fail();
@@ -311,7 +313,13 @@ export async function confirmTotp(
 			authVersion: owner.authVersion + 1,
 			methods: {
 				...owner.methods,
-				totp: { ...owner.methods.totp, encryptedSecret: payload, lastAcceptedStep: step },
+				// First time: on straight away. Replacing an existing seed keeps the on/off state the owner chose.
+				totp: {
+					...owner.methods.totp,
+					enabled: owner.methods.totp.encryptedSecret === null ? true : owner.methods.totp.enabled,
+					encryptedSecret: payload,
+					lastAcceptedStep: step,
+				},
 			},
 		}));
 	} catch (error) {

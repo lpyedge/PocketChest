@@ -9,6 +9,7 @@ import {
 	TEST_ORIGIN,
 	TEST_OWNER_PASSWORD,
 	objectText,
+	TEST_JWT_SECRET,
 } from './utils/test-setup';
 import { loginWithPassword, loginWithTotp } from '../src/worker/auth/login';
 import { mutateOwner } from '../src/worker/auth/owner';
@@ -43,7 +44,7 @@ async function failPassword(now: number, times = FAILURE_LIMIT) {
 }
 
 async function enableTotpAndPassword(seed: Uint8Array) {
-	const sealed = await sealSeed(seed, bindings.AUTH_ENCRYPTION_KEY);
+	const sealed = await sealSeed(seed, TEST_JWT_SECRET);
 	await mutateOwner(bucket(), (owner) => ({
 		...owner,
 		methods: {
@@ -191,7 +192,7 @@ describe('runtime rate limit bindings', () => {
 			},
 		};
 		await postPassword(TEST_OWNER_PASSWORD, '203.0.113.20', { ...env, AUTH_LIMITER: counting } as unknown as Env);
-		expect(keys).toEqual(['login-password:203.0.113.20']);
+		expect(keys).toEqual(['test-instance:login-password:203.0.113.20']);
 	});
 
 	it('answers 429 with Retry-After when the limiter refuses, without counting a failure', async () => {

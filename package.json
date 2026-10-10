@@ -8,11 +8,13 @@
 		"dev:worker": "wrangler dev",
 		"build": "vite build",
 		"preview": "npm run build && wrangler dev",
-		"deploy": "npm run build && wrangler deploy",
-		"test": "npm run test:unit && npm run test:worker && npm run test:contracts",
+		"deploy": "npm run build && node scripts/deploy.mjs",
+		"deploy:code": "npm run build && wrangler deploy --keep-vars",
+		"test": "npm run test:unit && npm run test:worker && npm run test:contracts && npm run test:scripts",
 		"test:unit": "vitest run test/web test/i18n-keys.spec.ts",
 		"test:worker": "vitest run --exclude 'test/web/**' --exclude 'test/contracts/**' --exclude 'test/i18n-keys.spec.ts'",
 		"test:contracts": "vitest run test/contracts",
+		"test:scripts": "node --test \"test/node/*.test.mjs\"",
 		"typecheck": "tsc --noEmit -p tsconfig.json && tsc --noEmit -p tsconfig.web.json && tsc --noEmit -p test/tsconfig.json && tsc --noEmit -p test/web/tsconfig.json && tsc --noEmit -p test/e2e/tsconfig.json",
 		"cf-typegen": "wrangler types",
 		"lint": "eslint .",
@@ -57,14 +59,8 @@
 	},
 	"cloudflare": {
 		"bindings": {
-			"JWT_SECRET": {
-				"description": "Generate an independent random signing secret (openssl rand -base64 48). Do not use local example."
-			},
-			"AUTH_ENCRYPTION_KEY": {
-				"description": "Base64 of 32 fresh random bytes (openssl rand -base64 32). Never change it without a recovery plan."
-			},
 			"ADMIN_BOOTSTRAP_PASSWORD": {
-				"description": "One-time Owner setup password (16+ characters). Remove after first setup and disable BOOTSTRAP_ENABLED."
+				"description": "Your PocketChest Owner password (16+ characters). Set it once here; the site only asks you to sign in with it. Nothing else to generate."
 			}
 		}
 	}

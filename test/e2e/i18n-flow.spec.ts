@@ -76,7 +76,7 @@ for (const language of LANGUAGES) {
 			page.on('console', (message) => {
 				if (message.type() === 'error') consoleErrors.push(message.text());
 			});
-			await request.post('/api/auth/bootstrap', { headers: { Origin: ORIGIN }, data: { password: OWNER_PASSWORD } });
+			await request.get('/api/auth/methods');
 
 			await page.goto('/upload/');
 			await expect.poll(() => page.getAttribute('html', 'lang')).toBe(language.lang);

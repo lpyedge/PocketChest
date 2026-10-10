@@ -54,8 +54,8 @@
 
 | # | Method | Path | 權限 | 狀態 | 說明 |
 |---|---|---|---|---|---|
-| 1 | GET | `/api/auth/methods` | 公開 | [已實作] | 回三種方式的啟用旗標與 `setupRequired`。 |
-| 3 | POST | `/api/auth/bootstrap` | 公開，需 Bootstrap 條件 | [TODO-TASK-12] | 僅首次初始化。 |
+| 1 | GET | `/api/auth/methods` | 公開 | [已實作] | 回 `setup` 狀態與三種方式的啟用旗標。全新安裝時，第一次呼叫會用部署時設定的 `ADMIN_BOOTSTRAP_PASSWORD` 自動建立 Owner（見下）。 |
+| 3 | POST | `/api/auth/bootstrap` | — | [已移除] | 網站不再有「建立 Owner」的入口：沒有任何路由讓呼叫者自選 Owner 或密碼，一律 `404`。 |
 | 4 | POST | `/api/auth/login/password` | 公開 | [已實作] | 成功發出 Owner Cookie。 |
 | 5 | POST | `/api/auth/login/totp` | 公開 | [已實作] | 同上。 |
 | 6 | POST | `/api/auth/passkey/login/options` | 公開 | [已實作] | 一次性 Challenge。 |
@@ -83,6 +83,14 @@
 | 19 | POST | `/api/admin/passkeys/register/verify` | Cookie + CSRF + 近期 reauth | [已實作] | 新增 Credential。 |
 | 20 | DELETE | `/api/admin/passkeys/{id}` | Cookie + CSRF + 近期 reauth | [已實作] | 不得刪最後一個有效方式。 |
 
+### Owner 分享記錄
+
+| # | Method | Path | 權限 | 狀態 | 說明 |
+|---|---|---|---|---|---|
+| 37 | GET | `/api/admin/shares?limit=&cursor=` | Cookie | [已實作] | 目前有效的分享，`limit` 1–50（預設 20）。回 `{shares:[{sessionId, retrievalCode, createdAt, expiresAt, fileCount, totalSize}], cursor}`；`cursor` 為 `null` 才是最後一頁。未完成、已到期、損壞或與 Session 不一致的紀錄不列出（本端點不做修復）；單頁可能少於 `limit`，需持續跟隨 `cursor`。`Cache-Control: no-store`。 |
+| 39 | PATCH | `/api/admin/shares/{sessionId}` | Cookie + CSRF | [已實作] | `{validityDays: 1\|3\|7\|14\|-1}`，由現在起算把未到期分享延長或轉永久（`-1`），回 `{expiresAt}`。永不縮短（`409 EXPIRY_NOT_LATER`）；已到期 `409 SHARE_EXPIRED`；已撤銷、已移除或未完成 `404 SHARE_NOT_FOUND`。順序：先寫新索引 → CAS 改 Session → 改 Manifest → 刪舊索引；中途失敗時分享暫時被拒絕，重複同一請求（得到相同到期時間時回 200）或舊索引到期時的 Cron 會修復。 |
+| 38 | DELETE | `/api/admin/shares/{sessionId}` | Cookie + CSRF | [已實作] | 撤銷分享：Session `COMPLETED → REVOKED`（CAS，終態）後取件碼、下載授權與下載立即拒絕（含先前已簽發的取件令牌）；隨後移除取件碼、索引與檔案。移除失敗仍回 `200 {revoked:true, contentRemoved:false}`，`revoked/{sessionId}` 標記讓 Cron 重試。無此分享、未完成或已移除回 `404 SHARE_NOT_FOUND`。已在進行中的下載不保證中斷。 |
+
 ### 上傳
 
 | # | Method | Path | 權限 | 狀態 | 說明 |
@@ -94,6 +102,8 @@
 | 26 | POST | `/api/upload-sessions/{id}/multipart/{fileId}/complete` | Multipart Token | [已實作] | |
 | 27 | POST | `/api/upload-sessions/{id}/multipart/{fileId}/abort` | Multipart Token | [已實作] | |
 | 28 | POST | `/api/upload-sessions/{id}/complete` | Upload Token | [已實作] | |
+
+> **上傳令牌與 Owner Session（T06）**：`POST /api/upload-sessions` 簽發的 Upload Token 帶 `osh`（簽發它的 Owner Session id 的 SHA-256，不含 Cookie 本身）。檔案上傳、建立 multipart、multipart complete、`complete` 會多讀兩次 R2（Owner Session、Owner 記錄）確認該 Session 仍有效（未登出、未過絕對期限、`authVersion` 未變），否則 `401 AUTH_INVALID`；沒有 `osh` 的舊令牌同樣被拒（需重新開始上傳）。為控制 Free 方案的 R2 讀取量，逐個 part 上傳不檢查（登出後寫入的 part 無法被發布，因為 multipart complete 與 `complete` 會失敗）；`cancel` 與 multipart `abort` 登出後仍允許，只用來釋放資源。閒置時間不算登出。已在進行中的單一寫入不保證中斷。
 
 ### 取件與下載
 
@@ -122,8 +132,10 @@
 200 OK
 Cache-Control: no-store
 
-{"setupRequired":false,"password":true,"totp":false,"passkey":false}
+{"setup":"ready","methods":{"password":{"enabled":true},"totp":{"enabled":false},"passkey":{"enabled":false}}}
 ```
+
+`setup`：`ready`（Owner 已存在，顯示一般登入）、`initializing`（另一個請求正在建立，稍後再試）、`password-missing`（沒有 Owner 也沒有有效的初始密碼）、`recovery-required`（首次設定中斷，需部署者依 `docs/RECOVERY.md` 處理）、`failed`（這次沒完成，未領取任何東西，可重試）。Owner 一旦存在，初始密碼永遠不會再被使用或覆寫它。
 
 不得回傳 `passwordHash`、`encryptedSecret`、`credentials`、`seed`。
 

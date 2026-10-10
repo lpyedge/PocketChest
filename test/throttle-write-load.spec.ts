@@ -10,6 +10,7 @@ import {
 	TEST_ORIGIN,
 	TEST_OWNER_PASSWORD,
 	postRetrieve,
+	TEST_JWT_SECRET,
 } from './utils/test-setup';
 import type { RateLimitBinding } from '../src/worker/types';
 
@@ -45,7 +46,7 @@ describe('N2-10 refused attempts cost no writes', () => {
 	beforeEach(async () => {
 		await resetStorage();
 		await setupTestEnvironment();
-		await createOwnerOnce(original, TEST_OWNER_PASSWORD);
+		await createOwnerOnce(original, TEST_OWNER_PASSWORD, TEST_JWT_SECRET);
 	});
 
 	it('50 attempts against a locked method write nothing to the counter', async () => {
@@ -138,7 +139,7 @@ describe('N2-10 downloads are limited per file and address', () => {
 		} finally {
 			Object.defineProperty(env, 'DOWNLOAD_LIMITER', { value: saved, configurable: true });
 		}
-		expect(keys).toEqual([`download:${fileId}:203.0.113.77`]);
+		expect(keys).toEqual([`test-instance:download:${fileId}:203.0.113.77`]);
 
 		const ok = await testFetch(`http://example.com/api/download/${fileId}`, { headers: { Cookie: cookie } });
 		expect(ok.status).toBe(200);

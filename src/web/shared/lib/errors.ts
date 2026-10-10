@@ -43,6 +43,9 @@ const CODE_KEYS: Record<string, MessageKey> = {
 	PASSWORD_TOO_LONG: 'code.PASSWORD_TOO_LONG',
 	PASSWORD_TOO_WEAK: 'code.PASSWORD_TOO_WEAK',
 	PASSWORD_UNCHANGED: 'code.PASSWORD_UNCHANGED',
+	SHARE_NOT_FOUND: 'code.SHARE_NOT_FOUND',
+	EXPIRY_NOT_LATER: 'code.EXPIRY_NOT_LATER',
+	SHARE_EXPIRED: 'code.SHARE_EXPIRED',
 };
 
 // The message key for a server code, if the interface has one

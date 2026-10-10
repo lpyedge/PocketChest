@@ -54,11 +54,17 @@ async function enrollPasskey(owner: Owner, authenticator: VirtualAuthenticator):
 		signedIn(owner),
 	);
 	expect(verify.status).toBe(200);
-	await verify.text();
+	// The first passkey replaces the session; carry on with the new cookie and token
+	const cookie = (verify.headers.get('Set-Cookie') ?? '').split(';')[0];
+	const data = (await verify.json()) as any;
+	if (cookie) {
+		owner.cookie = cookie;
+		owner.csrfToken = data.csrfToken;
+	}
 	return response.id;
 }
 
-// Sets which methods are on. Enrolling a passkey does not switch it on; this is how a test does that.
+// Sets which methods are on, exactly, whatever enrolling did.
 async function setPasskeyState(passkeyEnabled: boolean, passwordEnabled: boolean, keepCredentials = true) {
 	await mutateOwner(bucket(), (owner) => ({
 		...owner,

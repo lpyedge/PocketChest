@@ -4,7 +4,6 @@ import { createTestSession, resetStorage, setupTestEnvironment, testFetch } from
 import type { RateLimitBinding } from '../src/worker/types';
 
 const e = env as unknown as Record<string, unknown>;
-const BOOTSTRAP_PASSWORD = 'test-bootstrap-password-0123456789';
 
 // Allows the first `allowed` calls and refuses the rest, recording every key
 function limiter(allowed: number, keys: string[] = []): RateLimitBinding {
@@ -20,66 +19,6 @@ function limiter(allowed: number, keys: string[] = []): RateLimitBinding {
 function setBinding(name: string, value: unknown) {
 	Object.defineProperty(env, name, { value, configurable: true, writable: true });
 }
-
-function bootstrap(password: string) {
-	return testFetch('http://example.com/api/auth/bootstrap', {
-		method: 'POST',
-		headers: { 'Content-Type': 'application/json', Origin: 'http://example.com', 'CF-Connecting-IP': '203.0.113.50' },
-		body: JSON.stringify({ password }),
-	});
-}
-
-describe('FIX-06 bootstrap is rate limited', () => {
-	const saved = { auth: env.AUTH_LIMITER, enabled: e.BOOTSTRAP_ENABLED, secret: e.ADMIN_BOOTSTRAP_PASSWORD };
-
-	beforeEach(async () => {
-		await resetStorage();
-		await setupTestEnvironment();
-		e.BOOTSTRAP_ENABLED = 'true';
-		e.ADMIN_BOOTSTRAP_PASSWORD = BOOTSTRAP_PASSWORD;
-	});
-
-	afterEach(() => {
-		setBinding('AUTH_LIMITER', saved.auth);
-		e.BOOTSTRAP_ENABLED = saved.enabled;
-		e.ADMIN_BOOTSTRAP_PASSWORD = saved.secret;
-	});
-
-	it('answers 429 once wrong passwords reach the limit, and never reveals the secret', async () => {
-		const keys: string[] = [];
-		setBinding('AUTH_LIMITER', limiter(3, keys));
-
-		const statuses: number[] = [];
-		for (let i = 0; i < 5; i++) {
-			const response = await bootstrap(`wrong-password-attempt-${i}`);
-			statuses.push(response.status);
-			expect(await response.text()).not.toContain(BOOTSTRAP_PASSWORD);
-		}
-
-		expect(statuses).toEqual([401, 401, 401, 429, 429]);
-		expect(keys[0]).toBe('bootstrap:203.0.113.50');
-	});
-
-	it('fails closed when the limiter is missing', async () => {
-		setBinding('AUTH_LIMITER', undefined);
-		const response = await bootstrap(BOOTSTRAP_PASSWORD);
-		expect(response.status).toBe(500);
-		await response.text();
-	});
-
-	it('refuses to start with a bootstrap password shorter than the owner minimum', async () => {
-		e.ADMIN_BOOTSTRAP_PASSWORD = 'short';
-		const response = await bootstrap('short');
-		expect(response.status).toBe(500);
-		expect(((await response.json()) as any).code).toBe('BOOTSTRAP_MISCONFIGURED');
-	});
-
-	it('still initialises with the right password', async () => {
-		const response = await bootstrap(BOOTSTRAP_PASSWORD);
-		expect(response.status).toBe(201);
-		await response.text();
-	});
-});
 
 describe('FIX-06 multipart parts are rate limited', () => {
 	const saved = env.PART_LIMITER;
@@ -120,7 +59,7 @@ describe('FIX-06 multipart parts are rate limited', () => {
 		}
 
 		expect(statuses).toEqual([200, 200, 429, 429]);
-		expect(keys[0]).toBe(`part:${upload.fileId}:203.0.113.60`);
+		expect(keys[0]).toBe(`test-instance:part:${upload.fileId}:203.0.113.60`);
 	});
 
 	it('R08: also limits all parts from one address together, so many files do not multiply the allowance', async () => {
@@ -138,7 +77,7 @@ describe('FIX-06 multipart parts are rate limited', () => {
 			expect(refused.status).toBe(429);
 			await ok.text();
 			await refused.text();
-			expect(keys).toEqual(['part-all:203.0.113.60', 'part-all:203.0.113.60']);
+			expect(keys).toEqual(['test-instance:part-all:203.0.113.60', 'test-instance:part-all:203.0.113.60']);
 		} finally {
 			setBinding('PART_TOTAL_LIMITER', saved);
 		}

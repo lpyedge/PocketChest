@@ -3,7 +3,7 @@
  * (or not configured) never grants access, whatever the others say.
  */
 import { ApiError } from '../errors';
-import { BOOTSTRAP_MARKER_KEY } from './bootstrap';
+import { ensureOwner, SetupState } from './bootstrap';
 import { isConfigured, isUsable, loadOwner, mutateOwner, Method, OwnerConflictError, OwnerRecord } from './owner';
 import { verifyPassword } from './password';
 import { matchTotpStep, openSeed } from './totp';
@@ -15,31 +15,32 @@ export interface AuthEnv {
 	JWT_SECRET: string;
 	BOOTSTRAP_ENABLED?: string;
 	ADMIN_BOOTSTRAP_PASSWORD?: string;
-	AUTH_ENCRYPTION_KEY?: string;
 }
 
 export interface MethodsStatus {
-	setupRequired: boolean;
+	// 'ready' once the owner exists; anything else says why sign-in is not available yet
+	setup: SetupState;
 	methods: Record<Method, { enabled: boolean }>;
 }
 
-// Only reveals whether a method is usable, never seeds, hashes or credential data
+// Only reveals whether a method is usable, never seeds, hashes or credential data. On a fresh installation this is also
+// where the owner is created from the deployment's setup password (see bootstrap.ts), so the page that follows is the
+// ordinary sign-in, not a second setup step.
 export async function authMethods(env: AuthEnv): Promise<MethodsStatus> {
-	const loaded = await loadOwner(env.R2_STORAGE);
+	let loaded = await loadOwner(env.R2_STORAGE);
+	let setup: SetupState = 'ready';
+	if (loaded === null) {
+		setup = await ensureOwner(env);
+		if (setup === 'ready') {
+			loaded = await loadOwner(env.R2_STORAGE);
+		}
+	}
 	const methods: Record<Method, { enabled: boolean }> = {
 		password: { enabled: loaded ? isUsable(loaded.owner, 'password') : false },
 		totp: { enabled: loaded ? isUsable(loaded.owner, 'totp') : false },
 		passkey: { enabled: loaded ? isUsable(loaded.owner, 'passkey') : false },
 	};
-
-	// Setup is offered only on an empty bucket, with bootstrap switched on, and never after a claim
-	const setupRequired =
-		loaded === null &&
-		env.BOOTSTRAP_ENABLED === 'true' &&
-		Boolean(env.ADMIN_BOOTSTRAP_PASSWORD) &&
-		(await env.R2_STORAGE.head(BOOTSTRAP_MARKER_KEY)) === null;
-
-	return { setupRequired, methods };
+	return { setup, methods };
 }
 
 // 'login' and 'reauth' both need the method switched on: a method that is off cannot sign in or re-enter a session.
@@ -58,7 +59,7 @@ async function checkPassword(env: AuthEnv, password: string, mode: Mode): Promis
 	if (!usable(owner, 'password', mode) || owner.methods.password.hash === null) {
 		throw new ApiError(403, 'AUTH_METHOD_DISABLED', 'Password sign-in is not enabled');
 	}
-	if (!(await verifyPassword(password, owner.methods.password.hash))) {
+	if (!(await verifyPassword(password, owner.methods.password.hash, env.JWT_SECRET))) {
 		throw new ApiError(401, 'AUTH_INVALID_CREDENTIALS', 'Invalid credentials');
 	}
 	return owner;
@@ -131,7 +132,7 @@ async function consumeTotpCode(env: AuthEnv, code: string, now: number, mode: Mo
 	if (!usable(loaded.owner, 'totp', mode) || sealed === null) {
 		throw new ApiError(403, 'AUTH_METHOD_DISABLED', 'Authenticator sign-in is not enabled');
 	}
-	const seed = await openSeed(sealed, env.AUTH_ENCRYPTION_KEY);
+	const seed = await openSeed(sealed, env.JWT_SECRET);
 	const step = await matchTotpStep(seed, code, now);
 	if (step === null) {
 		throw new ApiError(401, 'AUTH_INVALID_CREDENTIALS', 'Invalid credentials');

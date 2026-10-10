@@ -9,6 +9,7 @@ import { PocketChestAPI } from '@/lib/api';
 import { authApi, AuthMethodsStatus } from '@/lib/auth-api';
 import { AuthMethodPicker } from '@/components/AuthMethodPicker';
 import { SecuritySettingsModal } from '@/components/SecuritySettingsModal';
+import { ShareManagementModal } from '@/components/ShareManagementModal';
 import { LanguageSwitcher } from '@/components/LanguageSwitcher';
 import { useI18n } from '@/i18n/I18nProvider';
 import { homeUrlFor } from '@/lib/home';
@@ -29,6 +30,7 @@ export default function UploadApp() {
 	const [methods, setMethods] = useState<AuthMethodsStatus | null>(null);
 	const [signOutError, setSignOutError] = useState<string | null>(null);
 	const [showSecurity, setShowSecurity] = useState(false);
+	const [showShares, setShowShares] = useState(false);
 	const [startError, setStartError] = useState<string | null>(null);
 
 	useEffect(() => {
@@ -202,6 +204,38 @@ export default function UploadApp() {
 		);
 	}
 
+	const modals = (
+		<>
+			{showShares && csrfToken && (
+				<ShareManagementModal
+					csrfToken={csrfToken}
+					onClose={() => setShowShares(false)}
+					onSignedOut={() => {
+						setShowShares(false);
+						setCsrfToken(null);
+						setSessionData(null);
+						setUploadResult(null);
+						loadAuth();
+					}}
+				/>
+			)}
+			{showSecurity && csrfToken && (
+				<SecuritySettingsModal
+					csrfToken={csrfToken}
+					onRotated={(token) => setCsrfToken(token)}
+					onClose={() => setShowSecurity(false)}
+					onSignedOut={() => {
+						setShowSecurity(false);
+						setCsrfToken(null);
+						setSessionData(null);
+						setUploadResult(null);
+						loadAuth();
+					}}
+				/>
+			)}
+		</>
+	);
+
 	if (uploadResult) {
 		return (
 			<main className="min-h-screen bg-gray-50 py-8">
@@ -214,6 +248,18 @@ export default function UploadApp() {
 						<div className="flex justify-center mt-2">
 							<LanguageSwitcher />
 						</div>
+						<div className="flex justify-center gap-4 mt-4 text-sm">
+							<button type="button" onClick={() => setShowShares(true)} className="text-blue-600 hover:text-blue-800 underline">
+								{t('shares.open')}
+							</button>
+							<button type="button" onClick={() => setShowSecurity(true)} className="text-blue-600 hover:text-blue-800 underline">
+								{t('upload.security')}
+							</button>
+							<button type="button" onClick={signOut} className="text-gray-700 hover:text-gray-900 underline">
+								{t('upload.signOut')}
+							</button>
+						</div>
+						{signOutError && <p className="text-red-700 text-sm mt-2">{signOutError}</p>}
 					</div>
 
 					<div className="bg-white rounded-lg shadow-md p-8">
@@ -244,6 +290,7 @@ export default function UploadApp() {
 						</div>
 					</div>
 				</div>
+				{modals}
 			</main>
 		);
 	}
@@ -261,6 +308,9 @@ export default function UploadApp() {
 						<LanguageSwitcher />
 					</div>
 					<div className="flex justify-center gap-4 mt-4 text-sm">
+						<button type="button" onClick={() => setShowShares(true)} className="text-blue-600 hover:text-blue-800 underline">
+							{t('shares.open')}
+						</button>
 						<button type="button" onClick={() => setShowSecurity(true)} className="text-blue-600 hover:text-blue-800 underline">
 							{t('upload.security')}
 						</button>
@@ -340,19 +390,7 @@ export default function UploadApp() {
 					</div>
 				</div>
 			</div>
-			{showSecurity && csrfToken && (
-				<SecuritySettingsModal
-					csrfToken={csrfToken}
-					onRotated={(token) => setCsrfToken(token)}
-					onClose={() => setShowSecurity(false)}
-					onSignedOut={() => {
-						setShowSecurity(false);
-						setCsrfToken(null);
-						setSessionData(null);
-						loadAuth();
-					}}
-				/>
-			)}
+			{modals}
 		</main>
 	);
 }

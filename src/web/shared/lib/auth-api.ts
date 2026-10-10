@@ -79,7 +79,10 @@ export const authApi = {
 		call<Rotation>('POST', '/api/admin/security/totp/confirm', { csrf, body: { challenge, code } }),
 	passkeyRegisterOptions: (csrf: string) => call<any>('POST', '/api/admin/passkeys/register/options', { csrf, body: {} }),
 	passkeyRegisterVerify: (csrf: string, challenge: string, response: unknown, label: string) =>
-		call<{ registered: boolean }>('POST', '/api/admin/passkeys/register/verify', { csrf, body: { challenge, response, label } }),
+		call<{ registered: boolean; credentialId: string } & Partial<Rotation>>('POST', '/api/admin/passkeys/register/verify', {
+			csrf,
+			body: { challenge, response, label },
+		}),
 	passkeyRemove: (csrf: string, id: string) => call<Rotation>('DELETE', `/api/admin/passkeys/${encodeURIComponent(id)}`, { csrf }),
 
 	reauthPassword: (csrf: string, password: string) =>

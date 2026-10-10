@@ -53,6 +53,7 @@ export default function UploadApp() {
 	const api = new PocketChestAPI();
 
 	// Check the owner session and which sign-in methods are on, once on load
+	// A failed check is not the same as "signed out": the page says it could not check, and offers one retry
 	const loadAuth = () => {
 		return Promise.all([authApi.session(), authApi.methods()])
 			.then(([session, status]) => {
@@ -196,7 +197,21 @@ export default function UploadApp() {
 								}}
 							/>
 						) : (
-							<p className="text-gray-700">{t('upload.reachFailed')}</p>
+							<div className="space-y-3">
+								<p role="alert" className="text-gray-700">
+									{t('upload.reachFailed')}
+								</p>
+								<button
+									type="button"
+									onClick={() => {
+										setAuthChecked(false);
+										loadAuth();
+									}}
+									className="w-full py-2 border border-gray-300 rounded-lg text-gray-800 hover:bg-gray-50"
+								>
+									{t('upload.retry')}
+								</button>
+							</div>
 						)}
 					</div>
 				</div>

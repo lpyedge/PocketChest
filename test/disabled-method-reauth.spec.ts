@@ -41,7 +41,18 @@ async function enrollPasskey(owner: SignedIn, authenticator: VirtualAuthenticato
 	const response = await authenticator.register(options);
 	const verify = await post(owner, '/api/admin/passkeys/register/verify', { challenge: options.challenge, response, label: 'Key' });
 	expect(verify.status).toBe(200);
-	await verify.text();
+	// The first passkey switches the method on and replaces the session: carry on with the new cookie, and switch the
+	// method off again, since these tests are about a method that is off
+	const cookie = (verify.headers.get('Set-Cookie') ?? '').split(';')[0];
+	const data = (await verify.json()) as any;
+	if (cookie) {
+		owner.cookie = cookie;
+		owner.csrfToken = data.csrfToken;
+	}
+	await mutateOwner(bucket(), (record) => ({
+		...record,
+		methods: { ...record.methods, passkey: { ...record.methods.passkey, enabled: false } },
+	}));
 	return response.id;
 }
 

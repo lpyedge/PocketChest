@@ -62,7 +62,14 @@ async function registerVerify(owner: Owner, body: unknown) {
 async function registerPasskey(owner: Owner, authenticator: VirtualAuthenticator, overrides = {}, credentialId?: string) {
 	const options = (await (await registerOptions(owner)).json()) as any;
 	const response = await authenticator.register(options, { ...overrides, credentialId });
-	return registerVerify(owner, { challenge: options.challenge, response, label: 'Test key' });
+	const verified = await registerVerify(owner, { challenge: options.challenge, response, label: 'Test key' });
+	// The first passkey replaces the session; the caller carries on with the new cookie and token
+	const cookie = (verified.headers.get('Set-Cookie') ?? '').split(';')[0];
+	if (verified.status === 200 && cookie) {
+		owner.cookie = cookie;
+		owner.csrfToken = ((await verified.clone().json()) as any).csrfToken;
+	}
+	return verified;
 }
 
 async function storedCredentials(): Promise<any[]> {
@@ -93,8 +100,72 @@ describe('passkey registration', () => {
 		const [credential] = await storedCredentials();
 		expect(credential).toMatchObject({ label: 'Test key', counter: 0, lastUsedAt: null, transports: ['internal'] });
 		expect(credential.publicKey).toMatch(/^[A-Za-z0-9_-]+$/);
-		// Adding a passkey does not switch the method on
-		expect((await ownerRecord()).methods.passkey.enabled).toBe(false);
+		// The first passkey is usable straight away, with no separate switch-on step
+		expect((await ownerRecord()).methods.passkey.enabled).toBe(true);
+	});
+
+	it('the first passkey replaces the session: the registering page stays signed in with a new cookie and token, the old one ends', async () => {
+		const owner = await ownerSignIn();
+		const oldCookie = owner.cookie;
+		const oldCsrf = owner.csrfToken;
+		await reauthenticate(owner);
+		const versionBefore = (await ownerRecord()).authVersion;
+
+		const response = await registerPasskey(owner, authenticator);
+		const data = (await response.json()) as any;
+
+		expect((await ownerRecord()).authVersion).toBe(versionBefore + 1);
+		expect(response.headers.get('Set-Cookie')).toContain('__Host-pc_owner=');
+		expect(data.csrfToken).toBeTruthy();
+		expect(data.csrfToken).not.toBe(oldCsrf);
+		expect(data.security.methods.passkey).toMatchObject({ configured: true, enabled: true });
+
+		// The old session is over; the new one works for signed-in calls, including a change that needs CSRF
+		const stale = await testFetch(`${TEST_ORIGIN}/api/admin/security`, { headers: { Cookie: oldCookie } });
+		expect(stale.status).toBe(401);
+		await stale.text();
+		const fresh = await testFetch(`${TEST_ORIGIN}/api/admin/security`, { headers: { Cookie: owner.cookie } });
+		expect(fresh.status).toBe(200);
+		await fresh.text();
+		const change = await testFetch(`${TEST_ORIGIN}/api/admin/passkeys/register/options`, {
+			method: 'POST',
+			headers: signedIn(owner),
+			body: '{}',
+		});
+		expect(change.status).toBe(200);
+		await change.text();
+	});
+
+	it('a method the owner switched off on purpose stays off when another passkey is added', async () => {
+		const owner = await ownerSignIn();
+		await reauthenticate(owner);
+		expect((await registerPasskey(owner, authenticator)).status).toBe(200);
+		await mutateOwner(bucket(), (record) => ({
+			...record,
+			methods: { ...record.methods, passkey: { ...record.methods.passkey, enabled: false } },
+		}));
+		const versionBefore = (await ownerRecord()).authVersion;
+
+		await reauthenticate(owner);
+		expect((await registerPasskey(owner, new VirtualAuthenticator(RP_ID, TEST_ORIGIN))).status).toBe(200);
+
+		const after = await ownerRecord();
+		expect(after.methods.passkey.enabled).toBe(false);
+		expect(after.methods.passkey.credentials).toHaveLength(2);
+		expect(after.authVersion).toBe(versionBefore);
+	});
+
+	it('removing every passkey and adding one again counts as a first passkey: on at once', async () => {
+		const owner = await ownerSignIn();
+		await reauthenticate(owner);
+		await registerPasskey(owner, authenticator);
+		await mutateOwner(bucket(), (record) => ({
+			...record,
+			methods: { ...record.methods, passkey: { enabled: false, credentials: [] } },
+		}));
+		await reauthenticate(owner);
+		expect((await registerPasskey(owner, new VirtualAuthenticator(RP_ID, TEST_ORIGIN))).status).toBe(200);
+		expect((await ownerRecord()).methods.passkey.enabled).toBe(true);
 	});
 
 	it('C15: refuses a registration finished by a session that an owner change has since ended', async () => {
@@ -116,15 +187,17 @@ describe('passkey registration', () => {
 		expect(JSON.stringify(await ownerRecord())).toBe(after);
 	});
 
-	it('policy: registering a passkey does not end the current session or others, and leaves the version alone', async () => {
-		// Adding a passkey does not switch it on and takes a fresh re-entry, so it is not treated like a change
-		// of what protects the account (password, authenticator seed, method switches), which end other sessions.
+	it('policy: a further passkey does not end the current session or others, and leaves the version alone', async () => {
+		// Adding a passkey to a method that already has one changes nothing about how the owner signs in and takes a
+		// fresh re-entry, so it does not end other sessions. (The first passkey does: see above.)
 		const owner = await ownerSignIn();
+		await reauthenticate(owner);
+		expect((await registerPasskey(owner, authenticator)).status).toBe(200);
 		const other = await ownerSignIn();
 		const versionBefore = (await ownerRecord()).authVersion;
 		await reauthenticate(owner);
 
-		expect((await registerPasskey(owner, authenticator)).status).toBe(200);
+		expect((await registerPasskey(owner, new VirtualAuthenticator(RP_ID, TEST_ORIGIN))).status).toBe(200);
 
 		expect((await ownerRecord()).authVersion).toBe(versionBefore);
 		for (const session of [owner, other]) {
@@ -195,7 +268,9 @@ describe('passkey registration', () => {
 
 		const first = await registerVerify(owner, { challenge: options.challenge, response });
 		expect(first.status).toBe(200);
-		await first.text();
+		// The first passkey replaced the session; the replay comes from the new one
+		owner.cookie = (first.headers.get('Set-Cookie') ?? '').split(';')[0];
+		owner.csrfToken = ((await first.json()) as any).csrfToken;
 		const replay = await registerVerify(owner, { challenge: options.challenge, response: await authenticator.register(options) });
 		expect(replay.status).toBe(400);
 		expect(((await replay.json()) as any).code).toBe('CHALLENGE_INVALID');

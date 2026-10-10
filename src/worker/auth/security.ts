@@ -3,10 +3,12 @@
  * authenticator enrolment. Every change is one owner CAS that bumps authVersion, and the caller's own
  * session is then replaced, so every other session stops working.
  *
- * One deliberate exception: adding a passkey (auth/passkeys.ts) does not bump authVersion. It needs a fresh
- * re-entry, does not switch the method on, and ending the owner's sessions for it would sign them out of the
- * page they just used. It still checks, in the same CAS as the write, that the session belongs to the current
- * version, so a session from before a reset cannot add one.
+ * Setting up a method for the first time switches it on in the same change (a first authenticator confirmed with a
+ * code, a first passkey registered): it was just proved to work, so a separate "turn on" step would only repeat that.
+ * A method the owner switched off on purpose stays off when it is replaced or added to. Adding a further passkey to a
+ * method that already has one does not bump authVersion at all (auth/passkeys.ts): it needs a fresh re-entry, changes
+ * nothing about how the owner signs in, and still checks in the same CAS as the write that the session belongs to the
+ * current version, so a session from before a reset cannot add one.
  */
 import { ApiError } from '../errors';
 import { toBase64Url } from './encoding';
@@ -94,7 +96,7 @@ function withEnabled(owner: OwnerRecord, method: Method, enabled: boolean): Owne
  * Ends the current session, and starts a new one for the same caller with the same re-entry time.
  * Called after authVersion changed, so the old session and every other session are already invalid.
  */
-async function rotate(
+export async function rotate(
 	env: { R2_STORAGE: R2Bucket; JWT_SECRET: string },
 	session: LoadedSession,
 	written: OwnerRecord,
@@ -311,7 +313,13 @@ export async function confirmTotp(
 			authVersion: owner.authVersion + 1,
 			methods: {
 				...owner.methods,
-				totp: { ...owner.methods.totp, encryptedSecret: payload, lastAcceptedStep: step },
+				// First time: on straight away. Replacing an existing seed keeps the on/off state the owner chose.
+				totp: {
+					...owner.methods.totp,
+					enabled: owner.methods.totp.encryptedSecret === null ? true : owner.methods.totp.enabled,
+					encryptedSecret: payload,
+					lastAcceptedStep: step,
+				},
 			},
 		}));
 	} catch (error) {

@@ -56,6 +56,13 @@ test('create, list, extend, revoke: the recipient is refused afterwards', async 
 	const dialog = page.getByRole('dialog', { name: 'Share records' });
 	await expect(dialog).toBeVisible();
 	const row = rows(page).filter({ hasText: code });
+	// The shared development server may hold many shares from earlier runs: page on until this one is listed
+	for (let guard = 0; guard < 50 && !(await row.isVisible()); guard++) {
+		const more = dialog.getByRole('button', { name: 'Load more' });
+		if (!(await more.isVisible())) break;
+		await more.click();
+		await page.waitForTimeout(150);
+	}
 	await expect(row).toBeVisible();
 	await expect(row).toContainText('Expires');
 

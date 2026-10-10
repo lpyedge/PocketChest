@@ -718,7 +718,18 @@ async function handlePasskeyRegisterVerify(request: Request, env: Env): Promise<
 	const session = await requireOwner(request, env.R2_STORAGE, env.JWT_SECRET, { mutating: true });
 	await enforceRateLimit(env.AUTH_LIMITER, request, 'passkey-register-verify');
 	const body = await readPasskeyBody<{ label?: unknown; response: RegistrationResponseJSON }>(request);
-	const result = await registrationVerify(env.R2_STORAGE, request, session, body, getCurrentTimestamp(), env.PASSKEY_RP_ID);
+	const result = await registrationVerify(env.R2_STORAGE, request, session, body, getCurrentTimestamp(), env.PASSKEY_RP_ID, env.JWT_SECRET);
+	if (result.rotated) {
+		// The first passkey switched the method on, which replaces the session: the page gets the new cookie and token
+		return json(
+			{ registered: true, credentialId: result.credentialId, security: result.rotated.security, csrfToken: result.rotated.csrfToken },
+			200,
+			{
+				'Cache-Control': 'no-store',
+				'Set-Cookie': result.rotated.cookie,
+			},
+		);
+	}
 	return json({ registered: true, credentialId: result.credentialId }, 200, { 'Cache-Control': 'no-store' });
 }
 

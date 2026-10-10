@@ -109,3 +109,20 @@ test('signs in with the real owner password and reaches the upload form', async 
 	await expect(page.getByRole('button', { name: 'Security settings' })).toBeVisible();
 	await expect(page.getByText('Upload files or text to get a shareable code')).toBeVisible();
 });
+
+test('a failed sign-in check is reported as such, not as a wrong password or a sign-out, and one retry recovers', async ({ page }) => {
+	let failures = 1;
+	await page.route('**/api/auth/session', (route) => {
+		if (failures-- > 0) return route.abort('failed');
+		return route.fulfill({ json: { authenticated: false } });
+	});
+	await page.goto('/upload/');
+
+	await expect(page.getByText('You are not signed out')).toBeVisible();
+	await expect(page.getByText('Wrong password')).toHaveCount(0);
+	await expect(page.getByLabel('Password', { exact: true })).toHaveCount(0);
+
+	await page.getByRole('button', { name: 'Try again' }).click();
+	await expect(page.getByRole('button', { name: 'Sign in with password' })).toBeVisible();
+	await expect(page.getByText('You are not signed out')).toHaveCount(0);
+});

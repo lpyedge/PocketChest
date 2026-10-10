@@ -73,6 +73,7 @@ import {
 	fileKey,
 	fileUploadOptions,
 	getChest,
+	revokeShare,
 	listShares,
 	SHARES_PAGE_DEFAULT,
 	SHARES_PAGE_MAX,
@@ -212,6 +213,10 @@ async function routeApi(request: Request, env: Env, path: string): Promise<Respo
 
 		if (path === '/api/admin/shares' && method === 'GET') {
 			return await handleListShares(request, env);
+		}
+
+		if (path.match(/^\/api\/admin\/shares\/[^\/]+$/) && method === 'DELETE') {
+			return await handleRevokeShare(request, env, segments[4]);
 		}
 
 		if (path === '/api/admin/security' && method === 'GET') {
@@ -573,6 +578,23 @@ async function handleListShares(request: Request, env: Env): Promise<Response> {
 		throw new ApiError(400, 'INVALID_REQUEST', 'Invalid cursor');
 	}
 	return json(await listShares(env.R2_STORAGE, getCurrentTimestamp(), limit, cursor), 200, { 'Cache-Control': 'no-store' });
+}
+
+// DELETE /api/admin/shares/:sessionId - Owner withdraws a share; the code stops working at once
+async function handleRevokeShare(request: Request, env: Env, sessionId: string): Promise<Response> {
+	await requireOwner(request, env.R2_STORAGE, env.JWT_SECRET, { mutating: true });
+	try {
+		const removed = await revokeShare(env.R2_STORAGE, sessionId, getCurrentTimestamp());
+		return json({ revoked: true, contentRemoved: removed }, 200, { 'Cache-Control': 'no-store' });
+	} catch (error) {
+		if (error instanceof SessionError) {
+			if (error.code === 'NOT_FOUND' || error.code === 'INVALID_TRANSITION') {
+				throw new ApiError(404, 'SHARE_NOT_FOUND', 'Share not found');
+			}
+			throw sessionErrorToApi(error);
+		}
+		throw error;
+	}
 }
 
 // GET /api/admin/security - Which methods are set up and on; never the secrets themselves

@@ -88,6 +88,7 @@
 | # | Method | Path | 權限 | 狀態 | 說明 |
 |---|---|---|---|---|---|
 | 37 | GET | `/api/admin/shares?limit=&cursor=` | Cookie | [已實作] | 目前有效的分享，`limit` 1–50（預設 20）。回 `{shares:[{sessionId, retrievalCode, createdAt, expiresAt, fileCount, totalSize}], cursor}`；`cursor` 為 `null` 才是最後一頁。未完成、已到期、損壞或與 Session 不一致的紀錄不列出（本端點不做修復）；單頁可能少於 `limit`，需持續跟隨 `cursor`。`Cache-Control: no-store`。 |
+| 38 | DELETE | `/api/admin/shares/{sessionId}` | Cookie + CSRF | [已實作] | 撤銷分享：Session `COMPLETED → REVOKED`（CAS，終態）後取件碼、下載授權與下載立即拒絕（含先前已簽發的取件令牌）；隨後移除取件碼、索引與檔案。移除失敗仍回 `200 {revoked:true, contentRemoved:false}`，`revoked/{sessionId}` 標記讓 Cron 重試。無此分享、未完成或已移除回 `404 SHARE_NOT_FOUND`。已在進行中的下載不保證中斷。 |
 
 ### 上傳
 

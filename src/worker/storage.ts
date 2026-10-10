@@ -77,6 +77,11 @@ export async function isSessionOpen(bucket: R2Bucket, sessionId: string): Promis
 	}
 }
 
+// Marker for a revoked share whose content has not been removed yet; the cleanup job finishes the removal
+function revokedKey(sessionId: string): string {
+	return `revoked/${sessionId}`;
+}
+
 async function closeSession(bucket: R2Bucket, sessionId: string, createdAt: number): Promise<void> {
 	await bucket.delete(pendingKey(createdAt, sessionId));
 }
@@ -392,12 +397,13 @@ export interface CleanupResult {
 	orphanCodeClaims: number;
 	orphanClaims: number;
 	orphanObjects: number;
+	revokedPurged: number;
 	sessionsRemoved: number;
 	throttlesReset: number;
 	challengesRemoved: number;
 	deletedObjects: number;
 	// true when more due work exists than this run processed; the next run continues it
-	backlog: { expired: boolean; abandoned: boolean; finalizing: boolean; sessions: boolean; challenges: boolean };
+	backlog: { expired: boolean; abandoned: boolean; finalizing: boolean; revoked: boolean; sessions: boolean; challenges: boolean };
 	errors: string[];
 }
 
@@ -471,11 +477,12 @@ export async function cleanupExpired(bucket: R2Bucket, now: number): Promise<Cle
 		orphanCodeClaims: 0,
 		orphanClaims: 0,
 		orphanObjects: 0,
+		revokedPurged: 0,
 		sessionsRemoved: 0,
 		throttlesReset: 0,
 		challengesRemoved: 0,
 		deletedObjects: 0,
-		backlog: { expired: false, abandoned: false, finalizing: false, sessions: false, challenges: false },
+		backlog: { expired: false, abandoned: false, finalizing: false, revoked: false, sessions: false, challenges: false },
 		errors: [],
 	};
 
@@ -586,6 +593,29 @@ export async function cleanupExpired(bucket: R2Bucket, now: number): Promise<Cle
 		}
 	}
 
+	// 3b. Revoked shares: finish removing what an interrupted revocation left behind
+	try {
+		const page = await bucket.list({ prefix: 'revoked/', limit: CLEANUP_BATCH_LIMIT });
+		result.backlog.revoked = page.truncated;
+		for (const marker of page.objects) {
+			const sessionId = marker.key.slice('revoked/'.length);
+			try {
+				const current = await getSessionRecord(bucket, sessionId);
+				if (current?.record.status === 'REVOKED') {
+					result.deletedObjects += await purgeRevoked(bucket, current.record);
+					result.revokedPurged++;
+				} else if (current === null || now - Math.floor(marker.uploaded.getTime() / 1000) > FINALIZE_STALE_SECONDS) {
+					// Nothing to purge: the record is gone, or the revocation never took hold (a marker is written just before it)
+					await deleteKeys(bucket, [marker.key]);
+				}
+			} catch (error) {
+				result.errors.push(`Failed to purge revoked share of session ${sessionId}: ${describeFailure(error)}`);
+			}
+		}
+	} catch (error) {
+		result.errors.push(`Failed to scan revoked shares: ${describeFailure(error)}`);
+	}
+
 	// 4. Owner sign-in sessions that have ended (revoked, idle, expired, or from an older owner version)
 	try {
 		const sessionScan: ScanState = { more: false };
@@ -626,6 +656,60 @@ export async function cleanupExpired(bucket: R2Bucket, now: number): Promise<Cle
 	}
 
 	return result;
+}
+
+/**
+ * Withdraws a completed share. The session record decides: COMPLETED -> REVOKED is a compare-and-swap, and from then
+ * on getChest refuses the code, whatever else is still stored. Removing the content comes second and may fail; the
+ * `revoked/` marker (written first) lets the cleanup job finish it, and a REVOKED session can never become
+ * COMPLETED again, so no repair path can bring the share back. Repeating the call on a revoked share is allowed.
+ * Throws SessionError NOT_FOUND / INVALID_TRANSITION when there is no completed share to revoke.
+ * Returns whether the content was removed right away.
+ */
+export async function revokeShare(bucket: R2Bucket, sessionId: string, now: number): Promise<boolean> {
+	const found = await getSessionRecord(bucket, sessionId);
+	if (!found) throw new SessionError('NOT_FOUND', 'Session not found');
+	if (found.record.status !== 'COMPLETED' && found.record.status !== 'REVOKED') {
+		throw new SessionError('INVALID_TRANSITION', `Session is ${found.record.status}, not a completed share`);
+	}
+	await bucket.put(revokedKey(sessionId), '');
+	let record = found.record;
+	if (record.status === 'COMPLETED') {
+		try {
+			record = await transitionSession(bucket, sessionId, 'REVOKED', {}, now);
+		} catch (error) {
+			// A concurrent revoke got there first: carry on with the same outcome
+			const latest = await getSessionRecord(bucket, sessionId);
+			if (!(error instanceof SessionError && error.code === 'INVALID_TRANSITION' && latest?.record.status === 'REVOKED')) throw error;
+			record = latest.record;
+		}
+	}
+	try {
+		await purgeRevoked(bucket, record);
+		return true;
+	} catch (error) {
+		console.error(`Revoked share of session ${sessionId} not fully removed yet; cleanup will retry: ${describeFailure(error)}`);
+		return false;
+	}
+}
+
+// Removes a revoked share's code claim, expiry entries and content, then its record and marker. Repeatable.
+async function purgeRevoked(bucket: R2Bucket, record: SessionRecord): Promise<number> {
+	const code = record.retrievalCode;
+	if (code) {
+		// Only a claim that still names this session: the code could have been reissued to another share
+		const manifest = await readManifest(bucket, code).catch((error) => {
+			if (error instanceof SyntaxError) return null;
+			throw error;
+		});
+		if (manifest?.sessionId === record.sessionId) {
+			const expiries = new Set([manifest.expiresAt, record.expiresAt]);
+			await deleteKeys(bucket, [codeKey(code), ...[...expiries].filter((t) => t !== null).map((t) => expiryKey(t, code))]);
+		}
+	}
+	const removed = await removeSession(bucket, record.sessionId, record.multipartUploads);
+	await deleteKeys(bucket, [revokedKey(record.sessionId)]);
+	return removed;
 }
 
 /**

@@ -69,6 +69,7 @@ A run logs a `Cleanup summary` with counts. A run that finishes with errors logs
 | `expiry/{expiresAt}/{CODE}` | Empty marker; lets cleanup find due chests in time order |
 | `pending/{createdAt}/{sessionId}` | Empty marker for an upload that has not been completed |
 | `finalizing/{startedAt}/{sessionId}` | Empty marker for a completion in progress |
+| `revoked/{sessionId}` | Empty marker for a revoked share whose files are not removed yet; cleanup finishes the removal |
 | `auth/owner.json` | Owner record: password hash, sealed authenticator seed, passkey public keys |
 | `auth/sessions/{sha256(sid)}` | Owner sign-in sessions (the cookie value itself is never stored) |
 | `auth/challenges/{sha256(challenge)}` | One-time passkey and authenticator-setup challenges |

@@ -72,7 +72,9 @@ describe('upgrade preflight', () => {
 
 describe('upstream update workflow', () => {
 	it('only prepares a pull request: no Cloudflare access, no deploy, no privileged trigger, no auto merge', async () => {
-		const workflow = (await import('../../.github/workflows/upstream-update.yml?raw')).default as string;
+		const raw = (await import('../../.github/workflows/upstream-update.yml?raw')).default as string;
+		// Comments may say what the workflow does not do; only the steps themselves are checked
+		const workflow = raw.replace(/^\s*#.*$/gm, '');
 		expect(workflow).not.toMatch(/pull_request_target/);
 		expect(workflow).not.toMatch(/CLOUDFLARE_|CF_API|CF_TOKEN|wrangler|\$\{\{\s*secrets\./i);
 		expect(workflow).not.toMatch(/gh pr merge|--auto|auto-merge|git push[^\n]*(--force|-f\b)/);

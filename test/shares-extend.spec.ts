@@ -1,5 +1,5 @@
 import { env } from 'cloudflare:test';
-import { describe, it, expect, beforeEach, vi } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { cleanupExpired } from '../src/worker/storage';
 import { createTestSession, ownerSignIn, postRetrieve, setupTestEnvironment, testFetch, TEST_ORIGIN } from './utils/test-setup';
 
@@ -45,7 +45,10 @@ const expiryOf = async (share: { code: string; sessionId: string }) => ({
 });
 
 describe('PATCH /api/admin/shares/:sessionId', () => {
-	beforeEach(setupTestEnvironment);
+	beforeEach(async () => {
+		await setupTestEnvironment();
+	});
+	afterEach(() => vi.useRealTimers());
 
 	it('needs the Owner and the CSRF token, and a valid choice', async () => {
 		const share = await makeShare('a.txt');
@@ -74,7 +77,8 @@ describe('PATCH /api/admin/shares/:sessionId', () => {
 		expect(await indexKeys()).toEqual([]);
 		expect((await postRetrieve(share.code)).status).toBe(200);
 		expect((await extend(share.sessionId, { validityDays: 14 })).status).toBe(409);
-		expect((await extend(share.sessionId, { validityDays: -1 })).status).toBe(409);
+		// Repeating the same request is not an error
+		expect((await extend(share.sessionId, { validityDays: -1 })).status).toBe(200);
 	});
 
 	it('never shortens a share', async () => {
@@ -137,6 +141,8 @@ describe('PATCH /api/admin/shares/:sessionId', () => {
 
 	it.each(['manifest write', 'old index delete'])('a failure at the %s is repaired by repeating the request', async (step) => {
 		const share = await makeShare('a.txt', 1);
+		// The repeat comes within the same second: it asks for the very expiry the session already has
+		vi.useFakeTimers({ toFake: ['Date'], now: Date.now() });
 		const original = env.R2_STORAGE.put.bind(env.R2_STORAGE);
 		const spy =
 			step === 'manifest write'

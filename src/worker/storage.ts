@@ -694,6 +694,25 @@ export async function revokeShare(bucket: R2Bucket, sessionId: string, now: numb
 	}
 }
 
+// Makes the manifest copy and the expiry index agree with the session's expiry. The manifest is rewritten only while
+// it is still there and unchanged since it was read, so a share that was revoked and removed in the meantime is not
+// recreated.
+async function syncShareCopies(bucket: R2Bucket, sessionId: string, code: string, expiresAt: number | null): Promise<void> {
+	for (let attempt = 0; attempt < 5; attempt++) {
+		const object = await bucket.get(codeKey(code));
+		if (!object) return;
+		const manifest = (await object.json()) as ChestManifest;
+		if (manifest.sessionId !== sessionId) return;
+		if (manifest.expiresAt === expiresAt) break;
+		const stored = await bucket.put(codeKey(code), JSON.stringify({ ...manifest, expiresAt }), {
+			httpMetadata: { contentType: 'application/json' },
+			onlyIf: { etagMatches: object.etag },
+		});
+		if (stored !== null) break;
+	}
+	if (expiresAt !== null) await bucket.put(expiryKey(expiresAt, code), '');
+}
+
 /**
  * Moves the expiry of a live share later (or to permanent). The session record decides: the new index entry is
  * written first (it is not due yet, so it harms nothing), then the session expiry is changed by compare-and-swap,
@@ -716,7 +735,17 @@ export async function extendShare(bucket: R2Bucket, sessionId: string, validityD
 			throw new ApiError(409, 'EXPIRY_NOT_LATER', 'The share already lasts at least this long');
 		}
 	};
-	checkLater(found.record.expiresAt);
+	try {
+		checkLater(found.record.expiresAt);
+	} catch (error) {
+		// Nothing to change, but an earlier attempt may have stopped halfway: bring manifest and index in line first
+		if (error instanceof ApiError && error.code === 'EXPIRY_NOT_LATER') {
+			await syncShareCopies(bucket, sessionId, code, found.record.expiresAt);
+			// Asking again for exactly what the share already has is a repeat, not a refusal
+			if (found.record.expiresAt === target) return target;
+		}
+		throw error;
+	}
 
 	if (target !== null) await bucket.put(expiryKey(target, code), '');
 	const before: { expiresAt: number | null } = { expiresAt: null };
@@ -733,23 +762,15 @@ export async function extendShare(bucket: R2Bucket, sessionId: string, validityD
 			now,
 		);
 	} catch (error) {
-		if (target !== null) await bucket.delete(expiryKey(target, code)).catch(() => undefined);
+		// The entry written above is only stray when the session does not use this expiry
+		if (target !== null) {
+			const latest = await getSessionRecord(bucket, sessionId).catch(() => null);
+			if (latest && latest.record.expiresAt !== target) await bucket.delete(expiryKey(target, code)).catch(() => undefined);
+		}
 		throw error;
 	}
 
-	// Manifest copy: rewritten only while it is still there and unchanged since it was read, so a share that was
-	// revoked and removed in the meantime is not recreated
-	for (let attempt = 0; attempt < 5; attempt++) {
-		const object = await bucket.get(codeKey(code));
-		if (!object) break;
-		const manifest = (await object.json()) as ChestManifest;
-		if (manifest.sessionId !== sessionId || manifest.expiresAt === target) break;
-		const stored = await bucket.put(codeKey(code), JSON.stringify({ ...manifest, expiresAt: target }), {
-			httpMetadata: { contentType: 'application/json' },
-			onlyIf: { etagMatches: object.etag },
-		});
-		if (stored !== null) break;
-	}
+	await syncShareCopies(bucket, sessionId, code, target);
 	if (before.expiresAt !== null && before.expiresAt !== target) await bucket.delete(expiryKey(before.expiresAt, code));
 	return target;
 }

@@ -22,7 +22,7 @@ import { activateVerify, assertionOptions, loginVerify, registrationOptions, reg
 import { changePassword, confirmTotp, prepareTotp, removePasskey, Rotated, securityStatus, setMethodEnabled } from './auth/security';
 import type { Method } from './auth/owner';
 import { ApiError } from './errors';
-import { enforceRateLimit } from './ratelimit';
+import { enforceRateLimit, resolveRateLimitScope } from './ratelimit';
 import { configurationProblem } from './config';
 import {
 	abandonSession,
@@ -154,6 +154,7 @@ export default {
 			);
 		}
 
+		await resolveRateLimitScope(env);
 		return withApiHeaders(await routeApi(request, env, path));
 	},
 

@@ -57,7 +57,7 @@ describe('FIX-06 bootstrap is rate limited', () => {
 		}
 
 		expect(statuses).toEqual([401, 401, 401, 429, 429]);
-		expect(keys[0]).toBe('bootstrap:203.0.113.50');
+		expect(keys[0]).toBe('test-instance:bootstrap:203.0.113.50');
 	});
 
 	it('fails closed when the limiter is missing', async () => {
@@ -120,7 +120,7 @@ describe('FIX-06 multipart parts are rate limited', () => {
 		}
 
 		expect(statuses).toEqual([200, 200, 429, 429]);
-		expect(keys[0]).toBe(`part:${upload.fileId}:203.0.113.60`);
+		expect(keys[0]).toBe(`test-instance:part:${upload.fileId}:203.0.113.60`);
 	});
 
 	it('R08: also limits all parts from one address together, so many files do not multiply the allowance', async () => {
@@ -138,7 +138,7 @@ describe('FIX-06 multipart parts are rate limited', () => {
 			expect(refused.status).toBe(429);
 			await ok.text();
 			await refused.text();
-			expect(keys).toEqual(['part-all:203.0.113.60', 'part-all:203.0.113.60']);
+			expect(keys).toEqual(['test-instance:part-all:203.0.113.60', 'test-instance:part-all:203.0.113.60']);
 		} finally {
 			setBinding('PART_TOTAL_LIMITER', saved);
 		}

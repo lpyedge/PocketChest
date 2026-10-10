@@ -70,6 +70,7 @@ A run logs a `Cleanup summary` with counts. A run that finishes with errors logs
 | `pending/{createdAt}/{sessionId}` | Empty marker for an upload that has not been completed |
 | `finalizing/{startedAt}/{sessionId}` | Empty marker for a completion in progress |
 | `revoked/{sessionId}` | Empty marker for a revoked share whose files are not removed yet; cleanup finishes the removal |
+| `maintenance/instance-id` | This installation's id for rate limit keys; created once, never rewritten |
 | `auth/owner.json` | Owner record: password hash, sealed authenticator seed, passkey public keys |
 | `auth/sessions/{sha256(sid)}` | Owner sign-in sessions (the cookie value itself is never stored) |
 | `auth/challenges/{sha256(challenge)}` | One-time passkey and authenticator-setup challenges |
@@ -82,6 +83,7 @@ Never delete `auth/bootstrap-marker` to reopen setup. If setup was interrupted (
 ## Known limits
 
 - **Workers plan.** Password hashing uses PBKDF2 with 600,000 iterations. Cloudflare lists 10 ms of CPU for the Free plan; do not assume it is enough. Measure sign-in on your real plan, and do not weaken the hash to fit.
+- **Rate limit counters are kept apart per installation.** The limiter namespaces in `wrangler.jsonc` are shared by every Worker in the same Cloudflare account, so each key starts with an id that belongs to this installation: a random id created once in the bucket (`maintenance/instance-id`), the same on `workers.dev` and on a custom domain, and never changed by an upgrade. You do not set anything. To choose it yourself, set a plain variable `INSTANCE_ID`. If the bucket cannot be read, requests are still limited under a shared prefix until it can.
 - **Rate limits are approximate.** Cloudflare counts per location. The owner-level lockout is the real protection for sign-in; it reserves a place in the guess budget before each check, so parallel guesses cannot all be checked. A WAF rate-limiting rule on `/api/auth/*` adds another layer.
 - **Upload sessions last 24 hours** from the moment they start, for every upload token. Resuming after that is not supported.
 - **CSP is report-only** (`public/_headers`). Watch the browser console on your own domain, then rename the header to `Content-Security-Policy` once nothing is reported.

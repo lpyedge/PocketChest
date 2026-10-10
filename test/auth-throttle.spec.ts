@@ -191,7 +191,7 @@ describe('runtime rate limit bindings', () => {
 			},
 		};
 		await postPassword(TEST_OWNER_PASSWORD, '203.0.113.20', { ...env, AUTH_LIMITER: counting } as unknown as Env);
-		expect(keys).toEqual(['login-password:203.0.113.20']);
+		expect(keys).toEqual(['test-instance:login-password:203.0.113.20']);
 	});
 
 	it('answers 429 with Retry-After when the limiter refuses, without counting a failure', async () => {

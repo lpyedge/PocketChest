@@ -138,7 +138,7 @@ describe('N2-10 downloads are limited per file and address', () => {
 		} finally {
 			Object.defineProperty(env, 'DOWNLOAD_LIMITER', { value: saved, configurable: true });
 		}
-		expect(keys).toEqual([`download:${fileId}:203.0.113.77`]);
+		expect(keys).toEqual([`test-instance:download:${fileId}:203.0.113.77`]);
 
 		const ok = await testFetch(`http://example.com/api/download/${fileId}`, { headers: { Cookie: cookie } });
 		expect(ok.status).toBe(200);

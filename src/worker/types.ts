@@ -140,6 +140,9 @@ export interface Env {
 	ASSETS: Fetcher;
 	R2_STORAGE: R2Bucket;
 	JWT_SECRET: string;
+	// Optional: an explicit id that keeps this installation's rate limit counters apart from others in the same
+	// Cloudflare account. Normally unset: an id is created once in the bucket.
+	INSTANCE_ID?: string;
 	// Optional: the one hostname passkeys are bound to (for example pocket.example.com)
 	PASSKEY_RP_ID?: string;
 }

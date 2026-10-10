@@ -10,12 +10,12 @@
 
 **一鍵部署** · [完整部署指南](DEPLOYMENT.zh-Hant.md) · [手動部署](DEPLOYMENT.zh-Hant.md#2-手動部署)
 
-按鈕會把本倉庫複製到你的 GitHub 帳號，用 Workers Builds 建置並建立 R2 Bucket。你需要填入三個 Secret、建立一次 Owner，然後關閉初始化模式。指南逐步說明，也列出部署後該檢查的項目：按鈕部署成功並不等於已通過正式環境驗收。
+按鈕會把本倉庫複製到你的 GitHub 帳號，用 Workers Builds 建置並建立 R2 Bucket。你只需要決定一次 **Owner 密碼**；簽章用的 Secret 會自動產生，網站也不會再要你「設定」帳號。升級不需要輸入任何東西。指南涵蓋按鈕、`npm run deploy` 與手動的 GitHub Actions 部署，以及部署後該檢查的項目。**尚未在真實 Cloudflare 帳號上驗證：**一鍵流程（按鈕預填 `npm run deploy`、Secret 表單、Workers Builds）目前只用模擬的 Cloudflare 回應在本機測過；按鈕部署成功並不等於已通過正式環境驗收。
 
 ## ✨ 主要功能
 
-- 密碼、驗證器 App（TOTP）、Passkey 可各自獨立登入；至少保持一種啟用。
-- 只有 Owner 可以上傳；取件者憑取件碼或 `#CODE` 直接連結取件，無須登入。
+- 密碼、驗證器 App（TOTP）、Passkey 是三種獨立的登入方式，任何一種就足夠（驗證器代碼**不是**密碼之後的第二步）；至少保持一種啟用。驗證器與 Passkey 都是選用的，登入後才設定，第一個確認後立即可用。
+- 只有 Owner 可以上傳；取件者憑取件碼或 `#CODE` 直接連結取件，無須登入。**分享記錄**可列出有效的分享，並讓 Owner 延長或撤銷。
 - 文字與 Multipart 大檔；分享期限可選 1／3／7／14 天或永久；每小時自動清理。
 - 繁體中文、日文、英文，並有各語言的靜態首頁。
 - 單一 Worker + Workers Static Assets + R2；不使用 D1、KV 或獨立前端服務。
@@ -42,8 +42,8 @@
 ## 🛡️ 安全說明與目前限制
 
 - 上傳 Session 從建立起有效 24 小時；不支援超過期限的續傳。
-- 密碼雜湊很耗 CPU；不要假設 Workers Free 方案能執行，請在自己的方案上實測。
-- 倚賴它之前，仍需自行在 Cloudflare 上驗證 R2 並發、Cron、限流、自訂網域的 Passkey 與大檔。
+- 密碼以加鹽 HMAC 儲存，金鑰由 Worker 自己的 Secret 衍生（負擔小，適合 Workers Free 方案）。請用夠長、且不在別處使用的密碼；登入也有限流，多次失敗會鎖定。密碼無法離線重設，見[復原](docs/RECOVERY.md)。
+- 這裡的一切都在本機測過（單元、Worker 執行環境、瀏覽器端對端）。倚賴它之前，仍需自行在 Cloudflare 上驗證 R2 並發、Cron、限流、自訂網域的 Passkey、大檔與一鍵流程，見 [docs/REMOTE_ACCEPTANCE.md](docs/REMOTE_ACCEPTANCE.md)。
 - CSP 目前是 Report-Only，下載不支援 `Range` 續傳。詳見 [docs/OPERATIONS.md](docs/OPERATIONS.md#known-limits)。
 
 ## 🛠️ 開發與測試
@@ -58,7 +58,7 @@ CI 執行同樣的檢查：
 
 ```bash
 npm run typecheck && npm run lint && npm run format:check
-npm run test:unit && npm run test:worker && npm run test:contracts
+npm run test:unit && npm run test:worker && npm run test:contracts && npm run test:scripts
 npm run test:e2e           # Playwright，桌面與 375px
 npm run build && npx wrangler deploy --dry-run
 ```

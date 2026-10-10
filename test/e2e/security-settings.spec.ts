@@ -131,8 +131,10 @@ test('a wrong authenticator code keeps the QR usable, and the right code then co
 	const authenticator = dialog.locator('section', { hasText: 'Authenticator app' });
 
 	// The shared development server may already hold an authenticator the owner switched off (an earlier run)
-	const replacing = (await authenticator.getByRole('button', { name: 'Replace authenticator' }).count()) > 0;
-	await authenticator.getByRole('button', { name: /Set up authenticator|Replace authenticator/ }).click();
+	const start = authenticator.getByRole('button', { name: /Set up authenticator|Replace authenticator/ });
+	await expect(start).toBeVisible();
+	const replacing = (await start.innerText()).includes('Replace');
+	await start.click();
 	await dialog.getByLabel('Password', { exact: true }).fill(OWNER_PASSWORD);
 	await dialog.getByRole('button', { name: 'Confirm with password' }).click();
 	const qr = authenticator.getByRole('img', { name: 'QR code for your authenticator app' });

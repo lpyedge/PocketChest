@@ -2,7 +2,8 @@
 // (returned by sign-in and rotated by security changes) is echoed in a header on every change.
 
 export interface AuthMethodsStatus {
-	setupRequired: boolean;
+	// 'ready' once the owner exists; otherwise why sign-in is not available yet
+	setup: 'ready' | 'initializing' | 'password-missing' | 'recovery-required' | 'failed';
 	methods: { password: { enabled: boolean }; totp: { enabled: boolean }; passkey: { enabled: boolean } };
 }
 
@@ -60,7 +61,6 @@ async function call<T>(method: string, path: string, options: { csrf?: string; b
 export const authApi = {
 	methods: () => call<AuthMethodsStatus>('GET', '/api/auth/methods'),
 	session: () => call<{ authenticated: boolean; csrfToken?: string }>('GET', '/api/auth/session'),
-	bootstrap: (password: string) => call<{ initialized: boolean }>('POST', '/api/auth/bootstrap', { body: { password } }),
 	loginPassword: (password: string) => call<{ csrfToken: string }>('POST', '/api/auth/login/password', { body: { password } }),
 	loginTotp: (code: string) => call<{ csrfToken: string }>('POST', '/api/auth/login/totp', { body: { code } }),
 	passkeyLoginOptions: () => call<any>('POST', '/api/auth/passkey/login/options', { body: {} }),

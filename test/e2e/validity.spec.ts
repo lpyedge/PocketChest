@@ -29,7 +29,7 @@ for (const language of LANGUAGES) {
 		test('the two-week option sends 14 and the share expires 14 days later', async ({ page, request }) => {
 			const clientIp = randomClientIp();
 			await useClientAddress(page, clientIp);
-			await request.post('/api/auth/bootstrap', { headers: { Origin: ORIGIN }, data: { password: OWNER_PASSWORD } });
+			await request.get('/api/auth/methods');
 
 			await page.goto('/upload/');
 			await page.getByLabel(language.password, { exact: true }).fill(OWNER_PASSWORD);

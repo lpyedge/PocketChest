@@ -7,7 +7,6 @@ import {
 	requireOwner,
 	sha256Hex,
 } from './auth/sessions';
-import { bootstrapOwner } from './auth/bootstrap';
 import type { AuthenticationResponseJSON, RegistrationResponseJSON } from '@simplewebauthn/server';
 import {
 	activateWithPassword,
@@ -149,7 +148,11 @@ export default {
 			console.error(`Misconfigured deployment: ${problem}`);
 			return withApiHeaders(
 				errorResponse(
-					new ApiError(500, 'SERVER_MISCONFIGURED', 'This deployment is not configured: set the secrets listed in DEPLOYMENT.md'),
+					new ApiError(
+						500,
+						'SERVER_MISCONFIGURED',
+						'This deployment is not configured: deploy it with `npm run deploy` (see DEPLOYMENT.md)',
+					),
 				),
 			);
 		}
@@ -197,10 +200,6 @@ async function routeApi(request: Request, env: Env, path: string): Promise<Respo
 	const method = request.method;
 
 	try {
-		if (path === '/api/auth/bootstrap' && method === 'POST') {
-			return await handleBootstrap(request, env);
-		}
-
 		if (path === '/api/auth/session' && method === 'GET') {
 			return await handleOwnerSessionStatus(request, env);
 		}
@@ -360,18 +359,6 @@ async function routeApi(request: Request, env: Env, path: string): Promise<Respo
 		console.error('Error:', describeFailure(error));
 		return errorResponse(new ApiError(500, 'INTERNAL_ERROR', 'Internal Server Error'));
 	}
-}
-
-// POST /api/auth/bootstrap - Initial owner setup (one time)
-async function handleBootstrap(request: Request, env: Env): Promise<Response> {
-	assertSameOrigin(request);
-	await enforceRateLimit(env.AUTH_LIMITER, request, 'bootstrap');
-	const { password } = await readJson<{ password?: unknown }>(request);
-	if (typeof password !== 'string' || password.length === 0 || password.length > 1024) {
-		throw new ApiError(400, 'INVALID_REQUEST', 'Password is required');
-	}
-	await bootstrapOwner(env, password);
-	return json({ initialized: true }, 201, { 'Cache-Control': 'no-store' });
 }
 
 // GET /api/auth/session - Whether the caller is signed in as the owner, and the CSRF token for this session

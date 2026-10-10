@@ -1,4 +1,5 @@
-# LOCAL DEVELOPMENT ONLY. Both values MUST be replaced before use.
-# Deploy Button may display these as defaults: NEVER deploy these values.
-JWT_SECRET=REPLACE_WITH_UNIQUE_RANDOM_SECRET
+# LOCAL DEVELOPMENT ONLY. Replace this before use; `npm run setup:local` writes .dev.vars with real random values.
+# This is the only secret you choose when installing PocketChest: the Owner password (at least 16 characters).
+# The Deploy Button may show this as a default: NEVER deploy this value. (JWT_SECRET is not listed here on purpose:
+# `npm run deploy` generates it once for you.)
 ADMIN_BOOTSTRAP_PASSWORD=REPLACE_WITH_UNIQUE_PASSWORD_16_CHARS_MINIMUM

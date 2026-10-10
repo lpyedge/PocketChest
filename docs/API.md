@@ -54,8 +54,8 @@
 
 | # | Method | Path | 權限 | 狀態 | 說明 |
 |---|---|---|---|---|---|
-| 1 | GET | `/api/auth/methods` | 公開 | [已實作] | 回三種方式的啟用旗標與 `setupRequired`。 |
-| 3 | POST | `/api/auth/bootstrap` | 公開，需 Bootstrap 條件 | [TODO-TASK-12] | 僅首次初始化。 |
+| 1 | GET | `/api/auth/methods` | 公開 | [已實作] | 回 `setup` 狀態與三種方式的啟用旗標。全新安裝時，第一次呼叫會用部署時設定的 `ADMIN_BOOTSTRAP_PASSWORD` 自動建立 Owner（見下）。 |
+| 3 | POST | `/api/auth/bootstrap` | — | [已移除] | 網站不再有「建立 Owner」的入口：沒有任何路由讓呼叫者自選 Owner 或密碼，一律 `404`。 |
 | 4 | POST | `/api/auth/login/password` | 公開 | [已實作] | 成功發出 Owner Cookie。 |
 | 5 | POST | `/api/auth/login/totp` | 公開 | [已實作] | 同上。 |
 | 6 | POST | `/api/auth/passkey/login/options` | 公開 | [已實作] | 一次性 Challenge。 |
@@ -132,8 +132,10 @@
 200 OK
 Cache-Control: no-store
 
-{"setupRequired":false,"password":true,"totp":false,"passkey":false}
+{"setup":"ready","methods":{"password":{"enabled":true},"totp":{"enabled":false},"passkey":{"enabled":false}}}
 ```
+
+`setup`：`ready`（Owner 已存在，顯示一般登入）、`initializing`（另一個請求正在建立，稍後再試）、`password-missing`（沒有 Owner 也沒有有效的初始密碼）、`recovery-required`（首次設定中斷，需部署者依 `docs/RECOVERY.md` 處理）、`failed`（這次沒完成，未領取任何東西，可重試）。Owner 一旦存在，初始密碼永遠不會再被使用或覆寫它。
 
 不得回傳 `passwordHash`、`encryptedSecret`、`credentials`、`seed`。
 

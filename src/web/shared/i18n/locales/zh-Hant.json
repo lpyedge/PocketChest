@@ -1,5 +1,4 @@
 {
-	"auth.adminPassword": "管理員密碼",
 	"auth.code": "驗證器代碼",
 	"auth.codeSubmit": "以驗證器登入",
 	"auth.failed": "登入失敗，請再試一次。",
@@ -10,8 +9,6 @@
 	"auth.passkeySubmit": "以通行金鑰登入",
 	"auth.password": "密碼",
 	"auth.passwordSubmit": "以密碼登入",
-	"auth.setupSubmit": "完成設定並登入",
-	"auth.setupTitle": "首次設定：請輸入部署管理員密碼，以建立擁有者帳號。",
 	"code.AUTH_INVALID_CREDENTIALS": "資料不符，請確認後再試一次。",
 	"code.AUTH_METHOD_DISABLED": "此登入方式已關閉。",
 	"code.AUTH_METHOD_NOT_CONFIGURED": "此方式尚未設定。",
@@ -233,5 +230,10 @@
 	"shares.revokeConfirm": "撤銷分享 {code}？取件碼會立即失效，檔案也會被刪除，無法復原。",
 	"code.SHARE_NOT_FOUND": "此分享已不存在。",
 	"code.EXPIRY_NOT_LATER": "此分享的有效期已不短於所選時間，請選擇更長的選項。",
-	"code.SHARE_EXPIRED": "此分享已經到期。"
+	"code.SHARE_EXPIRED": "此分享已經到期。",
+	"auth.setupInitializing": "正在完成首次設定，請幾秒後再試。",
+	"auth.setupPasswordMissing": "此安裝尚未建立擁有者，也沒有有效的初始密碼，因此沒有人能登入。部署的人需要設定 ADMIN_BOOTSTRAP_PASSWORD（至少 16 個字元）並重新部署。",
+	"auth.setupRecoveryRequired": "首次設定被中斷。部署此安裝的人需要進行恢復（見 docs/RECOVERY.md）。",
+	"auth.setupFailed": "這次無法完成首次設定，沒有任何變更，請再試一次。",
+	"auth.setupRetry": "再試一次"
 }

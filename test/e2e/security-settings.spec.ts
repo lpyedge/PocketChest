@@ -23,7 +23,7 @@ async function addVirtualAuthenticator(page: Page) {
 }
 
 test('adds a passkey, switches it on, signs in with it, and removes it again', async ({ page, request }) => {
-	await request.post('/api/auth/bootstrap', { headers: { Origin: ORIGIN }, data: { password: OWNER_PASSWORD } });
+	await request.get('/api/auth/methods');
 	await addVirtualAuthenticator(page);
 	// Accepts the confirmation prompt before removing a passkey
 	page.on('dialog', (dialog) => dialog.accept());
@@ -62,7 +62,7 @@ test('adds a passkey, switches it on, signs in with it, and removes it again', a
 });
 
 test('shows a scannable QR code and the manual key for the authenticator, and cancelling changes nothing', async ({ page, request }) => {
-	await request.post('/api/auth/bootstrap', { headers: { Origin: ORIGIN }, data: { password: OWNER_PASSWORD } });
+	await request.get('/api/auth/methods');
 
 	let secret = '';
 	page.on('response', async (response) => {
@@ -118,7 +118,7 @@ function totpFor(base32: string, atSeconds: number): string {
 }
 
 test('a wrong authenticator code keeps the QR usable, and the right code then completes setup', async ({ page, request }) => {
-	await request.post('/api/auth/bootstrap', { headers: { Origin: ORIGIN }, data: { password: OWNER_PASSWORD } });
+	await request.get('/api/auth/methods');
 	let secret = '';
 	page.on('response', async (response) => {
 		if (response.url().endsWith('/api/admin/security/totp/prepare') && response.ok()) {

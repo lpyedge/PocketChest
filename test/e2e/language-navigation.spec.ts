@@ -71,7 +71,7 @@ for (const c of LANGS) {
 			request,
 		}) => {
 			await useClientAddress(page, randomClientIp());
-			await request.post('/api/auth/bootstrap', { headers: { Origin: ORIGIN }, data: { password: OWNER_PASSWORD } });
+			await request.get('/api/auth/methods');
 			await clearOnce(page);
 			await page.goto(`/upload/?lang=${c.lang}`);
 			if (c.lang !== 'en') {

@@ -23,7 +23,7 @@ Owner 密碼以 `HMAC-SHA256-KEYED-V1` 儲存：一個隨機 Salt，加上由 Wo
 目前沒有安全的離線重設路徑。可行的做法，由部署者自行評估：
 
 1. 確認不是暫時問題：Passkey 是否在原本的網域上、驗證器的時間是否正確、是否被登入鎖定（等鎖定時間結束）。
-2. 若 Owner 紀錄損毀或確定無法恢復，而你**接受清空 Owner**：部署者可用自己的 Cloudflare 憑證刪除 `auth/owner.json` 與 `auth/bootstrap-marker`，並確認 `BOOTSTRAP_ENABLED` 與 `ADMIN_BOOTSTRAP_PASSWORD` 已就位，再用首次設定流程建立新的 Owner。這會讓所有 Owner Session 與所有已綁定的驗證器、Passkey 失效，但不會動 `codes/`、`sessions/` 與檔案資料。這是破壞性操作，請先備份 `auth/owner.json`，並在維護窗口進行。
+2. 若 Owner 紀錄損毀或確定無法恢復，而你**接受清空 Owner**：部署者可用自己的 Cloudflare 憑證刪除 `auth/owner.json` 與 `auth/bootstrap-marker`，並確認 `ADMIN_BOOTSTRAP_PASSWORD`（至少 16 個字元）仍設定著；網站下一次開啟時就會用它重新建立 Owner。這會讓所有 Owner Session 與所有已綁定的驗證器、Passkey 失效，但不會動 `codes/`、`sessions/` 與檔案資料。這是破壞性操作，請先備份 `auth/owner.json`，並在維護窗口進行。
 3. 若是 `JWT_SECRET` 被更換或遺失：密碼與驗證器都無法再驗證，處理方式同第 2 點；已簽發的上傳／下載令牌也會失效。
 
 ## 首次設定被中斷（有 marker、沒有 Owner）

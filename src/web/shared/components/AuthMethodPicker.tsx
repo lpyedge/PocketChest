@@ -46,42 +46,29 @@ export function AuthMethodPicker({ status, onSignedIn }: AuthMethodPickerProps) 
 		}
 	};
 
-	// First-time setup: the deployment's bootstrap secret becomes the owner's password, then signs in with it
-	if (status.setupRequired) {
+	// No owner yet: the page says why, and never offers to create one
+	if (status.setup !== 'ready') {
+		const messages = {
+			initializing: 'auth.setupInitializing',
+			'password-missing': 'auth.setupPasswordMissing',
+			'recovery-required': 'auth.setupRecoveryRequired',
+			failed: 'auth.setupFailed',
+		} as const;
 		return (
-			<form
-				className="space-y-4"
-				onSubmit={(event) => {
-					event.preventDefault();
-					const entered = password;
-					setPassword('');
-					run(async () => {
-						await authApi.bootstrap(entered);
-						return (await authApi.loginPassword(entered)).csrfToken;
-					});
-				}}
-			>
-				<p className="text-gray-600">{t('auth.setupTitle')}</p>
-				<label className="block text-sm font-medium text-gray-700">
-					{t('auth.adminPassword')}
-					<input
-						type="password"
-						autoComplete="new-password"
-						value={password}
-						onChange={(event) => setPassword(event.target.value)}
-						className="mt-1 w-full border border-gray-300 rounded-lg px-3 py-2"
-						required
-					/>
-				</label>
-				{error && <p className="text-red-700 text-sm">{error}</p>}
-				<button
-					type="submit"
-					disabled={busy}
-					className="w-full py-3 bg-blue-500 text-white rounded-lg hover:bg-blue-600 font-semibold disabled:opacity-50"
-				>
-					{t('auth.setupSubmit')}
-				</button>
-			</form>
+			<div className="space-y-3">
+				<p role="alert" className="text-gray-700">
+					{t(messages[status.setup])}
+				</p>
+				{(status.setup === 'initializing' || status.setup === 'failed') && (
+					<button
+						type="button"
+						onClick={() => window.location.reload()}
+						className="w-full py-2 border border-gray-300 rounded-lg text-gray-800 hover:bg-gray-50"
+					>
+						{t('auth.setupRetry')}
+					</button>
+				)}
+			</div>
 		);
 	}
 

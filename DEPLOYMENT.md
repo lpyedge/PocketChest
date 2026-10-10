@@ -9,85 +9,60 @@
 [![Deploy to Cloudflare](https://deploy.workers.cloudflare.com/button)](https://deploy.workers.cloudflare.com/?url=https://github.com/lpyedge/PocketChest)
 
 1. Click the button, sign in to Cloudflare and let it connect to GitHub. It copies this repository into your account and sets up a Worker with an R2 bucket (`R2_STORAGE`), the rate-limit bindings and the hourly cron from `wrangler.jsonc`.
-2. The secrets form lists `JWT_SECRET` and `ADMIN_BOOTSTRAP_PASSWORD`, pre-filled with the placeholders from `.dev.vars.example`. **Replace each one with your own random value** (commands in [section 2](#2-manual-deployment)). A deployment that keeps a placeholder is refused: the API answers `SERVER_MISCONFIGURED`, and the owner cannot be created with a placeholder password.
-3. Check that **Build** is `npm run build` and **Deploy** is `npx wrangler deploy`, then deploy.
-4. Open `https://<your-worker>.<your-subdomain>.workers.dev/upload/`. While there is no owner and setup is enabled, the page asks for the setup password. Enter `ADMIN_BOOTSTRAP_PASSWORD` to create the owner; that password is the owner's password until you change it.
-5. **Close setup now.** Delete the `ADMIN_BOOTSTRAP_PASSWORD` secret (Worker → Settings → Variables and Secrets): without it setup cannot run. Then, in the repository the button created in your GitHub account, change `BOOTSTRAP_ENABLED` to `"false"` in `wrangler.jsonc` and commit, so the next build keeps it off. Changing it only in the dashboard is overwritten by the next build.
-6. Open **Security settings** and set a password of your own, then add an authenticator app or a passkey. Choose the final hostname and set `PASSKEY_RP_ID` **before** you register a passkey ([operations](docs/OPERATIONS.md#passkey-domain)).
+2. The form asks for **one** secret: `ADMIN_BOOTSTRAP_PASSWORD`. That is your PocketChest **Owner password** (at least 16 characters, not an example value). Choose it once, here. There is nothing else to generate, copy or back up.
+3. Check that **Build** is `npm run build` and **Deploy** is `npm run deploy`, then deploy. `npm run deploy` makes the signing secret (`JWT_SECRET`) by itself the first time and keeps it afterwards. If the deploy command is changed to a bare `npx wrangler deploy`, the site answers `SERVER_MISCONFIGURED` until it is `npm run deploy` again.
+4. Open `https://<your-worker>.<your-subdomain>.workers.dev/upload/`. The site creates the Owner from the password you chose and shows the **ordinary sign-in**: sign in with that password. It does not ask for it a second time to "set up".
+5. Optional, later: in **Security settings** change the password, or add an authenticator app or a passkey. Choose the final hostname and set `PASSKEY_RP_ID` **before** you register a passkey ([operations](docs/OPERATIONS.md#passkey-domain)).
+
+**Upgrading** asks for nothing: push the new code and let the same build run. `npm run deploy` sees that the installation is complete and deploys the code only; your password, secrets, shares and settings are not touched. Do not press the Deploy button again to upgrade.
 
 **A successful deployment is not an acceptance test.** Check R2 concurrency, Cron, rate limits and large files on your own Cloudflare plan, as listed in [section 6](#6-check-the-installation).
 
 ## 2. Manual deployment
 
-**You need** a Cloudflare account, Node.js 22.12 or newer (24 recommended), npm, and an empty R2 bucket. PocketChest is for new installations only; there is no migration from an older database version.
+**You need** a Cloudflare account, Node.js 22.12 or newer (24 recommended) and npm. PocketChest is for new installations only; there is no migration from an older database version.
 
 ```bash
 npm ci
 npx wrangler login
 npx wrangler r2 bucket create pocket-chest
 # A different bucket name? Change bucket_name in wrangler.jsonc to match.
+npm run deploy
 ```
 
-Generate two **different** values and keep them somewhere private:
+`npm run deploy` asks for the Owner password **once**, hidden (at least 16 characters), generates the signing secret itself and deploys. In a script or CI, set `ADMIN_BOOTSTRAP_PASSWORD` in the environment instead of typing it. Then open `/upload/` and sign in with that password.
 
-```bash
-openssl rand -base64 48   # JWT_SECRET
-openssl rand -base64 24   # ADMIN_BOOTSTRAP_PASSWORD: at least 16 characters
-# no openssl: node -e "console.log(require('crypto').randomBytes(48).toString('base64'))"
-```
-
-```bash
-npx wrangler secret put JWT_SECRET
-npx wrangler secret put ADMIN_BOOTSTRAP_PASSWORD
-```
-
-`BOOTSTRAP_ENABLED` is `"true"` in the repository, for a first installation. Build and deploy:
-
-```bash
-npm run build
-npx wrangler deploy        # or: npm run deploy, which builds first
-```
-
-Open `/upload/` and create the owner, then **close setup** before public use:
-
-```bash
-npx wrangler secret delete ADMIN_BOOTSTRAP_PASSWORD
-# set BOOTSTRAP_ENABLED to "false" in wrangler.jsonc, then:
-npx wrangler deploy
-```
-
-Never remove the setup marker in R2 by hand to reopen setup. If setup was interrupted, run `node scripts/recover-bootstrap.mjs`, which removes it only in that state, (see [offline recovery](docs/RECOVERY.md)).
+Running `npm run deploy` again is the upgrade: it asks for nothing and changes no secret. Before it changes anything it checks what Cloudflare says about the Worker and bucket named in `wrangler.jsonc`, and it **refuses** (changing nothing) when the answer is unclear: for example an Owner exists but the Worker has no signing secret (wrong account or Worker name), or a first setup was interrupted ([offline recovery](docs/RECOVERY.md)). Never remove the setup marker in R2 by hand.
 
 ## 3. Secrets and settings
 
 | Name | Kind | Meaning |
 | --- | --- | --- |
-| `JWT_SECRET` | Worker secret | Signs upload and download tokens, and is the root the Worker derives the password key and the authenticator-seed key from. At least 24 characters, random, never an example value. **Do not change it after the owner exists:** the password and any authenticator would no longer verify. |
-| `ADMIN_BOOTSTRAP_PASSWORD` | One-time Worker secret | At least 16 characters. Creates the owner; **delete it afterwards**. |
-| `BOOTSTRAP_ENABLED` | `wrangler.jsonc` variable | `"true"` only for the first installation; `"false"` once the owner exists. |
+| `ADMIN_BOOTSTRAP_PASSWORD` | Worker secret you choose once | Your Owner password, at least 16 characters. The site creates the Owner from it on first use; it is never used again once the Owner exists, and it does not need to be removed. |
+| `JWT_SECRET` | Worker secret made for you | Generated once by `npm run deploy`; never typed or backed up by you. Signs upload and download tokens and is the root the Worker derives the password key and the authenticator-seed key from. **Never replace it after the Owner exists:** the password and any authenticator would no longer verify (the deploy refuses to). |
 | `PASSKEY_RP_ID` | Optional variable | The one hostname passkeys are bound to. Set it before registering a passkey. |
+| `INSTANCE_ID` | Optional variable | Normally unset: an id for the rate-limit counters is created once in the bucket. |
 | `R2_STORAGE` | R2 binding | Files and all metadata, in one private bucket. |
 | `AUTH_LIMITER`, `RETRIEVE_LIMITER`, `UPLOAD_LIMITER`, `PART_LIMITER`, `PART_TOTAL_LIMITER`, `DOWNLOAD_LIMITER` | Rate-limit bindings | Per-client limits for sign-in, retrieval, uploads, upload parts and downloads. No extra database. |
 
-For local development, `npm run setup:local` writes `.dev.vars` with fresh random values. Never publish `.dev.vars`, and never use the example values anywhere real.
+There is no authenticator key to configure: if you set up an authenticator app, the Worker protects its seed with a key derived from `JWT_SECRET`. For local development, `npm run setup:local` writes `.dev.vars` with fresh random values. Never publish `.dev.vars`, and never use the example values anywhere real.
 
 ## 4. Build and deploy settings
 
-With Workers Builds from GitHub, set **Build** to `npm run build` and **Deploy** to `npx wrangler deploy`. Do not use `npm run deploy` there: it builds again. The `dist/` folder is served as Workers Static Assets; the Worker itself handles `/api/*` only. A blank page or a 404 on `/upload/` means `dist/` was not built before deploying.
+With Workers Builds from GitHub, set **Build** to `npm run build` and **Deploy** to `npm run deploy` (the build step builds `dist/`; use `npm run deploy:code` instead if you only want to push code with Wrangler and manage the secrets yourself). The `dist/` folder is served as Workers Static Assets; the Worker itself handles `/api/*` only. A blank page or a 404 on `/upload/` means `dist/` was not built before deploying. Use one deployer per installation: either Workers Builds or your own `npm run deploy`, not both.
 
-## 5. First setup and daily use
+## 5. First use and daily use
 
-- The setup password becomes the owner's password. Change it in **Security settings** (at least 16 characters).
-- Password, authenticator app and passkey can each sign in on their own. Keep at least two set up, so one lost device does not lock you out. If every method is lost, see [offline recovery](docs/RECOVERY.md).
-- Upload sessions end 24 hours after they start. Shares last 1, 3, 7 or 14 days, or are permanent; an hourly cleanup removes the expired ones.
+- You sign in with the Owner password you chose. Change it any time in **Security settings** (at least 16 characters).
+- Password, authenticator app and passkey are three **independent** ways to sign in: any one of them signs in on its own. An authenticator code is **not** a second factor on top of the password. Keep at least two set up, so one lost device does not lock you out. If every method is lost, see [recovery](docs/RECOVERY.md) (the password cannot be reset offline).
+- Upload sessions end 24 hours after they start. Shares last 1, 3, 7 or 14 days, or are permanent; an hourly cleanup removes the expired ones. **Share records** (next to Security settings) lists your active shares, and lets you extend or revoke them.
 
 ## 6. Check the installation
 
 - [ ] `/`, `/ja/`, `/en/`, `/upload/` and `/retrieve/` load.
-- [ ] The owner was created once, `ADMIN_BOOTSTRAP_PASSWORD` is deleted and `BOOTSTRAP_ENABLED` is `"false"` in the deployed configuration.
+- [ ] `/upload/` shows the ordinary sign-in (no second "set up" step) and your Owner password signs in.
 - [ ] A text item and a small file upload, and download with the right content and file name.
 - [ ] Every sign-in method you use works, and a method you switched off no longer signs in.
-- [ ] Password sign-in runs within the CPU allowance of your Workers plan (measure it; see [known limits](docs/OPERATIONS.md#known-limits)).
 - [ ] The hourly Cron runs without errors, and rate limits answer `429` on the real Worker.
 - [ ] A large file (more than 20 MiB) uploads and downloads.
 - [ ] Passkeys work on the final hostname, after `PASSKEY_RP_ID` is set.
@@ -98,9 +73,10 @@ The full list is in [REMOTE_ACCEPTANCE.md](docs/REMOTE_ACCEPTANCE.md). Logs, the
 
 | Symptom | Likely cause |
 | --- | --- |
-| Every `/api/*` call answers `SERVER_MISCONFIGURED` | `JWT_SECRET` is missing, too short or still an example value. |
-| Setup answers `BOOTSTRAP_MISCONFIGURED` | `ADMIN_BOOTSTRAP_PASSWORD` is shorter than 16 characters or still an example value. |
-| Setup answers `BOOTSTRAP_DISABLED` | `BOOTSTRAP_ENABLED` is not `"true"`, or the secret is not set. |
+| Every `/api/*` call answers `SERVER_MISCONFIGURED` | The signing secret is missing: the site was deployed with a plain `wrangler deploy`. Run `npm run deploy`. |
+| `/upload/` says there is no valid setup password | `ADMIN_BOOTSTRAP_PASSWORD` was never set, is shorter than 16 characters or is still an example value, and no Owner exists yet. Set it and deploy again. |
+| `/upload/` says first setup was interrupted | A setup marker exists without an Owner. Run `node scripts/recover-bootstrap.mjs --bucket <name>` (see [recovery](docs/RECOVERY.md)). |
+| `npm run deploy` refuses | It says why and has changed nothing; the usual causes are in section 2. |
 | Authenticator setup or sign-in fails with `AUTH_NOT_CONFIGURED` | `JWT_SECRET` is missing, too short, or is not the value the authenticator was set up under. |
 | Blank page or 404 on `/upload/` | `dist/` was not built before deploying (see section 4). |
 | Storage errors | The R2 bucket does not exist, or `bucket_name` in `wrangler.jsonc` does not match it. |

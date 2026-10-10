@@ -1,5 +1,4 @@
 {
-	"auth.adminPassword": "Administrator password",
 	"auth.code": "Authenticator code",
 	"auth.codeSubmit": "Sign in with authenticator",
 	"auth.failed": "Sign-in failed. Please try again.",
@@ -10,8 +9,6 @@
 	"auth.passkeySubmit": "Sign in with passkey",
 	"auth.password": "Password",
 	"auth.passwordSubmit": "Sign in with password",
-	"auth.setupSubmit": "Set up and sign in",
-	"auth.setupTitle": "First-time setup: enter the deployment administrator password to create the owner account.",
 	"code.AUTH_INVALID_CREDENTIALS": "That did not match. Check it and try again.",
 	"code.AUTH_METHOD_DISABLED": "That sign-in method is switched off.",
 	"code.AUTH_METHOD_NOT_CONFIGURED": "This method has not been set up yet.",
@@ -233,5 +230,10 @@
 	"shares.revokeConfirm": "Revoke share {code}? Its code stops working immediately and its files are deleted. This cannot be undone.",
 	"code.SHARE_NOT_FOUND": "This share no longer exists.",
 	"code.EXPIRY_NOT_LATER": "The share already lasts at least this long. Choose a later option.",
-	"code.SHARE_EXPIRED": "This share has already expired."
+	"code.SHARE_EXPIRED": "This share has already expired.",
+	"auth.setupInitializing": "Finishing the first setup. Try again in a few seconds.",
+	"auth.setupPasswordMissing": "This installation has no owner and no valid setup password, so nobody can sign in. The person who deployed it needs to set ADMIN_BOOTSTRAP_PASSWORD (at least 16 characters) and deploy again.",
+	"auth.setupRecoveryRequired": "First setup was interrupted. The person who deployed this installation needs to recover it (docs/RECOVERY.md).",
+	"auth.setupFailed": "First setup could not be completed this time. Nothing was changed; please try again.",
+	"auth.setupRetry": "Try again"
 }

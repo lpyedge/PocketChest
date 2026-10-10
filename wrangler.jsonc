@@ -35,10 +35,8 @@
 		// File downloads, per file and client address: generous for a real download (one request, a few retries), stops loops
 		{ "name": "DOWNLOAD_LIMITER", "namespace_id": "1006", "simple": { "limit": 120, "period": 60 } },
 	],
-	"vars": {
-		// One-time setup only. After creating the Owner, change to false and redeploy.
-		"BOOTSTRAP_ENABLED": "true",
-	},
+	// No plain variables are needed. Secrets (JWT_SECRET, ADMIN_BOOTSTRAP_PASSWORD) are set by `npm run deploy` and never
+	// appear here. Optional variables you may add: PASSKEY_RP_ID (the one hostname passkeys are bound to), INSTANCE_ID.
 	// Uncomment and configure for custom domain:
 	// "routes": [
 	// 	{

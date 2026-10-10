@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach, afterEach } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { env } from 'cloudflare:test';
 import { testFetch, resetStorage, TEST_JWT_SECRET } from './utils/test-setup';
 import { loadOwner, createOwnerOnce, mutateOwner, OwnerCorruptError, parseOwner } from '../src/worker/auth/owner';
@@ -8,14 +8,6 @@ import { openSeed, sealSeed } from '../src/worker/auth/totp';
 const BOOTSTRAP_PASSWORD = 'test-bootstrap-password-0123456789';
 const bucket = () => env.R2_STORAGE;
 const e = env as unknown as Record<string, string | undefined>;
-
-function bootstrap(password: unknown) {
-	return testFetch('http://example.com/api/auth/bootstrap', {
-		method: 'POST',
-		headers: { 'Content-Type': 'application/json', Origin: 'http://example.com' },
-		body: JSON.stringify({ password }),
-	});
-}
 
 // Object-level failure injection on the real bucket: fails the first matching put
 function failFirstPut(prefix: string): R2Bucket {
@@ -169,19 +161,7 @@ describe('owner record', () => {
 	});
 });
 
-describe('POST /api/auth/bootstrap', () => {
-	it('refuses a cross-origin request and claims nothing', async () => {
-		const response = await testFetch('http://example.com/api/auth/bootstrap', {
-			method: 'POST',
-			headers: { 'Content-Type': 'application/json', Origin: 'https://evil.example' },
-			body: JSON.stringify({ password: BOOTSTRAP_PASSWORD }),
-		});
-		expect(response.status).toBe(403);
-		await response.text();
-		expect(await loadOwner(bucket())).toBeNull();
-		expect(await bucket().head('auth/bootstrap-marker')).toBeNull();
-	});
-
+describe('automatic first setup', () => {
 	beforeEach(async () => {
 		await resetStorage();
 		e.BOOTSTRAP_ENABLED = 'true';
@@ -193,10 +173,23 @@ describe('POST /api/auth/bootstrap', () => {
 		e.ADMIN_BOOTSTRAP_PASSWORD = BOOTSTRAP_PASSWORD;
 	});
 
-	it('initializes the owner with the bootstrap password, stored only as a hash', async () => {
-		const response = await bootstrap(BOOTSTRAP_PASSWORD);
-		expect(response.status).toBe(201);
-		expect(await response.json()).toEqual({ initialized: true });
+	it('has no route that lets a caller create an owner', async () => {
+		for (const method of ['POST', 'PUT', 'GET']) {
+			const response = await testFetch('http://example.com/api/auth/bootstrap', {
+				method,
+				headers: { 'Content-Type': 'application/json', Origin: 'http://example.com' },
+				body: method === 'GET' ? undefined : JSON.stringify({ password: 'a-password-chosen-by-the-caller' }),
+			});
+			expect(response.status).toBe(404);
+			await response.text();
+		}
+		expect(await loadOwner(bucket())).toBeNull();
+		expect(await bucket().head('auth/bootstrap-marker')).toBeNull();
+	});
+
+	it('creates the owner from the deployment password on the first visit, stored only as a keyed hash', async () => {
+		const response = await methods();
+		expect(((await response.json()) as any).setup).toBe('ready');
 
 		const raw = await (await bucket().get('auth/owner.json'))!.text();
 		expect(raw).not.toContain(BOOTSTRAP_PASSWORD);
@@ -213,79 +206,87 @@ describe('POST /api/auth/bootstrap', () => {
 		expect(await bucket().head('auth/bootstrap-marker')).not.toBeNull();
 	});
 
-	it('lets exactly one of ten concurrent bootstraps succeed', async () => {
-		const responses = await Promise.all(Array.from({ length: 10 }, () => bootstrap(BOOTSTRAP_PASSWORD)));
-		const statuses = responses.map((r) => r.status).sort();
-		responses.forEach((r) => r.text());
+	it('the deployment password then signs in as an ordinary login, and no other password does', async () => {
+		await (await methods()).text();
+		const login = (password: string) =>
+			testFetch('http://example.com/api/auth/login/password', {
+				method: 'POST',
+				headers: { 'Content-Type': 'application/json', Origin: 'http://example.com' },
+				body: JSON.stringify({ password }),
+			});
+		expect((await login('not-the-deployment-password')).status).toBe(401);
+		const ok = await login(BOOTSTRAP_PASSWORD);
+		expect(ok.status).toBe(200);
+		await ok.text();
+	});
 
-		expect(statuses.filter((s) => s === 201)).toHaveLength(1);
-		expect(statuses.filter((s) => s === 409)).toHaveLength(9);
+	it('creates exactly one owner when many first visits arrive together', async () => {
+		const responses = await Promise.all(Array.from({ length: 10 }, () => methods()));
+		const states = await Promise.all(responses.map(async (r) => ((await r.json()) as any).setup));
+		expect(states.filter((state) => state === 'ready').length).toBeGreaterThanOrEqual(1);
+		expect(states.every((state) => state === 'ready' || state === 'initializing')).toBe(true);
 		expect((await bucket().list({ prefix: 'auth/owner' })).objects).toHaveLength(1);
+		// Whoever lost the race asks again and finds the ordinary sign-in
+		expect(((await (await methods()).json()) as any).setup).toBe('ready');
 	});
 
-	it('refuses another bootstrap after initialization, even with the right password', async () => {
-		await bootstrap(BOOTSTRAP_PASSWORD);
-		const again = await bootstrap(BOOTSTRAP_PASSWORD);
-		expect(again.status).toBe(409);
-		expect(((await again.json()) as any).code).toBe('BOOTSTRAP_CLOSED');
+	it('never replaces an existing owner, even if the deployment password differs', async () => {
+		await createOwnerOnce(bucket(), 'the-existing-owner-password', TEST_JWT_SECRET);
+		const before = await (await bucket().get('auth/owner.json'))!.text();
+		e.ADMIN_BOOTSTRAP_PASSWORD = 'a-completely-different-setup-password';
+		expect(((await (await methods()).json()) as any).setup).toBe('ready');
+		expect(await (await bucket().get('auth/owner.json'))!.text()).toBe(before);
+		expect(await bucket().head('auth/bootstrap-marker')).toBeNull();
 	});
 
-	it('rejects a wrong password and claims nothing', async () => {
-		const response = await bootstrap('not-the-bootstrap-password');
-		expect(response.status).toBe(401);
-		expect(((await response.json()) as any).code).toBe('AUTH_INVALID_CREDENTIALS');
+	it('creates nothing without a usable setup password, and says so', async () => {
+		for (const password of [undefined, '', 'short']) {
+			e.ADMIN_BOOTSTRAP_PASSWORD = password;
+			expect(((await (await methods()).json()) as any).setup).toBe('password-missing');
+		}
+		e.ADMIN_BOOTSTRAP_PASSWORD = BOOTSTRAP_PASSWORD;
+		e.BOOTSTRAP_ENABLED = 'false';
+		expect(((await (await methods()).json()) as any).setup).toBe('password-missing');
 		expect(await bucket().head('auth/owner.json')).toBeNull();
 		expect(await bucket().head('auth/bootstrap-marker')).toBeNull();
 	});
 
-	it('is closed unless BOOTSTRAP_ENABLED is true', async () => {
-		e.BOOTSTRAP_ENABLED = 'false';
-		const response = await bootstrap(BOOTSTRAP_PASSWORD);
-		expect(response.status).toBe(403);
-		expect(((await response.json()) as any).code).toBe('BOOTSTRAP_DISABLED');
-		expect(await bucket().head('auth/owner.json')).toBeNull();
-	});
-
-	it('fails closed when no bootstrap password is configured', async () => {
-		e.ADMIN_BOOTSTRAP_PASSWORD = undefined;
-		const response = await bootstrap(BOOTSTRAP_PASSWORD);
-		expect(response.status).toBe(403);
-		expect(((await response.json()) as any).code).toBe('BOOTSTRAP_DISABLED');
-	});
-
-	it('does not allow a second bootstrap when the owner write failed after the marker was claimed', async () => {
+	it('does not reopen setup when the owner write failed after the marker was claimed', async () => {
 		const original = e.R2_STORAGE;
 		(env as any).R2_STORAGE = failFirstPut('auth/owner.json');
 		try {
-			const failed = await bootstrap(BOOTSTRAP_PASSWORD);
-			expect(failed.status).toBe(500);
-			await failed.text();
+			const failed = await methods();
+			expect(((await failed.json()) as any).setup).toBe('failed');
 		} finally {
 			(env as any).R2_STORAGE = original;
 		}
 
 		expect(await bucket().head('auth/bootstrap-marker')).not.toBeNull();
-		const retry = await bootstrap(BOOTSTRAP_PASSWORD);
-		expect(retry.status).toBe(409);
-		expect(((await retry.json()) as any).code).toBe('AUTH_RECOVERY_REQUIRED');
+		// A claim that just happened is still "in progress"; once it is old, the site says it needs recovery
+		const retry = await methods();
+		expect(((await retry.json()) as any).setup).toBe('initializing');
+		vi.useFakeTimers({ toFake: ['Date'], now: Date.now() + 10 * 60 * 1000 });
+		try {
+			expect(((await (await methods()).json()) as any).setup).toBe('recovery-required');
+		} finally {
+			vi.useRealTimers();
+		}
 		expect(await bucket().head('auth/owner.json')).toBeNull();
 	});
 
-	it('refuses to initialize over a corrupt owner record', async () => {
-		await bucket().put('auth/owner.json', '{corrupt');
-		const response = await bootstrap(BOOTSTRAP_PASSWORD);
-		expect(response.status).toBe(409);
-		await response.text();
-		expect(
-			await bucket()
-				.get('auth/owner.json')
-				.then((o) => o!.text()),
-		).toBe('{corrupt');
-	});
-
-	it('answers a malformed body with a plain 400', async () => {
-		const response = await bootstrap(undefined);
-		expect(response.status).toBe(400);
-		await response.text();
+	it('a hash that fails leaves nothing claimed, so the next visit simply tries again', async () => {
+		vi.spyOn(crypto.subtle, 'sign').mockRejectedValueOnce(new Error('Worker exceeded CPU time limit'));
+		vi.spyOn(console, 'error').mockImplementation(() => undefined);
+		try {
+			expect(((await (await methods()).json()) as any).setup).toBe('failed');
+			expect(await bucket().head('auth/bootstrap-marker')).toBeNull();
+			expect(((await (await methods()).json()) as any).setup).toBe('ready');
+		} finally {
+			vi.restoreAllMocks();
+		}
 	});
 });
+
+function methods() {
+	return testFetch('http://example.com/api/auth/methods');
+}

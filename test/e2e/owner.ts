@@ -12,7 +12,7 @@ export function randomClientIp(): string {
 // Signs in as the owner over the API and returns the headers that owner-only endpoints need
 export async function ownerHeaders(request: APIRequestContext, clientIp: string): Promise<Record<string, string>> {
 	// Claims the owner on a fresh bucket; later runs get 409 because the owner already exists
-	await request.post('/api/auth/bootstrap', { headers: { Origin: ORIGIN }, data: { password: OWNER_PASSWORD } });
+	await request.get('/api/auth/methods');
 	const login = await request.post('/api/auth/login/password', {
 		headers: { Origin: ORIGIN, 'CF-Connecting-IP': clientIp },
 		data: { password: OWNER_PASSWORD },

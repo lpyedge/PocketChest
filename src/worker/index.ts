@@ -1,4 +1,12 @@
-import { assertSameOrigin, clearedSessionCookie, csrfTokenFor, issueOwnerSession, requireOwner } from './auth/sessions';
+import {
+	assertSameOrigin,
+	clearedSessionCookie,
+	csrfTokenFor,
+	issueOwnerSession,
+	ownerSessionStands,
+	requireOwner,
+	sha256Hex,
+} from './auth/sessions';
 import { bootstrapOwner } from './auth/bootstrap';
 import type { AuthenticationResponseJSON, RegistrationResponseJSON } from '@simplewebauthn/server';
 import {
@@ -409,9 +417,25 @@ async function readJson<T>(request: Request): Promise<T> {
 	return value as T;
 }
 
+// An upload token is only as good as the Owner session that started it: once that session has ended (sign-out,
+// expiry, a password or method change) the token may not start or finish anything. Tokens without the claim
+// (issued before it existed) are refused too. Costs two R2 reads, so it runs on the calls that store or publish
+// something, not on every multipart part: a part written after sign-out can never be published, because the
+// calls that would publish it fail here.
+async function assertIssuerStands(env: Env, ownerSessionHash: string | undefined): Promise<void> {
+	if (!ownerSessionHash || !(await ownerSessionStands(env.R2_STORAGE, ownerSessionHash, getCurrentTimestamp()))) {
+		throw new ApiError(401, 'AUTH_INVALID', 'Sign in required');
+	}
+}
+
 // Verifies the upload token for a session and that the session is still open
 // Checks the upload token and that it belongs to this session, whatever state the session is in
-async function authorizeUploadToken(request: Request, env: Env, sessionId: string): Promise<UploadJWTPayload> {
+async function authorizeUploadToken(
+	request: Request,
+	env: Env,
+	sessionId: string,
+	options: { issuerMustStand: boolean },
+): Promise<UploadJWTPayload> {
 	const token = bearerToken(request);
 	let payload: UploadJWTPayload;
 	try {
@@ -423,6 +447,7 @@ async function authorizeUploadToken(request: Request, env: Env, sessionId: strin
 	if (payload.sessionId !== sessionId || !isValidUUID(sessionId)) {
 		throw new ApiError(400, 'INVALID_SESSION', 'Invalid session');
 	}
+	if (options.issuerMustStand) await assertIssuerStands(env, payload.osh);
 	return payload;
 }
 
@@ -439,6 +464,8 @@ async function authorizeUpload(request: Request, env: Env, sessionId: string): P
 		throw new ApiError(400, 'INVALID_SESSION', 'Invalid session');
 	}
 
+	await assertIssuerStands(env, payload.osh);
+
 	if (!(await isSessionOpen(env.R2_STORAGE, sessionId))) {
 		throw new ApiError(404, 'SESSION_NOT_FOUND', 'Session not found or already completed');
 	}
@@ -446,7 +473,13 @@ async function authorizeUpload(request: Request, env: Env, sessionId: string): P
 	return payload;
 }
 
-async function authorizeMultipart(request: Request, env: Env, sessionId: string, fileId: string): Promise<MultipartJWTPayload> {
+async function authorizeMultipart(
+	request: Request,
+	env: Env,
+	sessionId: string,
+	fileId: string,
+	options: { issuerMustStand: boolean },
+): Promise<MultipartJWTPayload> {
 	const token = bearerToken(request);
 	let payload: MultipartJWTPayload;
 	try {
@@ -463,6 +496,7 @@ async function authorizeMultipart(request: Request, env: Env, sessionId: string,
 		throw new ApiError(400, 'INVALID_REQUEST', 'Invalid session or file ID format');
 	}
 
+	if (options.issuerMustStand) await assertIssuerStands(env, payload.osh);
 	return payload;
 }
 
@@ -738,12 +772,12 @@ async function handlePasskeyReauthVerify(request: Request, env: Env): Promise<Re
 
 // POST /api/upload-sessions - Owner starts an upload session and receives its upload token
 async function handleCreateUploadSession(request: Request, env: Env): Promise<Response> {
-	await requireOwner(request, env.R2_STORAGE, env.JWT_SECRET, { mutating: true });
+	const owner = await requireOwner(request, env.R2_STORAGE, env.JWT_SECRET, { mutating: true });
 	await enforceRateLimit(env.UPLOAD_LIMITER, request, 'create-session');
 
 	const sessionId = generateUUID();
 	const createdAt = getCurrentTimestamp();
-	const uploadToken = await createUploadJWT(sessionId, env.JWT_SECRET, createdAt);
+	const uploadToken = await createUploadJWT(sessionId, env.JWT_SECRET, createdAt, await sha256Hex(owner.sid));
 	await openSession(env.R2_STORAGE, sessionId, createdAt);
 
 	const response: CreateChestResponse = {
@@ -984,7 +1018,7 @@ function checkFilename(filename: string): void {
 // POST /api/upload-sessions/:sessionId/complete - Complete upload and generate retrieval code
 // POST /api/upload-sessions/:sessionId/cancel - Abandon an upload session; its unfinished multipart uploads are aborted
 async function handleCancelUpload(request: Request, env: Env, sessionId: string): Promise<Response> {
-	const token = await authorizeUploadToken(request, env, sessionId);
+	const token = await authorizeUploadToken(request, env, sessionId, { issuerMustStand: false });
 	// Read the uploads before abandoning: abandoning marks them closed, and they still have to be aborted in R2
 	const before = await getSessionRecord(env.R2_STORAGE, sessionId);
 	if (!before) {
@@ -1001,7 +1035,7 @@ function completionFingerprint(fileIds: string[], validityDays: number): string 
 }
 
 async function handleCompleteUpload(request: Request, env: Env, sessionId: string): Promise<Response> {
-	const payload = await authorizeUploadToken(request, env, sessionId);
+	const payload = await authorizeUploadToken(request, env, sessionId, { issuerMustStand: true });
 	const { fileIds, validityDays } = await readJson<CompleteUploadRequest>(request);
 
 	if (
@@ -1310,6 +1344,7 @@ async function handleCreateMultipartUpload(request: Request, env: Env, sessionId
 			fileSize,
 			env.JWT_SECRET,
 			session.exp,
+			session.osh,
 		),
 	};
 	return json(response);
@@ -1369,7 +1404,7 @@ async function withActiveMultipart<T>(
 
 // PUT /api/upload-sessions/:sessionId/multipart/:fileId/parts/:partNumber - Upload part
 async function handleUploadPart(request: Request, env: Env, sessionId: string, fileId: string, partNumber: number): Promise<Response> {
-	const payload = await authorizeMultipart(request, env, sessionId, fileId);
+	const payload = await authorizeMultipart(request, env, sessionId, fileId, { issuerMustStand: false });
 	await enforceRateLimit(env.PART_LIMITER, request, `part:${fileId}`);
 	await enforceRateLimit(env.PART_TOTAL_LIMITER, request, 'part-all');
 
@@ -1424,7 +1459,7 @@ function validateParts(parts: unknown): { partNumber: number; etag: string }[] {
 
 // POST /api/upload-sessions/:sessionId/multipart/:fileId/complete - Complete multipart upload
 async function handleCompleteMultipartUpload(request: Request, env: Env, sessionId: string, fileId: string): Promise<Response> {
-	const payload = await authorizeMultipart(request, env, sessionId, fileId);
+	const payload = await authorizeMultipart(request, env, sessionId, fileId, { issuerMustStand: true });
 	const { parts } = await readJson<CompleteMultipartUploadRequest>(request);
 	const sortedParts = validateParts(parts);
 
@@ -1464,7 +1499,7 @@ async function handleCompleteMultipartUpload(request: Request, env: Env, session
 
 // POST /api/upload-sessions/:sessionId/multipart/:fileId/abort - Abort an unfinished multipart upload
 async function handleAbortMultipartUpload(request: Request, env: Env, sessionId: string, fileId: string): Promise<Response> {
-	const payload = await authorizeMultipart(request, env, sessionId, fileId);
+	const payload = await authorizeMultipart(request, env, sessionId, fileId, { issuerMustStand: false });
 
 	// Aborting twice is harmless: the first abort already closed the upload
 	const outcome = await withActiveMultipart(

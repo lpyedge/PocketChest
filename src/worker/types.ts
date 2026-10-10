@@ -81,6 +81,9 @@ export interface RetrieveChestResponse {
 export interface UploadJWTPayload {
 	sessionId: string;
 	type: 'upload';
+	// sha256 of the Owner session that started this upload (never the cookie itself). Absent on tokens issued
+	// before this claim existed; those are refused where the Owner's session is checked.
+	osh?: string;
 	iat: number;
 	exp: number;
 }
@@ -110,6 +113,8 @@ export interface MultipartJWTPayload {
 	mimeType: string;
 	fileSize: number;
 	type: 'multipart';
+	// Same claim as on the upload token
+	osh?: string;
 	iat: number;
 	exp: number;
 }

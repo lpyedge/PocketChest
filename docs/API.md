@@ -103,6 +103,8 @@
 | 27 | POST | `/api/upload-sessions/{id}/multipart/{fileId}/abort` | Multipart Token | [已實作] | |
 | 28 | POST | `/api/upload-sessions/{id}/complete` | Upload Token | [已實作] | |
 
+> **上傳令牌與 Owner Session（T06）**：`POST /api/upload-sessions` 簽發的 Upload Token 帶 `osh`（簽發它的 Owner Session id 的 SHA-256，不含 Cookie 本身）。檔案上傳、建立 multipart、multipart complete、`complete` 會多讀兩次 R2（Owner Session、Owner 記錄）確認該 Session 仍有效（未登出、未過絕對期限、`authVersion` 未變），否則 `401 AUTH_INVALID`；沒有 `osh` 的舊令牌同樣被拒（需重新開始上傳）。為控制 Free 方案的 R2 讀取量，逐個 part 上傳不檢查（登出後寫入的 part 無法被發布，因為 multipart complete 與 `complete` 會失敗）；`cancel` 與 multipart `abort` 登出後仍允許，只用來釋放資源。閒置時間不算登出。已在進行中的單一寫入不保證中斷。
+
 ### 取件與下載
 
 | # | Method | Path | 權限 | 狀態 | 說明 |

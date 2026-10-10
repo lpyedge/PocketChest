@@ -242,6 +242,25 @@ async function replaceRecord(bucket: R2Bucket, key: string, etag: string, record
 	return stored !== null;
 }
 
+/**
+ * Whether the Owner session with this id hash still stands: it exists, has not passed its absolute end, and the
+ * Owner has not changed their sign-in setup since (authVersion). Read-only and idle time is deliberately ignored:
+ * an upload can run for hours without the page calling the API, and being idle is not being signed out.
+ * Costs two R2 reads (session record, Owner record).
+ */
+export async function ownerSessionStands(
+	bucket: R2Bucket,
+	sessionIdHash: string,
+	now: number = Math.floor(Date.now() / 1000),
+): Promise<boolean> {
+	const object = await bucket.get(sessionKey(sessionIdHash));
+	if (!object) return false;
+	const parsed = parseRecord(await object.text());
+	if (!parsed || now >= parsed.absoluteExpiresAt) return false;
+	const owner = await loadOwner(bucket).catch(() => null);
+	return owner !== null && owner.owner.authVersion === parsed.ownerAuthVersion;
+}
+
 export async function revokeOwnerSession(bucket: R2Bucket, sid: string): Promise<void> {
 	await bucket.delete(sessionKey(await sha256Hex(sid)));
 }

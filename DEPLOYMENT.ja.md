@@ -9,13 +9,13 @@
 [![Deploy to Cloudflare](https://deploy.workers.cloudflare.com/button)](https://deploy.workers.cloudflare.com/?url=https://github.com/lpyedge/PocketChest)
 
 1. ボタンを押し、Cloudflare にサインインして GitHub との連携を許可します。このリポジトリが自分のアカウントにコピーされ、`wrangler.jsonc` に従って Worker、R2 バケット（`R2_STORAGE`）、レート制限のバインディング、毎時の Cron が用意されます。
-2. シークレットのフォームには `JWT_SECRET`、`AUTH_ENCRYPTION_KEY`、`ADMIN_BOOTSTRAP_PASSWORD` が並び、`.dev.vars.example` のプレースホルダが入力済みになっています。**それぞれ、自分で生成したランダムな値に置き換えてください**（コマンドは[第 2 章](#2-手動デプロイ)）。プレースホルダのままのデプロイは拒否されます。API は `SERVER_MISCONFIGURED` を返し、プレースホルダのパスワードではオーナーを作成できません。
+2. シークレットのフォームには `JWT_SECRET`、`ADMIN_BOOTSTRAP_PASSWORD` が並び、`.dev.vars.example` のプレースホルダが入力済みになっています。**それぞれ、自分で生成したランダムな値に置き換えてください**（コマンドは[第 2 章](#2-手動デプロイ)）。プレースホルダのままのデプロイは拒否されます。API は `SERVER_MISCONFIGURED` を返し、プレースホルダのパスワードではオーナーを作成できません。
 3. **Build** が `npm run build`、**Deploy** が `npx wrangler deploy` になっていることを確認して、デプロイします。
 4. `https://<worker 名>.<サブドメイン>.workers.dev/upload/` を開きます。オーナーがまだ存在せず初期設定が有効な間は、初期設定用のパスワードを求められます。`ADMIN_BOOTSTRAP_PASSWORD` を入力してオーナーを作成します。変更するまで、それがオーナーのパスワードです。
 5. **すぐに初期設定を閉じます。** シークレット `ADMIN_BOOTSTRAP_PASSWORD` を削除します（Worker → Settings → Variables and Secrets）。これがなければ初期設定は実行できません。続いて、ボタンが GitHub に作成したリポジトリで `wrangler.jsonc` の `BOOTSTRAP_ENABLED` を `"false"` にしてコミットし、次回以降のビルドでもオフのままにします。ダッシュボードだけで変更しても、次のビルドで上書きされます。
 6. **セキュリティ設定**を開き、自分のパスワードを設定してから、認証アプリまたはパスキーを追加します。パスキーを登録する**前に**、本番のホスト名を決めて `PASSKEY_RP_ID` を設定してください（[運用](docs/OPERATIONS.md#passkey-domain)）。
 
-**デプロイできたことは、検証が済んだことではありません。**[第 6 章](#6-インストールの確認)に従い、お使いの Cloudflare プランで PBKDF2 の CPU 使用量、R2 の同時実行、Cron、レート制限、大きなファイルを確認してください。Free プランに収めるためにパスワードのハッシュを弱めてはいけません。
+**デプロイできたことは、検証が済んだことではありません。**[第 6 章](#6-インストールの確認)に従い、お使いの Cloudflare プランで R2 の同時実行、Cron、レート制限、大きなファイルを確認してください。
 
 ## 2. 手動デプロイ
 
@@ -28,18 +28,16 @@ npx wrangler r2 bucket create pocket-chest
 # 別のバケット名にする場合は、wrangler.jsonc の bucket_name も合わせて変更します。
 ```
 
-**互いに異なる** 3 つの値を生成し、他人に見られない場所に保管します。
+**互いに異なる** 2 つの値を生成し、他人に見られない場所に保管します。
 
 ```bash
 openssl rand -base64 48   # JWT_SECRET
-openssl rand -base64 32   # AUTH_ENCRYPTION_KEY：デコード後にちょうど 32 バイト
 openssl rand -base64 24   # ADMIN_BOOTSTRAP_PASSWORD：16 文字以上
 # openssl がない場合：node -e "console.log(require('crypto').randomBytes(48).toString('base64'))"
 ```
 
 ```bash
 npx wrangler secret put JWT_SECRET
-npx wrangler secret put AUTH_ENCRYPTION_KEY
 npx wrangler secret put ADMIN_BOOTSTRAP_PASSWORD
 ```
 
@@ -65,7 +63,6 @@ npx wrangler deploy
 | 名前 | 種類 | 内容 |
 | --- | --- | --- |
 | `JWT_SECRET` | Worker シークレット | アップロードとダウンロードのトークンに署名します。24 文字以上のランダムな値で、サンプルの値は不可。 |
-| `AUTH_ENCRYPTION_KEY` | Worker シークレット | ちょうど 32 バイトのランダム値を Base64 にしたもの。認証アプリのシードを暗号化します。バックアップしてください。失うと認証アプリを設定し直す必要があります。 |
 | `ADMIN_BOOTSTRAP_PASSWORD` | 一度だけ使う Worker シークレット | 16 文字以上。オーナーの作成に使い、**作成後は削除**します。 |
 | `BOOTSTRAP_ENABLED` | `wrangler.jsonc` の変数 | 初回インストールの間だけ `"true"`。オーナー作成後は `"false"`。 |
 | `PASSKEY_RP_ID` | 任意の変数 | パスキーを結び付ける唯一のホスト名。パスキーを登録する前に設定します。 |
@@ -104,7 +101,7 @@ GitHub からの Workers Builds では、**Build** を `npm run build`、**Deplo
 | すべての `/api/*` が `SERVER_MISCONFIGURED` を返す | `JWT_SECRET` が未設定、短すぎる、またはサンプルの値のまま。 |
 | 初期設定が `BOOTSTRAP_MISCONFIGURED` を返す | `ADMIN_BOOTSTRAP_PASSWORD` が 16 文字未満、またはサンプルの値のまま。 |
 | 初期設定が `BOOTSTRAP_DISABLED` を返す | `BOOTSTRAP_ENABLED` が `"true"` でない、またはシークレットが未設定。 |
-| 認証アプリの設定で `AUTH_NOT_CONFIGURED` になる | `AUTH_ENCRYPTION_KEY` が未設定、または 32 バイトの Base64 ではない。 |
+| 認証アプリの設定・利用で `AUTH_NOT_CONFIGURED` になる | `JWT_SECRET` が未設定・短すぎる、または認証アプリを設定したときの値と異なる。 |
 | `/upload/` が白紙または 404 | デプロイ前に `dist/` をビルドしていない（第 4 章）。 |
 | ストレージのエラー | R2 バケットがない、または `wrangler.jsonc` の `bucket_name` が一致していない。 |
 | パスキーが `PASSKEY_DOMAIN_MISMATCH` で拒否される | `PASSKEY_RP_ID` 以外のホスト名からのリクエスト。 |

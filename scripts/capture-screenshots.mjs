@@ -73,8 +73,6 @@ const server = spawn(
 		`ADMIN_BOOTSTRAP_PASSWORD:${PASSWORD}`,
 		'--var',
 		`JWT_SECRET:${randomBytes(48).toString('base64')}`,
-		'--var',
-		`AUTH_ENCRYPTION_KEY:${randomBytes(32).toString('base64')}`,
 	],
 	// Its own process group, so the whole tree (wrangler, workerd) can be stopped at the end
 	{ stdio: ['ignore', 'pipe', 'pipe'], detached: true },

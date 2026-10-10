@@ -4,7 +4,7 @@
  *   1. the marker is written with If-None-Match, so only one request can ever claim setup
  *   2. the owner record is created with If-None-Match
  * If step 2 fails, the marker stays: setup never reopens by itself. The deployer finishes it offline with
- * scripts/recover-bootstrap.mjs (docs/RECOVERY.md), which creates the first owner and leaves the marker alone.
+ * scripts/recover-bootstrap.mjs (docs/RECOVERY.md), which only removes the marker (creating no owner) so setup can run again.
  * The password is hashed before step 1, so a failure there leaves nothing claimed.
  */
 import { ApiError } from '../errors';
@@ -18,6 +18,8 @@ export interface BootstrapEnv {
 	R2_STORAGE: R2Bucket;
 	BOOTSTRAP_ENABLED?: string;
 	ADMIN_BOOTSTRAP_PASSWORD?: string;
+	// Root secret the password hash is keyed with
+	JWT_SECRET: string;
 }
 
 const MIN_BOOTSTRAP_PASSWORD_LENGTH = 16;
@@ -46,7 +48,7 @@ export async function bootstrapOwner(env: BootstrapEnv, submitted: string): Prom
 
 	// The costly part (hashing the password) comes first. If it fails, for example for lack of CPU, nothing has been
 	// claimed yet, so setup can simply be tried again. Only the cheap writes are left once the marker exists.
-	const owner = await buildFirstOwner(configured);
+	const owner = await buildFirstOwner(configured, env.JWT_SECRET);
 
 	const claimed = await env.R2_STORAGE.put(BOOTSTRAP_MARKER_KEY, new Date().toISOString(), {
 		onlyIf: new Headers({ 'If-None-Match': '*' }),

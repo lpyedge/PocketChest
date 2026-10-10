@@ -10,6 +10,7 @@ import {
 	TEST_ORIGIN,
 	TEST_OWNER_PASSWORD,
 	postRetrieve,
+	TEST_JWT_SECRET,
 } from './utils/test-setup';
 import type { RateLimitBinding } from '../src/worker/types';
 
@@ -45,7 +46,7 @@ describe('N2-10 refused attempts cost no writes', () => {
 	beforeEach(async () => {
 		await resetStorage();
 		await setupTestEnvironment();
-		await createOwnerOnce(original, TEST_OWNER_PASSWORD);
+		await createOwnerOnce(original, TEST_OWNER_PASSWORD, TEST_JWT_SECRET);
 	});
 
 	it('50 attempts against a locked method write nothing to the counter', async () => {

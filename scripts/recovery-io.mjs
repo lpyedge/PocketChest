@@ -69,6 +69,11 @@ export function wranglerGet(bucket, key) {
 	}
 }
 
+/** Deletes an object. Like put, it is not conditional: callers check just before and pause sign-in meanwhile. */
+export function wranglerDelete(bucket, key) {
+	execFileSync('npx', ['wrangler', 'r2', 'object', 'delete', `${bucket}/${key}`, '--remote'], { stdio: ['ignore', 'inherit', 'inherit'] });
+}
+
 /** Writes an object. wrangler has no conditional write, so callers check just before and pause sign-in meanwhile. */
 export function wranglerPut(bucket, key, body) {
 	const dir = mkdtempSync(join(tmpdir(), 'pocketchest-recovery-'));

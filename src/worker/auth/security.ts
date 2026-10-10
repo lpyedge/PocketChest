@@ -239,10 +239,10 @@ export async function changePassword(
 	}
 	assertCurrent(loaded.owner, session);
 	const current = loaded.owner.methods.password.hash;
-	if (current && (await verifyPassword(newPassword, current))) {
+	if (current && (await verifyPassword(newPassword, current, env.JWT_SECRET))) {
 		throw new ApiError(400, 'PASSWORD_UNCHANGED', 'Choose a password different from the current one');
 	}
-	const hash = await hashPassword(newPassword);
+	const hash = await hashPassword(newPassword, env.JWT_SECRET);
 	let written: OwnerRecord;
 	try {
 		written = await mutateAsSession(env.R2_STORAGE, session, (owner) => ({
@@ -257,10 +257,10 @@ export async function changePassword(
 }
 
 /** Step one of TOTP enrolment: a new seed is made and kept sealed under a single-use challenge. */
-export async function prepareTotp(env: { R2_STORAGE: R2Bucket; AUTH_ENCRYPTION_KEY?: string }, session: LoadedSession, now: number) {
+export async function prepareTotp(env: { R2_STORAGE: R2Bucket; JWT_SECRET: string }, session: LoadedSession, now: number) {
 	assertRecentReauth(session, now);
 	const seed = generateSeed();
-	const sealed = await sealSeed(seed, env.AUTH_ENCRYPTION_KEY);
+	const sealed = await sealSeed(seed, env.JWT_SECRET);
 	const challenge = toBase64Url(crypto.getRandomValues(new Uint8Array(32)));
 	await storeChallenge(env.R2_STORAGE, challenge, 'totp-enroll', await sha256Hex(session.sid), now, {
 		ttlSeconds: ENROLL_SECONDS,
@@ -275,7 +275,7 @@ export async function prepareTotp(env: { R2_STORAGE: R2Bucket; AUTH_ENCRYPTION_K
  * old seed stays in use. Success resets the replay record and rotates the session.
  */
 export async function confirmTotp(
-	env: { R2_STORAGE: R2Bucket; JWT_SECRET: string; AUTH_ENCRYPTION_KEY?: string },
+	env: { R2_STORAGE: R2Bucket; JWT_SECRET: string },
 	session: LoadedSession,
 	challenge: string,
 	code: string,
@@ -294,7 +294,7 @@ export async function confirmTotp(
 	if (payload === null) {
 		throw new ApiError(400, 'CHALLENGE_INVALID', 'The sign-in step expired or was already used; start again');
 	}
-	const seed = await openSeed(payload, env.AUTH_ENCRYPTION_KEY);
+	const seed = await openSeed(payload, env.JWT_SECRET);
 	const step = await matchTotpStep(seed, code, now);
 	if (step === null) {
 		const { ended } = await attempts.fail();

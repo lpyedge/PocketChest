@@ -71,7 +71,7 @@ export async function testFetch(url: string, init?: RequestInit): Promise<Respon
 
 // Signs the test owner in through the real password endpoint, creating the owner first if the bucket has none
 export async function ownerSignIn(): Promise<{ cookie: string; csrfToken: string }> {
-	await createOwnerOnce(env.R2_STORAGE, TEST_OWNER_PASSWORD);
+	await createOwnerOnce(env.R2_STORAGE, TEST_OWNER_PASSWORD, TEST_JWT_SECRET);
 	const response = await testFetch(`${TEST_ORIGIN}/api/auth/login/password`, {
 		method: 'POST',
 		headers: { 'Content-Type': 'application/json', Origin: TEST_ORIGIN },

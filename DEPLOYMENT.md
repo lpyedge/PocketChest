@@ -9,13 +9,13 @@
 [![Deploy to Cloudflare](https://deploy.workers.cloudflare.com/button)](https://deploy.workers.cloudflare.com/?url=https://github.com/lpyedge/PocketChest)
 
 1. Click the button, sign in to Cloudflare and let it connect to GitHub. It copies this repository into your account and sets up a Worker with an R2 bucket (`R2_STORAGE`), the rate-limit bindings and the hourly cron from `wrangler.jsonc`.
-2. The secrets form lists `JWT_SECRET`, `AUTH_ENCRYPTION_KEY` and `ADMIN_BOOTSTRAP_PASSWORD`, pre-filled with the placeholders from `.dev.vars.example`. **Replace each one with your own random value** (commands in [section 2](#2-manual-deployment)). A deployment that keeps a placeholder is refused: the API answers `SERVER_MISCONFIGURED`, and the owner cannot be created with a placeholder password.
+2. The secrets form lists `JWT_SECRET` and `ADMIN_BOOTSTRAP_PASSWORD`, pre-filled with the placeholders from `.dev.vars.example`. **Replace each one with your own random value** (commands in [section 2](#2-manual-deployment)). A deployment that keeps a placeholder is refused: the API answers `SERVER_MISCONFIGURED`, and the owner cannot be created with a placeholder password.
 3. Check that **Build** is `npm run build` and **Deploy** is `npx wrangler deploy`, then deploy.
 4. Open `https://<your-worker>.<your-subdomain>.workers.dev/upload/`. While there is no owner and setup is enabled, the page asks for the setup password. Enter `ADMIN_BOOTSTRAP_PASSWORD` to create the owner; that password is the owner's password until you change it.
 5. **Close setup now.** Delete the `ADMIN_BOOTSTRAP_PASSWORD` secret (Worker → Settings → Variables and Secrets): without it setup cannot run. Then, in the repository the button created in your GitHub account, change `BOOTSTRAP_ENABLED` to `"false"` in `wrangler.jsonc` and commit, so the next build keeps it off. Changing it only in the dashboard is overwritten by the next build.
 6. Open **Security settings** and set a password of your own, then add an authenticator app or a passkey. Choose the final hostname and set `PASSKEY_RP_ID` **before** you register a passkey ([operations](docs/OPERATIONS.md#passkey-domain)).
 
-**A successful deployment is not an acceptance test.** Check PBKDF2 CPU use, R2 concurrency, Cron, rate limits and large files on your own Cloudflare plan, as listed in [section 6](#6-check-the-installation). Do not weaken the password hash to fit the Free plan.
+**A successful deployment is not an acceptance test.** Check R2 concurrency, Cron, rate limits and large files on your own Cloudflare plan, as listed in [section 6](#6-check-the-installation).
 
 ## 2. Manual deployment
 
@@ -28,18 +28,16 @@ npx wrangler r2 bucket create pocket-chest
 # A different bucket name? Change bucket_name in wrangler.jsonc to match.
 ```
 
-Generate three **different** values and keep them somewhere private:
+Generate two **different** values and keep them somewhere private:
 
 ```bash
 openssl rand -base64 48   # JWT_SECRET
-openssl rand -base64 32   # AUTH_ENCRYPTION_KEY: must decode to exactly 32 bytes
 openssl rand -base64 24   # ADMIN_BOOTSTRAP_PASSWORD: at least 16 characters
 # no openssl: node -e "console.log(require('crypto').randomBytes(48).toString('base64'))"
 ```
 
 ```bash
 npx wrangler secret put JWT_SECRET
-npx wrangler secret put AUTH_ENCRYPTION_KEY
 npx wrangler secret put ADMIN_BOOTSTRAP_PASSWORD
 ```
 
@@ -58,14 +56,13 @@ npx wrangler secret delete ADMIN_BOOTSTRAP_PASSWORD
 npx wrangler deploy
 ```
 
-Never remove the setup marker in R2 to reopen setup. If setup was interrupted, run `node scripts/recover-bootstrap.mjs` (see [offline recovery](docs/RECOVERY.md)).
+Never remove the setup marker in R2 by hand to reopen setup. If setup was interrupted, run `node scripts/recover-bootstrap.mjs`, which removes it only in that state, (see [offline recovery](docs/RECOVERY.md)).
 
 ## 3. Secrets and settings
 
 | Name | Kind | Meaning |
 | --- | --- | --- |
-| `JWT_SECRET` | Worker secret | Signs upload and download tokens. At least 24 characters, random, never an example value. |
-| `AUTH_ENCRYPTION_KEY` | Worker secret | Base64 of exactly 32 random bytes; seals the authenticator seed. Keep a backup: without it the authenticator must be set up again. |
+| `JWT_SECRET` | Worker secret | Signs upload and download tokens, and is the root the Worker derives the password key and the authenticator-seed key from. At least 24 characters, random, never an example value. **Do not change it after the owner exists:** the password and any authenticator would no longer verify. |
 | `ADMIN_BOOTSTRAP_PASSWORD` | One-time Worker secret | At least 16 characters. Creates the owner; **delete it afterwards**. |
 | `BOOTSTRAP_ENABLED` | `wrangler.jsonc` variable | `"true"` only for the first installation; `"false"` once the owner exists. |
 | `PASSKEY_RP_ID` | Optional variable | The one hostname passkeys are bound to. Set it before registering a passkey. |
@@ -104,7 +101,7 @@ The full list is in [REMOTE_ACCEPTANCE.md](docs/REMOTE_ACCEPTANCE.md). Logs, the
 | Every `/api/*` call answers `SERVER_MISCONFIGURED` | `JWT_SECRET` is missing, too short or still an example value. |
 | Setup answers `BOOTSTRAP_MISCONFIGURED` | `ADMIN_BOOTSTRAP_PASSWORD` is shorter than 16 characters or still an example value. |
 | Setup answers `BOOTSTRAP_DISABLED` | `BOOTSTRAP_ENABLED` is not `"true"`, or the secret is not set. |
-| Authenticator setup fails with `AUTH_NOT_CONFIGURED` | `AUTH_ENCRYPTION_KEY` is missing or not base64 of 32 bytes. |
+| Authenticator setup or sign-in fails with `AUTH_NOT_CONFIGURED` | `JWT_SECRET` is missing, too short, or is not the value the authenticator was set up under. |
 | Blank page or 404 on `/upload/` | `dist/` was not built before deploying (see section 4). |
 | Storage errors | The R2 bucket does not exist, or `bucket_name` in `wrangler.jsonc` does not match it. |
 | Passkey refused with `PASSKEY_DOMAIN_MISMATCH` | The request came from a hostname other than `PASSKEY_RP_ID`. |

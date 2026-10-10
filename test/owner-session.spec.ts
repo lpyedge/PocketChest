@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeEach } from 'vitest';
 import { env } from 'cloudflare:test';
-import { testFetch, resetStorage } from './utils/test-setup';
+import { testFetch, resetStorage, TEST_JWT_SECRET } from './utils/test-setup';
 import {
 	issueOwnerSession,
 	loadOwnerSession,
@@ -17,7 +17,7 @@ const ORIGIN = 'http://example.com';
 const NOW = 1_800_000_000;
 
 async function signedIn(): Promise<{ sid: string; csrfToken: string; cookie: string }> {
-	await createOwnerOnce(bucket(), 'owner-session-password');
+	await createOwnerOnce(bucket(), 'owner-session-password', TEST_JWT_SECRET);
 	const issued = await issueOwnerSession(bucket(), env.JWT_SECRET, 1, NOW);
 	return { sid: issued.sid, csrfToken: issued.csrfToken, cookie: `${OWNER_COOKIE}=${issued.sid}` };
 }
@@ -36,7 +36,7 @@ describe('owner session cookie', () => {
 	});
 
 	it('is issued as __Host- prefixed, HttpOnly, Secure, SameSite=Strict, path-wide and without Domain', async () => {
-		await createOwnerOnce(bucket(), 'owner-session-password');
+		await createOwnerOnce(bucket(), 'owner-session-password', TEST_JWT_SECRET);
 		const { cookie } = await issueOwnerSession(bucket(), env.JWT_SECRET, 1, NOW);
 
 		expect(cookie).toMatch(new RegExp(`^${OWNER_COOKIE}=[A-Za-z0-9_-]+;`));
@@ -60,7 +60,7 @@ describe('owner session cookie', () => {
 	});
 
 	it('reports anonymous callers as not authenticated, without leaking anything', async () => {
-		await createOwnerOnce(bucket(), 'owner-session-password');
+		await createOwnerOnce(bucket(), 'owner-session-password', TEST_JWT_SECRET);
 		const response = await get('/api/auth/session');
 
 		expect(response.status).toBe(200);
@@ -126,7 +126,7 @@ describe('owner session cookie', () => {
 	});
 
 	it('expires after the idle limit without activity, and after the absolute limit even with activity', async () => {
-		await createOwnerOnce(bucket(), 'owner-session-password');
+		await createOwnerOnce(bucket(), 'owner-session-password', TEST_JWT_SECRET);
 
 		// Idle: never used since issue
 		const idle = await issueOwnerSession(bucket(), env.JWT_SECRET, 1, NOW);
@@ -148,7 +148,7 @@ describe('owner session cookie', () => {
 	});
 
 	it('is invalidated for every session when the owner authVersion changes', async () => {
-		await createOwnerOnce(bucket(), 'owner-session-password');
+		await createOwnerOnce(bucket(), 'owner-session-password', TEST_JWT_SECRET);
 		const first = await issueOwnerSession(bucket(), env.JWT_SECRET, 1, NOW);
 		const second = await issueOwnerSession(bucket(), env.JWT_SECRET, 1, NOW);
 		expect(await loadOwnerSession(bucket(), first.sid, NOW)).not.toBeNull();
@@ -160,7 +160,7 @@ describe('owner session cookie', () => {
 	});
 
 	it('removes revoked sessions and expired sessions in the cleanup job, but keeps live ones', async () => {
-		await createOwnerOnce(bucket(), 'owner-session-password');
+		await createOwnerOnce(bucket(), 'owner-session-password', TEST_JWT_SECRET);
 		const live = await issueOwnerSession(bucket(), env.JWT_SECRET, 1, NOW);
 		const expired = await issueOwnerSession(bucket(), env.JWT_SECRET, 1, NOW - ABSOLUTE_SECONDS - 10);
 		const revoked = await issueOwnerSession(bucket(), env.JWT_SECRET, 1, NOW);
@@ -175,7 +175,7 @@ describe('owner session cookie', () => {
 	});
 
 	it('marks every API response no-store, nosniff and no-referrer', async () => {
-		await createOwnerOnce(bucket(), 'owner-session-password');
+		await createOwnerOnce(bucket(), 'owner-session-password', TEST_JWT_SECRET);
 		for (const response of [await get('/api/auth/session'), await get('/api/missing')]) {
 			expect(response.headers.get('Cache-Control')).toBe('no-store');
 			expect(response.headers.get('X-Content-Type-Options')).toBe('nosniff');

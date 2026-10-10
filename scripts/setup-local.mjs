@@ -13,7 +13,6 @@ if (existsSync(target) && !process.argv.includes('--force')) {
 
 const secrets = {
 	JWT_SECRET: randomBytes(48).toString('base64'),
-	AUTH_ENCRYPTION_KEY: randomBytes(32).toString('base64'),
 	ADMIN_BOOTSTRAP_PASSWORD: randomBytes(24).toString('base64'),
 };
 

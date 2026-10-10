@@ -60,9 +60,6 @@
 			"JWT_SECRET": {
 				"description": "Generate an independent random signing secret (openssl rand -base64 48). Do not use local example."
 			},
-			"AUTH_ENCRYPTION_KEY": {
-				"description": "Base64 of 32 fresh random bytes (openssl rand -base64 32). Never change it without a recovery plan."
-			},
 			"ADMIN_BOOTSTRAP_PASSWORD": {
 				"description": "One-time Owner setup password (16+ characters). Remove after first setup and disable BOOTSTRAP_ENABLED."
 			}

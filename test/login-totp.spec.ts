@@ -9,6 +9,7 @@ import {
 	TEST_OWNER_PASSWORD,
 	ownerRecord,
 	objectText,
+	TEST_JWT_SECRET,
 } from './utils/test-setup';
 import { loadOwner, mutateOwner, OWNER_KEY } from '../src/worker/auth/owner';
 import { loginWithTotp, reauthWithTotp } from '../src/worker/auth/login';
@@ -22,11 +23,10 @@ const bucket = () => env.R2_STORAGE;
 const NOW = 1_800_000_000;
 const SEED = new Uint8Array(20).map((_, index) => index + 1);
 const OTHER_SEED = new Uint8Array(20).fill(0x5a);
-const REAL_KEY = (env as unknown as { AUTH_ENCRYPTION_KEY?: string }).AUTH_ENCRYPTION_KEY;
 
 // Gives the owner an authenticator with this seed. The password is switched off unless asked to stay on.
 async function enableTotp(seed: Uint8Array, options: { passwordEnabled: boolean; totpEnabled?: boolean }) {
-	const sealed = await sealSeed(seed, REAL_KEY);
+	const sealed = await sealSeed(seed, TEST_JWT_SECRET);
 	await mutateOwner(bucket(), (owner) => ({
 		...owner,
 		methods: {
@@ -162,20 +162,19 @@ describe('POST /api/auth/login/totp', () => {
 		await response.text();
 	});
 
-	it('fails closed when the encryption key is missing, malformed or wrong', async () => {
+	it('fails closed when the root secret is missing, too short or different from the one that sealed the seed', async () => {
 		const code = await totpCodeAt(SEED, NOW);
-		await rejectsWith(loginWithTotp({ ...env, AUTH_ENCRYPTION_KEY: undefined }, code, NOW), 500);
-		await rejectsWith(loginWithTotp({ ...env, AUTH_ENCRYPTION_KEY: 'not-base64!' }, code, NOW), 500);
-		await rejectsWith(loginWithTotp({ ...env, AUTH_ENCRYPTION_KEY: btoa('short') }, code, NOW), 500);
-		await rejectsWith(loginWithTotp({ ...env, AUTH_ENCRYPTION_KEY: btoa('x'.repeat(32)).replace(/A/g, 'B') }, code, NOW), 500);
+		await rejectsWith(loginWithTotp({ ...env, JWT_SECRET: undefined as unknown as string }, code, NOW), 500);
+		await rejectsWith(loginWithTotp({ ...env, JWT_SECRET: 'short' }, code, NOW), 500);
+		await rejectsWith(loginWithTotp({ ...env, JWT_SECRET: 'a-different-root-secret-of-good-length' }, code, NOW), 500);
 	});
 
 	it('never stores the seed in plain form', async () => {
 		const stored = await await objectText(OWNER_KEY);
 		expect(stored).not.toContain(toBase64Url(SEED));
 		expect(stored).not.toContain(toBase64Url(OTHER_SEED));
-		const sealedA = await sealSeed(SEED, REAL_KEY);
-		const sealedB = await sealSeed(SEED, REAL_KEY);
+		const sealedA = await sealSeed(SEED, TEST_JWT_SECRET);
+		const sealedB = await sealSeed(SEED, TEST_JWT_SECRET);
 		expect(sealedA.ct).not.toBe(sealedB.ct);
 	});
 

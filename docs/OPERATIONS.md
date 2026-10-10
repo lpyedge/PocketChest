@@ -78,11 +78,11 @@ A run logs a `Cleanup summary` with counts. A run that finishes with errors logs
 | `auth/bootstrap-marker` | Records that first-time setup was claimed |
 | `maintenance/*` | Cursors for the scans that continue across runs |
 
-Never delete `auth/bootstrap-marker` to reopen setup. If setup was interrupted (marker present, no owner), run `node scripts/recover-bootstrap.mjs` as described in [offline recovery](RECOVERY.md).
+Never delete `auth/bootstrap-marker` by hand to reopen setup. If setup was interrupted (marker present, no owner), run `node scripts/recover-bootstrap.mjs` as described in [offline recovery](RECOVERY.md).
 
 ## Known limits
 
-- **Workers plan.** Password hashing uses PBKDF2 with 600,000 iterations. Cloudflare lists 10 ms of CPU for the Free plan; do not assume it is enough. Measure sign-in on your real plan, and do not weaken the hash to fit.
+- **Password storage is cheap on purpose.** The Workers Free plan allows very little CPU per request, so the password is stored as a salted HMAC-SHA256 under a key the Worker derives from `JWT_SECRET` (`HMAC-SHA256-KEYED-V1`), not as a slow hash. A copy of the bucket alone cannot be used to test guesses, and the sign-in lockout limits online guessing; use a long password you use nowhere else. There is no other password format. Do not change `JWT_SECRET` once the owner exists: the password and an authenticator, if one is set up, would stop verifying.
 - **Rate limit counters are kept apart per installation.** The limiter namespaces in `wrangler.jsonc` are shared by every Worker in the same Cloudflare account, so each key starts with an id that belongs to this installation: a random id created once in the bucket (`maintenance/instance-id`), the same on `workers.dev` and on a custom domain, and never changed by an upgrade. You do not set anything. To choose it yourself, set a plain variable `INSTANCE_ID`. If the bucket cannot be read, requests are still limited under a shared prefix until it can.
 - **Rate limits are approximate.** Cloudflare counts per location. The owner-level lockout is the real protection for sign-in; it reserves a place in the guess budget before each check, so parallel guesses cannot all be checked. A WAF rate-limiting rule on `/api/auth/*` adds another layer.
 - **Upload sessions last 24 hours** from the moment they start, for every upload token. Resuming after that is not supported.

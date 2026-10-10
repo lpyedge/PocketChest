@@ -9,6 +9,7 @@ import {
 	TEST_ORIGIN,
 	TEST_OWNER_PASSWORD,
 	objectText,
+	TEST_JWT_SECRET,
 } from './utils/test-setup';
 import { loginWithPassword, loginWithTotp } from '../src/worker/auth/login';
 import { mutateOwner } from '../src/worker/auth/owner';
@@ -43,7 +44,7 @@ async function failPassword(now: number, times = FAILURE_LIMIT) {
 }
 
 async function enableTotpAndPassword(seed: Uint8Array) {
-	const sealed = await sealSeed(seed, bindings.AUTH_ENCRYPTION_KEY);
+	const sealed = await sealSeed(seed, TEST_JWT_SECRET);
 	await mutateOwner(bucket(), (owner) => ({
 		...owner,
 		methods: {

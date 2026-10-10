@@ -15,7 +15,6 @@ export interface AuthEnv {
 	JWT_SECRET: string;
 	BOOTSTRAP_ENABLED?: string;
 	ADMIN_BOOTSTRAP_PASSWORD?: string;
-	AUTH_ENCRYPTION_KEY?: string;
 }
 
 export interface MethodsStatus {
@@ -58,7 +57,7 @@ async function checkPassword(env: AuthEnv, password: string, mode: Mode): Promis
 	if (!usable(owner, 'password', mode) || owner.methods.password.hash === null) {
 		throw new ApiError(403, 'AUTH_METHOD_DISABLED', 'Password sign-in is not enabled');
 	}
-	if (!(await verifyPassword(password, owner.methods.password.hash))) {
+	if (!(await verifyPassword(password, owner.methods.password.hash, env.JWT_SECRET))) {
 		throw new ApiError(401, 'AUTH_INVALID_CREDENTIALS', 'Invalid credentials');
 	}
 	return owner;
@@ -131,7 +130,7 @@ async function consumeTotpCode(env: AuthEnv, code: string, now: number, mode: Mo
 	if (!usable(loaded.owner, 'totp', mode) || sealed === null) {
 		throw new ApiError(403, 'AUTH_METHOD_DISABLED', 'Authenticator sign-in is not enabled');
 	}
-	const seed = await openSeed(sealed, env.AUTH_ENCRYPTION_KEY);
+	const seed = await openSeed(sealed, env.JWT_SECRET);
 	const step = await matchTotpStep(seed, code, now);
 	if (step === null) {
 		throw new ApiError(401, 'AUTH_INVALID_CREDENTIALS', 'Invalid credentials');

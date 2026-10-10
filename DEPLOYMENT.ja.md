@@ -34,6 +34,16 @@ npm run deploy
 
 もう一度 `npm run deploy` を実行するとアップグレードになります。何も尋ねず、シークレットも変更しません。何かを変更する前に、`wrangler.jsonc` に書かれた Worker とバケットについて Cloudflare が返す内容を確認し、結果がはっきりしない場合は**拒否**します（何も変更しません）。たとえば、オーナーは存在するのに Worker に署名用シークレットがない（アカウントや Worker 名の違い）、または初回セットアップが途中で止まっている場合です（[復旧](docs/RECOVERY.md)）。R2 の初期設定マーカーを手動で削除してはいけません。
 
+### GitHub Actions でデプロイする
+
+リポジトリが PocketChest のコピーまたはフォークなら、**Actions** タブから `.github/workflows/deploy-manual.yml`（「Deploy (manual)」）を実行して、インストールやアップグレードができます。手動で起動したときだけ動き、先にテストとドライランを行い、その後 `npm run deploy` と同じインストーラーを実行します。
+
+1. Settings → Secrets and variables → Actions に、`CLOUDFLARE_API_TOKEN`（自分のアカウントのみ、Workers Scripts: Edit と Workers R2 Storage: Edit の権限）と `CLOUDFLARE_ACCOUNT_ID` を追加します。**初回インストールのときだけ**、`ADMIN_BOOTSTRAP_PASSWORD`（オーナーのパスワード、16 文字以上）もリポジトリの **シークレット**として追加します（実行時の入力にはしません）。任意で `production` という Environment を作り、レビュー担当者を設定すると、実行ごとに承認が必要になります。
+2. Actions → Deploy (manual) → Run workflow を実行します。Worker とバケットは `wrangler.jsonc` に書かれたものです。
+3. `/upload/` を開き、そのパスワードでサインインします。以降の実行はアップグレードで、パスワードは不要、シークレット・オーナー・バケットのデータは変更されません。まず Cloudflare に Worker とバケットの状態を確認し、結果がはっきりしなければ何も変更せずに止まります。
+
+インストールごとに、これか Workers Builds／`npm run deploy` のどちらか一方だけを使ってください。
+
 ## 3. シークレットと設定
 
 | 名前 | 種類 | 説明 |

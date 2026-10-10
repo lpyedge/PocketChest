@@ -2,6 +2,9 @@ import { describe, it, expect } from 'vitest';
 import devVarsExample from '../../.dev.vars.example?raw';
 import wranglerConfig from '../../wrangler.jsonc?raw';
 import packageJson from '../../package.json?raw';
+import deploymentEn from '../../DEPLOYMENT.md?raw';
+import deploymentZh from '../../DEPLOYMENT.zh-Hant.md?raw';
+import deploymentJa from '../../DEPLOYMENT.ja.md?raw';
 
 // The Cloudflare Deploy Button turns every uncommented name in .dev.vars.example into a secret it asks for, and
 // reads package.json "cloudflare.bindings" for their descriptions. A person installing PocketChest chooses exactly one
@@ -93,5 +96,55 @@ describe('upstream update workflow', () => {
 	it('is documented', async () => {
 		const operations = (await import('../../docs/OPERATIONS.md?raw')).default as string;
 		expect(operations).toContain('Update from upstream');
+	});
+});
+
+describe('manual deploy workflow', () => {
+	const load = async () => {
+		const raw = (await import('../../.github/workflows/deploy-manual.yml?raw')).default as string;
+		return { raw, workflow: raw.replace(/^\s*#.*$/gm, '') };
+	};
+
+	it('runs only when started by hand, never from a pull request, and never with write access to the repository', async () => {
+		const { workflow } = await load();
+		expect(workflow).toMatch(/^on:\n {2}workflow_dispatch:/m);
+		expect(workflow).not.toMatch(/pull_request|push:|schedule:|workflow_run/);
+		expect(workflow).toMatch(/permissions:\n {2}contents: read\n/);
+		expect(workflow).not.toMatch(/contents: write|pull-requests: write/);
+	});
+
+	it('tests and builds the exact commit it then deploys, and the deploy waits for the tests', async () => {
+		const { workflow } = await load();
+		expect(workflow).toContain('npm run test:worker');
+		expect(workflow).toContain('npm run test:contracts');
+		expect(workflow).toContain('wrangler deploy --dry-run');
+		expect(workflow).toContain('needs: test');
+		expect(workflow).toContain('ref: ${{ needs.test.outputs.sha }}');
+		expect(workflow).toContain('environment: production');
+	});
+
+	it('uses the shared installer, so a first install and an upgrade follow the same rules as npm run deploy', async () => {
+		const { workflow } = await load();
+		expect(workflow).toContain('run: npm run deploy');
+		expect(workflow).not.toMatch(/wrangler (deploy|secret|r2)(?! --dry-run)/);
+	});
+
+	it('hands secrets only to the deploy step, and asks for no signing, encryption or hash input', async () => {
+		const { workflow } = await load();
+		const [beforeDeployJob] = workflow.split(/\n {2}deploy:\n/);
+		expect(beforeDeployJob).not.toMatch(/secrets\./);
+		const used = [...workflow.matchAll(/\$\{\{\s*secrets\.([A-Z_]+)\s*\}\}/g)].map((match) => match[1]).sort();
+		expect(used).toEqual(['ADMIN_BOOTSTRAP_PASSWORD', 'CLOUDFLARE_ACCOUNT_ID', 'CLOUDFLARE_API_TOKEN']);
+		expect(workflow).not.toMatch(/JWT_SECRET|AUTH_ENCRYPTION_KEY|openssl|inputs\.[a-z_]*password/i);
+	});
+
+	it('never creates or deletes a bucket, resets setup, or prints a secret', async () => {
+		const { workflow } = await load();
+		expect(workflow).not.toMatch(/bucket (create|delete)|bootstrap-marker|recover-bootstrap|set -x|echo[^\n]*secrets\./);
+		expect(workflow).not.toMatch(/--secrets-file|secret put|secret delete/);
+	});
+
+	it('is documented in all three languages', async () => {
+		for (const text of [deploymentEn, deploymentZh, deploymentJa]) expect(text).toContain('deploy-manual.yml');
 	});
 });

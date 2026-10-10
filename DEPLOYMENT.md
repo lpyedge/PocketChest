@@ -34,6 +34,16 @@ npm run deploy
 
 Running `npm run deploy` again is the upgrade: it asks for nothing and changes no secret. Before it changes anything it checks what Cloudflare says about the Worker and bucket named in `wrangler.jsonc`, and it **refuses** (changing nothing) when the answer is unclear: for example an Owner exists but the Worker has no signing secret (wrong account or Worker name), or a first setup was interrupted ([offline recovery](docs/RECOVERY.md)). Never remove the setup marker in R2 by hand.
 
+### Deploying with GitHub Actions
+
+If your repository is a copy or fork of PocketChest, `.github/workflows/deploy-manual.yml` ("Deploy (manual)") installs or upgrades from the **Actions** tab. It runs only when you start it, runs the tests and a dry run first, and then runs the same installer as `npm run deploy`.
+
+1. Settings → Secrets and variables → Actions: add `CLOUDFLARE_API_TOKEN` (Workers Scripts: Edit and Workers R2 Storage: Edit, for your account only) and `CLOUDFLARE_ACCOUNT_ID`. For the **first install only**, also add `ADMIN_BOOTSTRAP_PASSWORD`: your Owner password, at least 16 characters, as a repository **secret** (never as a run input). Optionally create an Environment named `production` with required reviewers to approve every run.
+2. Actions → Deploy (manual) → Run workflow. The Worker and bucket are the ones named in `wrangler.jsonc`.
+3. Open `/upload/` and sign in with that password. Later runs are upgrades: they need no password, and change no secret, Owner or bucket data. The workflow checks what Cloudflare says about the Worker and bucket first, and stops without changing anything if the answer is unclear.
+
+Use this **or** Workers Builds / `npm run deploy` for an installation, not both.
+
 ## 3. Secrets and settings
 
 | Name | Kind | Meaning |

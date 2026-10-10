@@ -34,6 +34,16 @@ npm run deploy
 
 再次執行 `npm run deploy` 就是升級：不問任何事，也不改任何 Secret。它在變更任何東西之前，會先查詢 Cloudflare 對 `wrangler.jsonc` 中 Worker 與 Bucket 的說法；只要結果不明確就**拒絕**（不做任何變更），例如：Owner 已存在但 Worker 沒有簽章 Secret（帳號或 Worker 名稱不對），或首次設定被中斷（[離線復原](docs/RECOVERY.md)）。請勿手動刪除 R2 中的初始化標記。
 
+### 用 GitHub Actions 部署
+
+如果你的倉庫是 PocketChest 的副本或 Fork，可以從 **Actions** 分頁執行 `.github/workflows/deploy-manual.yml`（「Deploy (manual)」）來安裝或升級。它只在你手動啟動時執行，先跑測試與 dry-run，再執行與 `npm run deploy` 相同的安裝程式。
+
+1. Settings → Secrets and variables → Actions：新增 `CLOUDFLARE_API_TOKEN`（只限你的帳號，權限為 Workers Scripts: Edit 與 Workers R2 Storage: Edit）與 `CLOUDFLARE_ACCOUNT_ID`。**只有第一次安裝**還需要 `ADMIN_BOOTSTRAP_PASSWORD`：你的 Owner 密碼（至少 16 個字元），請放在倉庫 **Secret**，不要當作執行時的輸入。也可以建立名為 `production` 的 Environment 並設定審核者，讓每次執行都需要批准。
+2. Actions → Deploy (manual) → Run workflow。Worker 與 Bucket 就是 `wrangler.jsonc` 中指定的那一組。
+3. 開啟 `/upload/`，用該密碼登入。之後再執行就是升級：不需要密碼，也不會改動任何 Secret、Owner 或 Bucket 資料。流程會先查詢 Cloudflare 對該 Worker 與 Bucket 的說法，結果不明確就停止、不做任何變更。
+
+每個安裝請只用這一種，**或是** Workers Builds／`npm run deploy`，不要兩者並用。
+
 ## 3. Secrets 與設定
 
 | 名稱 | 類型 | 說明 |

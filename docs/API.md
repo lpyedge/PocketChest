@@ -83,6 +83,12 @@
 | 19 | POST | `/api/admin/passkeys/register/verify` | Cookie + CSRF + 近期 reauth | [已實作] | 新增 Credential。 |
 | 20 | DELETE | `/api/admin/passkeys/{id}` | Cookie + CSRF + 近期 reauth | [已實作] | 不得刪最後一個有效方式。 |
 
+### Owner 分享記錄
+
+| # | Method | Path | 權限 | 狀態 | 說明 |
+|---|---|---|---|---|---|
+| 37 | GET | `/api/admin/shares?limit=&cursor=` | Cookie | [已實作] | 目前有效的分享，`limit` 1–50（預設 20）。回 `{shares:[{sessionId, retrievalCode, createdAt, expiresAt, fileCount, totalSize}], cursor}`；`cursor` 為 `null` 才是最後一頁。未完成、已到期、損壞或與 Session 不一致的紀錄不列出（本端點不做修復）；單頁可能少於 `limit`，需持續跟隨 `cursor`。`Cache-Control: no-store`。 |
+
 ### 上傳
 
 | # | Method | Path | 權限 | 狀態 | 說明 |

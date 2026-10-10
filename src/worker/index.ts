@@ -73,6 +73,9 @@ import {
 	fileKey,
 	fileUploadOptions,
 	getChest,
+	listShares,
+	SHARES_PAGE_DEFAULT,
+	SHARES_PAGE_MAX,
 	isSessionOpen,
 	openSession,
 	abortActiveMultipart,
@@ -205,6 +208,10 @@ async function routeApi(request: Request, env: Env, path: string): Promise<Respo
 
 		if (path === '/api/auth/reauth/password' && method === 'POST') {
 			return await handlePasswordReauth(request, env);
+		}
+
+		if (path === '/api/admin/shares' && method === 'GET') {
+			return await handleListShares(request, env);
 		}
 
 		if (path === '/api/admin/security' && method === 'GET') {
@@ -550,6 +557,22 @@ function rotatedResponse(result: Rotated): Response {
 		'Cache-Control': 'no-store',
 		'Set-Cookie': result.cookie,
 	});
+}
+
+// GET /api/admin/shares?limit=&cursor= - Owner's live shares, one bounded page at a time
+async function handleListShares(request: Request, env: Env): Promise<Response> {
+	await requireOwner(request, env.R2_STORAGE, env.JWT_SECRET, { mutating: false });
+	const { searchParams } = new URL(request.url);
+	const raw = searchParams.get('limit');
+	const limit = raw === null ? SHARES_PAGE_DEFAULT : Number(raw);
+	if (!Number.isInteger(limit) || limit < 1 || limit > SHARES_PAGE_MAX) {
+		throw new ApiError(400, 'INVALID_REQUEST', `limit must be a whole number from 1 to ${SHARES_PAGE_MAX}`);
+	}
+	const cursor = searchParams.get('cursor') || undefined;
+	if (cursor !== undefined && cursor.length > 2048) {
+		throw new ApiError(400, 'INVALID_REQUEST', 'Invalid cursor');
+	}
+	return json(await listShares(env.R2_STORAGE, getCurrentTimestamp(), limit, cursor), 200, { 'Cache-Control': 'no-store' });
 }
 
 // GET /api/admin/security - Which methods are set up and on; never the secrets themselves

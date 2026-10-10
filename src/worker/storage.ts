@@ -270,7 +270,11 @@ export async function getChest(bucket: R2Bucket, code: string, now: number): Pro
 		return null;
 	}
 
-	// The manifest alone is not enough: the session must agree that this code was issued for it
+	return verifyChest(bucket, manifest, code, now);
+}
+
+// The manifest alone is not enough: the session must agree that this code was issued for it
+async function verifyChest(bucket: R2Bucket, manifest: ChestManifest, code: string, now: number): Promise<ChestManifest | null> {
 	let session: Awaited<ReturnType<typeof getSessionRecord>>;
 	try {
 		session = await getSessionRecord(bucket, manifest.sessionId);
@@ -292,6 +296,59 @@ export async function getChest(bucket: R2Bucket, code: string, now: number): Pro
 		return null;
 	}
 	return manifest;
+}
+
+export interface ShareSummary {
+	sessionId: string;
+	retrievalCode: string;
+	createdAt: number;
+	expiresAt: number | null;
+	fileCount: number;
+	totalSize: number;
+}
+
+export const SHARES_PAGE_DEFAULT = 20;
+export const SHARES_PAGE_MAX = 50;
+
+/**
+ * One page of the Owner's live shares. Only chests that getChest would serve are listed: unfinished, expired,
+ * mismatched and corrupt records are skipped (never repaired here), so a page may hold fewer than `limit` entries
+ * even when more follow; keep following `cursor` until it is null.
+ */
+export async function listShares(
+	bucket: R2Bucket,
+	now: number,
+	limit: number,
+	cursor?: string,
+): Promise<{ shares: ShareSummary[]; cursor: string | null }> {
+	let page: R2Objects;
+	try {
+		page = await bucket.list({ prefix: 'codes/', limit, cursor });
+	} catch (error) {
+		throw storageUnavailable(error);
+	}
+	const shares: ShareSummary[] = [];
+	for (const object of page.objects) {
+		const code = object.key.slice('codes/'.length);
+		let manifest: ChestManifest | null;
+		try {
+			manifest = await readManifest(bucket, code);
+		} catch (error) {
+			if (error instanceof SyntaxError) continue;
+			throw storageUnavailable(error);
+		}
+		const chest = manifest ? await verifyChest(bucket, manifest, code, now) : null;
+		if (!chest) continue;
+		shares.push({
+			sessionId: chest.sessionId,
+			retrievalCode: code,
+			createdAt: chest.createdAt,
+			expiresAt: chest.expiresAt,
+			fileCount: chest.files.length,
+			totalSize: chest.files.reduce((sum, file) => sum + file.size, 0),
+		});
+	}
+	return { shares, cursor: page.truncated ? page.cursor : null };
 }
 
 function storageUnavailable(error: unknown): ApiError {

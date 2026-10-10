@@ -69,3 +69,27 @@ describe('upgrade preflight', () => {
 		expect(evaluate(wranglerConfig, wranglerConfig)).toEqual({ ok: true, problems: [] });
 	});
 });
+
+describe('upstream update workflow', () => {
+	it('only prepares a pull request: no Cloudflare access, no deploy, no privileged trigger, no auto merge', async () => {
+		const workflow = (await import('../../.github/workflows/upstream-update.yml?raw')).default as string;
+		expect(workflow).not.toMatch(/pull_request_target/);
+		expect(workflow).not.toMatch(/CLOUDFLARE_|CF_API|CF_TOKEN|wrangler|\$\{\{\s*secrets\./i);
+		expect(workflow).not.toMatch(/gh pr merge|--auto|auto-merge|git push[^\n]*(--force|-f\b)/);
+		expect(workflow).not.toMatch(/npm run deploy|npx wrangler deploy/);
+		expect(workflow).toMatch(/workflow_dispatch/);
+	});
+
+	it('uses the least token permissions and a pinned official source', async () => {
+		const workflow = (await import('../../.github/workflows/upstream-update.yml?raw')).default as string;
+		expect(workflow).toMatch(/permissions:\n {2}contents: write\n {2}pull-requests: write\n/);
+		expect(workflow).toContain('https://github.com/lpyedge/PocketChest.git');
+		expect(workflow).toContain('fetch --no-tags upstream master');
+		expect(workflow).toContain("github.repository != 'lpyedge/PocketChest'");
+	});
+
+	it('is documented', async () => {
+		const operations = (await import('../../docs/OPERATIONS.md?raw')).default as string;
+		expect(operations).toContain('Update from upstream');
+	});
+});

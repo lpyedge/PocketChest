@@ -39,6 +39,16 @@ node scripts/deploy-preflight.mjs --current path/to/installed-wrangler.jsonc --c
 
 It refuses (exit 1, reasons on stderr, no secret values) when the Worker name, an R2 bucket behind a binding, the routes, `workers_dev`, `PASSKEY_RP_ID` would change, when `BOOTSTRAP_ENABLED` would go from off back to `"true"`, or when an expected secret name disappears. Changes to code, assets or compatibility date pass.
 
+## Update from upstream
+
+The Deploy Button copies this repository into your account; it does not keep it in sync. The **Update from upstream** workflow (`.github/workflows/upstream-update.yml`, started by hand from the Actions tab, or weekly) brings the official code (`master` of `lpyedge/PocketChest`) into your copy as a **pull request** for you to review:
+
+- It merges upstream into a new branch and opens the pull request. It does not merge it, does not deploy, and has no Cloudflare or secret access. After you merge, your normal deploy upgrades the code only (`npm run deploy` recognises a finished installation and asks for nothing).
+- Before it opens anything it checks that the merge keeps your Worker name, bucket, routes and passkey domain. If upstream would change them, or the same lines conflict with your own edits, it stops, changes nothing and says why. Merge upstream by hand in that case.
+- Files under `.github/workflows/` are never taken from upstream (a token without the `workflow` permission cannot push them, and they are yours). Changes there are listed and left out.
+- The repository must allow Actions to create pull requests (Settings → Actions → General → Workflow permissions). If it does not, the branch is still pushed and you can open the pull request from it.
+- Do not press the Deploy Button again to upgrade: use this workflow, or merge upstream yourself.
+
 ## Logs and the cleanup job
 
 ```bash

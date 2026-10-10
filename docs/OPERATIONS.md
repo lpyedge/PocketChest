@@ -28,6 +28,17 @@ Passkeys are bound to one hostname. Set it before the first passkey is registere
 
 With the variable set, a request on any other hostname (for example the `workers.dev` address beside a custom domain) is refused with `PASSKEY_DOMAIN_MISMATCH`. A passkey made for one hostname does not work on another.
 
+## Before an upgrade
+
+An upgrade must keep your installation's Worker, bucket and settings. Before deploying new code over an existing installation, compare the configuration it runs with the one about to be deployed. This reads local files only; it never calls Cloudflare and never touches R2:
+
+```bash
+node scripts/deploy-preflight.mjs --current path/to/installed-wrangler.jsonc --candidate wrangler.jsonc
+# optional: --current-secrets JWT_SECRET,ADMIN_BOOTSTRAP_PASSWORD --candidate-secrets JWT_SECRET,ADMIN_BOOTSTRAP_PASSWORD
+```
+
+It refuses (exit 1, reasons on stderr, no secret values) when the Worker name, an R2 bucket behind a binding, the routes, `workers_dev`, `PASSKEY_RP_ID` would change, when `BOOTSTRAP_ENABLED` would go from off back to `"true"`, or when an expected secret name disappears. Changes to code, assets or compatibility date pass.
+
 ## Logs and the cleanup job
 
 ```bash

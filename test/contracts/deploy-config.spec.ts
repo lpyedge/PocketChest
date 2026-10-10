@@ -45,3 +45,10 @@ describe('deploy button configuration', () => {
 		}
 	});
 });
+
+describe('upgrade preflight', () => {
+	it('accepts the shipped wrangler.jsonc against itself', async () => {
+		const { evaluate } = await import('../../scripts/deploy-preflight-core.mjs');
+		expect(evaluate(wranglerConfig, wranglerConfig)).toEqual({ ok: true, problems: [] });
+	});
+});

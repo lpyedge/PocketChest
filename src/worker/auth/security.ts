@@ -13,7 +13,9 @@
 import { ApiError } from '../errors';
 import { toBase64Url } from './encoding';
 import { beginAttempts, storeChallenge } from './challenges';
+import { retireInitialPassword } from './bootstrap';
 import { hashPassword, verifyPassword } from './password';
+import { MIN_PASSWORD_LENGTH, passwordProblem } from './password-policy';
 import { isConfigured, isUsable, loadOwner, mutateOwner, Method, OwnerConflictError, OwnerInvariantError, OwnerRecord } from './owner';
 import { openSeed, sealSeed, generateSeed, base32Encode, matchTotpStep } from './totp';
 import {
@@ -26,7 +28,6 @@ import {
 	sha256Hex,
 } from './sessions';
 
-export const MIN_PASSWORD_LENGTH = 16;
 export const MAX_PASSWORD_LENGTH = 1024;
 const ENROLL_SECONDS = 5 * 60;
 // Wrong codes allowed on one authenticator QR before it has to be made again
@@ -225,14 +226,15 @@ export async function changePassword(
 	if (newPassword !== confirmPassword) {
 		throw new ApiError(400, 'PASSWORD_MISMATCH', 'The two passwords do not match');
 	}
-	if (newPassword.length < MIN_PASSWORD_LENGTH) {
+	const problem = passwordProblem(newPassword);
+	if (problem === 'TOO_SHORT') {
 		throw new ApiError(400, 'PASSWORD_TOO_SHORT', `Use at least ${MIN_PASSWORD_LENGTH} characters`);
 	}
 	if (newPassword.length > MAX_PASSWORD_LENGTH) {
 		throw new ApiError(400, 'PASSWORD_TOO_LONG', 'That password is too long');
 	}
-	if (new Set(newPassword).size < 4) {
-		throw new ApiError(400, 'PASSWORD_TOO_WEAK', 'Use a less repetitive password');
+	if (problem === 'WEAK') {
+		throw new ApiError(400, 'PASSWORD_TOO_WEAK', 'Choose a less predictable password');
 	}
 
 	const loaded = await loadOwner(env.R2_STORAGE);
@@ -255,6 +257,8 @@ export async function changePassword(
 	} catch (error) {
 		throw conflict(error);
 	}
+	// The one-time initial password is useless now; removing it is best effort and retried on later status checks
+	await retireInitialPassword(env);
 	return rotate(env, session, written, now);
 }
 

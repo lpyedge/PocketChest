@@ -1,0 +1,194 @@
+# PocketChest API 合約（新協定 v2）
+
+[English](API.md) | [繁體中文](API.zh-Hant.md)
+
+> 狀態：**TASK-00 凍結稿**。本文件是唯一的 API 合約。
+> 欄位標記：`[已實作]` 目前程式已提供；`[TODO-TASK-xx]` 尚未實作，由指定 Task 交付。
+> 目前程式仍是舊協定（見 `docs/API-legacy-v1.md`，僅作基準記錄，TASK-28 後刪除）。
+
+## 共通規則
+
+- **同源**：前端與 API 同一網域，**不設定任何 CORS 標頭**。
+- **錯誤格式**（所有 4xx/5xx）：
+
+  ```json
+  { "error": "safe message", "code": "FIXED_CODE" }
+  ```
+
+  `error` 只供除錯，前端只依 `code` 映射翻譯。不得含 Stack、R2 Key、Secret、SQL。
+- **敏感端點**（認證、取件、下載授權）回 `Cache-Control: no-store`；所有 API 回 `X-Content-Type-Options: nosniff`、`Referrer-Policy: no-referrer`。 `[TODO-TASK-13]`
+- **URL 不得含** JWT、取件碼、Cookie、Password、OTP。 `[TODO-TASK-10/11]`
+- **修改型 Cookie 端點**：必須通過 Origin 檢查，並帶 `X-PocketChest-CSRF`。 `[TODO-TASK-13]`
+- **狀態碼**：400 格式錯誤 · 401 未認證 · 403 權限／CSRF／Origin · 404 不存在或已過期（統一，避免枚舉） · 409 狀態衝突／CAS 衝突 · 413 超過上限 · 429 限流 · 500 內部錯誤（固定訊息）。
+
+## 錯誤代碼表
+
+| code | HTTP | 含義 |
+|---|---|---|
+| `INVALID_REQUEST` | 400 | 請求格式或欄位不合法 |
+| `INVALID_CODE` | 400 | 取件碼格式不合法 |
+| `INVALID_SESSION` | 400 | 上傳 Session ID 與 Token 不符 |
+| `AUTH_REQUIRED` | 401 | 缺少認證 |
+| `AUTH_INVALID` | 401 | 認證失敗（Token／Cookie 無效或過期） |
+| `AUTH_INVALID_CREDENTIALS` | 401 | Password／TOTP／Passkey 驗證失敗 `[Password 已實作]` |
+| `TOKEN_MISMATCH` | 403 | Token 與 Session／檔案不屬於同一組 |
+| `CSRF_REJECTED` | 403 | Origin 或 CSRF Header 不符 `[TODO-TASK-13]` |
+| `REAUTH_REQUIRED` | 403 | 需近期重新驗證（5 分鐘）`[判斷已實作，TASK-19/20 的敏感操作使用]` |
+| `AUTH_METHOD_DISABLED` | 403 | 該登入方式已停用 `[已實作]` |
+| `PASSKEY_DOMAIN_MISMATCH` | 403 | 此網域不是設定的 Passkey 網域（`PASSKEY_RP_ID`）`[已實作]` |
+| `AUTH_METHOD_NOT_CONFIGURED` | 409 | 方式未設定卻要求啟用 `[已實作]` |
+| `LAST_AUTH_METHOD` | 409 | 不可停用最後一種可用方式 `[已實作]` |
+| `CONFLICT` | 409 | R2 CAS 衝突，請重新讀取後再試 `[TODO-TASK-04]` |
+| `SESSION_NOT_FOUND` | 404 | 上傳 Session 不存在或已完成 |
+| `FILE_NOT_IN_SESSION` | 400 | 提交的檔案不屬於此 Session |
+| `FILE_NOT_FOUND` | 404 | 檔案不存在或不在此分享中 |
+| `CHEST_NOT_FOUND` | 404 | 取件碼不存在、已過期 |
+| `TOTP_REQUIRED` / `TOTP_INVALID` / `TOTP_NOT_CONFIGURED` | 401/500 | **舊協定**，TASK-28 刪除 |
+| `AUTH_TEMPORARILY_LOCKED` | 429 | 方法暫停（Owner 層計數，各方式獨立），附 `Retry-After` `[已實作]` |
+| `RATE_LIMITED` | 429 | 來源超出限流（近似、每個 Cloudflare 位置計），附 `Retry-After` `[已實作]` |
+| `PAYLOAD_TOO_LARGE` | 413 | 超過檔數／容量／大小上限 `[TODO-TASK-09]` |
+| `CODE_GENERATION_FAILED` | 500 | 多次撞碼仍無法分配取件碼 |
+| `INTERNAL_ERROR` | 500 | 其他錯誤 |
+
+## Endpoint 清單
+
+### 公開與登入
+
+| # | Method | Path | 權限 | 狀態 | 說明 |
+|---|---|---|---|---|---|
+| 1 | GET | `/api/auth/methods` | 公開 | [已實作] | 回 `setup` 狀態與三種方式的啟用旗標。全新安裝且已啟動首次設定（`SETUP_ARMED`）時，第一次呼叫會自動建立 Owner，密碼由 Worker 產生並只存在私人 R2 物件中（見下）。 |
+| 3 | POST | `/api/auth/bootstrap` | — | [已移除] | 網站不再有「建立 Owner」的入口：沒有任何路由讓呼叫者自選 Owner 或密碼，一律 `404`。 |
+| 4 | POST | `/api/auth/login/password` | 公開 | [已實作] | 成功發出 Owner Cookie。 |
+| 5 | POST | `/api/auth/login/totp` | 公開 | [已實作] | 同上。 |
+| 6 | POST | `/api/auth/passkey/login/options` | 公開 | [已實作] | 一次性 Challenge。 |
+| 7 | POST | `/api/auth/passkey/login/verify` | 公開 | [已實作] | 成功發出 Owner Cookie。 |
+| 8 | GET | `/api/auth/session` | Cookie | [TODO-TASK-13] | 回 `{authenticated, csrfToken?}`。 |
+| 9 | POST | `/api/auth/logout` | Cookie + CSRF | [TODO-TASK-13] | 撤銷 Session。 |
+| 10 | POST | `/api/auth/reauth/password` | Cookie + CSRF | [已實作] | 更新 `reauthenticatedAt`。 |
+| 11 | POST | `/api/auth/reauth/totp` | Cookie + CSRF | [已實作] | 同上。 |
+| 12 | POST | `/api/auth/reauth/passkey/options` `…/verify` | Cookie + CSRF | [已實作] | 同上。已停用的方式一律回 `403 AUTH_METHOD_DISABLED`（登入與再驗證相同）。 |
+| 33 | POST | `/api/auth/activate/password` | Cookie + CSRF | [已實作] | 證明仍持有已停用的密碼，只為了重新啟用；不開啟 reauth 視窗。 |
+| 34 | POST | `/api/auth/activate/totp` | Cookie + CSRF | [已實作] | 同上，驗證碼。 |
+| 35 | POST | `/api/auth/activate/passkey/options` | Cookie + CSRF | [已實作] | 同上，Passkey Challenge。 |
+| 36 | POST | `/api/auth/activate/passkey/verify` | Cookie + CSRF | [已實作] | 同上，Passkey 驗證；成功後 5 分鐘內可啟用該方式。 |
+
+### Owner 安全設定
+
+| # | Method | Path | 權限 | 狀態 | 說明 |
+|---|---|---|---|---|---|
+| 13 | GET | `/api/admin/security` | Cookie | [已實作] | 只回摘要，不回 Hash／Seed／公鑰。 |
+| 14 | PATCH | `/api/admin/security/methods` | Cookie + CSRF + 近期 reauth | [已實作] | `{method, enabled}`，單一方式。啟用時另需該方式的 activate 證明，否則 `403 ACTIVATION_PROOF_REQUIRED`。 |
+| 15 | POST | `/api/admin/security/password` | Cookie + CSRF + 近期 reauth | [已實作] | 修改密碼，輪替 Session。 |
+| 16 | POST | `/api/admin/security/totp/prepare` | Cookie + CSRF + 近期 reauth | [已實作] | 產生新 Seed 與 Challenge。 |
+| 17 | POST | `/api/admin/security/totp/confirm` | Cookie + CSRF + 近期 reauth | [已實作] | 驗證新 OTP 後切換。 |
+| 18 | POST | `/api/admin/passkeys/register/options` | Cookie + CSRF + 近期 reauth | [已實作] | 註冊 Challenge。 |
+| 19 | POST | `/api/admin/passkeys/register/verify` | Cookie + CSRF + 近期 reauth | [已實作] | 新增 Credential。 |
+| 20 | DELETE | `/api/admin/passkeys/{id}` | Cookie + CSRF + 近期 reauth | [已實作] | 不得刪最後一個有效方式。 |
+
+### Owner 分享記錄
+
+| # | Method | Path | 權限 | 狀態 | 說明 |
+|---|---|---|---|---|---|
+| 37 | GET | `/api/admin/shares?limit=&cursor=` | Cookie | [已實作] | 目前有效的分享，`limit` 1–50（預設 20）。回 `{shares:[{sessionId, retrievalCode, createdAt, expiresAt, fileCount, totalSize}], cursor}`；`cursor` 為 `null` 才是最後一頁。未完成、已到期、損壞或與 Session 不一致的紀錄不列出（本端點不做修復）；單頁可能少於 `limit`，需持續跟隨 `cursor`。`Cache-Control: no-store`。 |
+| 39 | PATCH | `/api/admin/shares/{sessionId}` | Cookie + CSRF | [已實作] | `{validityDays: 1\|3\|7\|14\|-1}`，由現在起算把未到期分享延長或轉永久（`-1`），回 `{expiresAt}`。永不縮短（`409 EXPIRY_NOT_LATER`）；已到期 `409 SHARE_EXPIRED`；已撤銷、已移除或未完成 `404 SHARE_NOT_FOUND`。順序：先寫新索引 → CAS 改 Session → 改 Manifest → 刪舊索引；中途失敗時分享暫時被拒絕，重複同一請求（得到相同到期時間時回 200）或舊索引到期時的 Cron 會修復。 |
+| 38 | DELETE | `/api/admin/shares/{sessionId}` | Cookie + CSRF | [已實作] | 撤銷分享：Session `COMPLETED → REVOKED`（CAS，終態）後取件碼、下載授權與下載立即拒絕（含先前已簽發的取件令牌）；隨後移除取件碼、索引與檔案。移除失敗仍回 `200 {revoked:true, contentRemoved:false}`，`revoked/{sessionId}` 標記讓 Cron 重試。無此分享、未完成或已移除回 `404 SHARE_NOT_FOUND`。已在進行中的下載不保證中斷。 |
+
+### 上傳
+
+| # | Method | Path | 權限 | 狀態 | 說明 |
+|---|---|---|---|---|---|
+| 22 | POST | `/api/upload-sessions` | Owner Cookie + CSRF | [已實作] | 回 `{sessionId, uploadToken, expiresIn}`。 |
+| 23 | POST | `/api/upload-sessions/{id}/files` | Upload Token | [已實作] | |
+| 24 | POST | `/api/upload-sessions/{id}/multipart/create` | Upload Token | [已實作] | |
+| 25 | PUT | `/api/upload-sessions/{id}/multipart/{fileId}/parts/{n}` | Multipart Token | [已實作] | |
+| 26 | POST | `/api/upload-sessions/{id}/multipart/{fileId}/complete` | Multipart Token | [已實作] | |
+| 27 | POST | `/api/upload-sessions/{id}/multipart/{fileId}/abort` | Multipart Token | [已實作] | |
+| 28 | POST | `/api/upload-sessions/{id}/complete` | Upload Token | [已實作] | |
+
+> **上傳令牌與 Owner Session（T06）**：`POST /api/upload-sessions` 簽發的 Upload Token 帶 `osh`（簽發它的 Owner Session id 的 SHA-256，不含 Cookie 本身）。檔案上傳、建立 multipart、multipart complete、`complete` 會多讀兩次 R2（Owner Session、Owner 記錄）確認該 Session 仍有效（未登出、未過絕對期限、`authVersion` 未變），否則 `401 AUTH_INVALID`；沒有 `osh` 的舊令牌同樣被拒（需重新開始上傳）。為控制 Free 方案的 R2 讀取量，逐個 part 上傳不檢查（登出後寫入的 part 無法被發布，因為 multipart complete 與 `complete` 會失敗）；`cancel` 與 multipart `abort` 登出後仍允許，只用來釋放資源。閒置時間不算登出。已在進行中的單一寫入不保證中斷。
+
+### 取件與下載
+
+| # | Method | Path | 權限 | 狀態 | 說明 |
+|---|---|---|---|---|---|
+| 29 | POST | `/api/retrieve` | 公開（Body 含取件碼） | [已實作] | `{"code":"ABC123"}`，回檔案清單與取件憑證。 |
+| 31 | POST | `/api/download/authorize` | `Authorization: Bearer <取件憑證>` | [已實作] | Body `{"fileId"}`；下發 60 秒、限 Path 的 Cookie。 |
+| 32 | GET | `/api/download/{fileId}` | 下載 Cookie | [已實作] | 原生串流；不接受 `?token=`、`?filename=`、Bearer。 |
+
+## 成功與失敗樣本
+
+### POST /api/upload-sessions/{id}/complete
+
+請求：`{"fileIds":["…"],"validityDays":7}`。`validityDays` 只接受 `1`、`3`、`7`、`14`（兩週）或 `-1`（永久）；其他值回 `400 INVALID_REQUEST`。永久分享的 `expiryDate` 為 `null`。
+
+```http
+200 OK
+{"retrievalCode":"ABC123","expiryDate":"2026-10-16T00:00:00.000Z"}
+```
+
+失敗：`404 {"error":"Session not found or already completed","code":"SESSION_NOT_FOUND"}`
+
+### GET /api/auth/methods
+
+```http
+200 OK
+Cache-Control: no-store
+
+{"setup":"ready","methods":{"password":{"enabled":true},"totp":{"enabled":false},"passkey":{"enabled":false}}}
+```
+
+`setup`：`ready`（Owner 已存在，顯示一般登入）、`initializing`（另一個請求正在建立，稍後再試）、`password-missing`（沒有 Owner，且首次設定尚未啟動）、`recovery-required`（首次設定中斷，需部署者依 `docs/RECOVERY.md` 處理）、`failed`（這次沒完成，未領取任何東西，可重試）。Owner 一旦存在，初始密碼永遠不會再被使用或覆寫它。
+
+不得回傳 `passwordHash`、`encryptedSecret`、`credentials`、`seed`。
+
+### POST /api/auth/login/password
+
+```http
+200 OK
+Set-Cookie: __Host-pc_owner=<opaque>; HttpOnly; Secure; SameSite=Strict; Path=/
+
+{"authenticated":true}
+```
+
+失敗：`401 {"error":"Invalid credentials","code":"AUTH_INVALID_CREDENTIALS"}`；鎖定：`429 {"error":"Please try again later","code":"AUTH_TEMPORARILY_LOCKED"}` 並附正數 `Retry-After`。
+
+### POST /api/retrieve（已實作）
+
+```http
+POST /api/retrieve
+Content-Type: application/json
+
+{"code":"ABC123"}
+
+200 OK
+{"files":[{"fileId":"<uuid>","filename":"a.txt","size":12}],"chestToken":"<短效取件憑證>","expiryDate":null}
+```
+
+失敗：`400 {"error":"Invalid retrieval code format","code":"INVALID_CODE"}`；不存在或過期：`404 {"error":"Retrieval code not found or expired","code":"CHEST_NOT_FOUND"}`。
+
+### POST /api/download/authorize（已實作）
+
+```http
+POST /api/download/authorize
+Authorization: Bearer <取件憑證>
+Content-Type: application/json
+
+{"fileId":"<uuid>"}
+
+200 OK
+Set-Cookie: pc_dl_<fileId>=<短效>; HttpOnly; Secure; SameSite=Strict; Path=/api/download/<fileId>; Max-Age=60
+```
+
+### GET /api/download/{fileId}（已實作）
+
+```http
+200 OK
+Cookie: pc_dl_<fileId>=<短效>
+Content-Disposition: attachment; filename="safe.txt"; filename*=UTF-8''...
+Content-Type: application/octet-stream
+```
+
+## 驗收對照（AC-00-1、AC-00-2）
+
+- AC-00-1：每條新 API 均有 Method／Path／權限／錯誤碼與樣本（上表與本節）。
+- 新協定沒有 `?code=`、`?token=`、`/api/retrieve/{code}`、`/api/chest`、`/api/config`，也沒有任何相容別名。這些路徑現在回 `404 NOT_FOUND`，由 `test/contracts` 驗證。

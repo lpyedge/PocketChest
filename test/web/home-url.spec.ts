@@ -4,13 +4,13 @@ import { LOCALES } from '../../src/web/shared/i18n';
 
 describe('N2-05 the way back home keeps the language', () => {
 	it('maps each language to its own static home page', () => {
-		expect(homeUrlFor('zh-Hant')).toBe('/');
+		expect(homeUrlFor('zh-Hant')).toBe('/zh-Hant/');
 		expect(homeUrlFor('ja')).toBe('/ja/');
-		expect(homeUrlFor('en')).toBe('/en/');
+		expect(homeUrlFor('en')).toBe('/');
 	});
 
 	it('has a home page for every supported language', () => {
-		for (const locale of LOCALES) expect(homeUrlFor(locale)).toMatch(/^\/(ja\/|en\/)?$/);
+		for (const locale of LOCALES) expect(homeUrlFor(locale)).toMatch(/^\/(ja\/|zh-Hant\/)?$/);
 	});
 
 	it('links between the apps carry the language, and never touch a share fragment', () => {

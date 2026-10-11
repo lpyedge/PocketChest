@@ -2,14 +2,14 @@ name: Deploy (manual)
 
 # The GitHub Actions way to install or upgrade PocketChest on Cloudflare. It runs only when you start it by hand, and it
 # runs the same installer as `npm run deploy` (scripts/deploy.mjs):
-#   - First install: sets your Owner password once (from the ADMIN_BOOTSTRAP_PASSWORD repository secret) and generates the
-#     signing secret itself. Nothing else to generate or paste.
-#   - Upgrade: needs no password and changes no secret, Owner or bucket data.
+#   - First install: generates the signing secret itself and arms first setup. The site makes the Owner password and
+#     keeps it privately in the bucket. Nothing to generate, paste or store in GitHub.
+#   - Upgrade: changes no secret, Owner or bucket data.
 # Use only ONE deployer for an installation: this workflow, or Workers Builds / `npm run deploy`, not both.
 #
 # One-time setup in this repository (Settings > Secrets and variables > Actions):
 #   Secrets:   CLOUDFLARE_API_TOKEN (Workers Scripts: Edit, Workers R2 Storage: Edit, for your account only),
-#              CLOUDFLARE_ACCOUNT_ID, and for the FIRST install only ADMIN_BOOTSTRAP_PASSWORD (16+ characters)
+#              CLOUDFLARE_ACCOUNT_ID
 #   Optional: an Environment named "production" with required reviewers, to approve each run.
 
 on:
@@ -78,10 +78,9 @@ jobs:
       - run: npm ci
 
       # Checks the Worker and bucket named in wrangler.jsonc first, and refuses (changing nothing) when the answer is
-      # unclear or contradicts an existing installation. ADMIN_BOOTSTRAP_PASSWORD is only used by a first install.
+      # unclear or contradicts an existing installation. Builds once (npm run deploy builds, then runs the installer).
       - name: Install or upgrade
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
-          ADMIN_BOOTSTRAP_PASSWORD: ${{ secrets.ADMIN_BOOTSTRAP_PASSWORD }}
         run: npm run deploy

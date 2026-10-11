@@ -17,7 +17,7 @@ function documentedRows(): Row[] {
 	for (const match of apiDoc.matchAll(ROW)) {
 		const [, method, path, status] = match;
 		if (path.includes('…')) continue;
-		rows.push({ method, path, removed: status.includes('[已移除]') || status.includes('舊') });
+		rows.push({ method, path, removed: status.includes('[removed]') });
 	}
 	return rows;
 }

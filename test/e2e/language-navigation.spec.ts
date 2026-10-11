@@ -15,13 +15,22 @@ const LANGS = [
 	{
 		lang: 'en',
 		home: '/en/',
+		homeAfter: '/',
 		browser: 'ja-JP',
 		password: 'Password',
 		signIn: 'Sign in with password',
 		homeHeading: /PocketChest/,
 		back: /Back to Home/,
 	},
-	{ lang: 'zh-Hant', home: '/', browser: 'en-US', password: '密碼', signIn: '以密碼登入', homeHeading: /PocketChest/, back: /回到首頁/ },
+	{
+		lang: 'zh-Hant',
+		home: '/zh-Hant/',
+		browser: 'en-US',
+		password: '密碼',
+		signIn: '以密碼登入',
+		homeHeading: /PocketChest/,
+		back: /回到首頁/,
+	},
 ];
 
 async function clearOnce(page: Page) {
@@ -45,7 +54,9 @@ for (const c of LANGS) {
 			await expect(back).toBeVisible();
 			await back.click();
 
-			await expect(page).toHaveURL(new RegExp(`${c.home === '/' ? '/$' : c.home.replace(/\//g, '\\/') + '$'}`));
+			await expect(page).toHaveURL(
+				new RegExp(`${(c.homeAfter ?? c.home) === '/' ? '/$' : (c.homeAfter ?? c.home).replace(/\//g, '\\/') + '$'}`),
+			);
 			expect(await page.getAttribute('html', 'lang')).toBe(c.lang);
 		});
 
@@ -62,7 +73,9 @@ for (const c of LANGS) {
 			expect(new URL(page.url()).hash).toBe('#ZZZZZZ');
 
 			await home.click();
-			await expect(page).toHaveURL(new RegExp(`${c.home === '/' ? '/$' : c.home.replace(/\//g, '\\/') + '$'}`));
+			await expect(page).toHaveURL(
+				new RegExp(`${(c.homeAfter ?? c.home) === '/' ? '/$' : (c.homeAfter ?? c.home).replace(/\//g, '\\/') + '$'}`),
+			);
 			expect(await page.getAttribute('html', 'lang')).toBe(c.lang);
 		});
 
@@ -78,7 +91,7 @@ for (const c of LANGS) {
 				// Nothing on the sign-in page is still the English default
 				expect(await page.locator('body').innerText()).not.toMatch(/Back to Home/);
 			}
-			await expect(page.getByRole('link', { name: c.back }).first()).toHaveAttribute('href', c.home);
+			await expect(page.getByRole('link', { name: c.back }).first()).toHaveAttribute('href', c.homeAfter ?? c.home);
 
 			await page.getByLabel(c.password, { exact: true }).fill(OWNER_PASSWORD);
 			await page.getByRole('button', { name: c.signIn }).click();
@@ -96,7 +109,7 @@ for (const c of LANGS) {
 			if (c.lang !== 'en') expect(await page.locator('body').innerText()).not.toMatch(/Back to Home/);
 			// The page offers the way home twice (top and bottom); both go to the same place
 			const homes = page.getByRole('link', { name: c.back });
-			for (const link of await homes.all()) await expect(link).toHaveAttribute('href', c.home);
+			for (const link of await homes.all()) await expect(link).toHaveAttribute('href', c.homeAfter ?? c.home);
 			const home = homes.first();
 			await home.click();
 			expect(await page.getAttribute('html', 'lang')).toBe(c.lang);

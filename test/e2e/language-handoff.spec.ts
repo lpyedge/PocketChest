@@ -12,7 +12,8 @@ const CASES = [
 		retrieveHeading: /ファイルを取り出す|取り出し/,
 	},
 	{ home: '/en/', browser: 'ja-JP', lang: 'en', uploadHeading: /Share Files|Sign in/, retrieveHeading: /Retrieve Files/ },
-	{ home: '/', browser: 'en-US', lang: 'zh-Hant', uploadHeading: /分享檔案|登入/, retrieveHeading: /取回檔案|取件/ },
+	{ home: '/zh-Hant/', browser: 'en-US', lang: 'zh-Hant', uploadHeading: /分享檔案|登入/, retrieveHeading: /取回檔案|取件/ },
+	{ home: '/', browser: 'ja-JP', lang: 'en', uploadHeading: /Share Files|Sign in/, retrieveHeading: /Retrieve Files/ },
 ];
 
 for (const c of CASES) {

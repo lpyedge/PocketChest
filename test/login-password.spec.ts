@@ -48,13 +48,19 @@ describe('GET /api/auth/methods', () => {
 	});
 
 	it('creates the owner by itself on an empty installation, and offers the ordinary sign-in', async () => {
-		const response = await testFetch(`${TEST_ORIGIN}/api/auth/methods`);
-		expect(response.status).toBe(200);
-		const data = (await response.json()) as any;
-		expect(data.setup).toBe('ready');
-		expect(data.methods.password.enabled).toBe(true);
-		expect(data).not.toHaveProperty('setupRequired');
-		expect(await loadOwner(bucket())).not.toBeNull();
+		const env2 = env as unknown as Record<string, unknown>;
+		env2.SETUP_ARMED = 'yes';
+		try {
+			const response = await testFetch(`${TEST_ORIGIN}/api/auth/methods`);
+			expect(response.status).toBe(200);
+			const data = (await response.json()) as any;
+			expect(data.setup).toBe('ready');
+			expect(data.methods.password.enabled).toBe(true);
+			expect(data).not.toHaveProperty('setupRequired');
+			expect(await loadOwner(bucket())).not.toBeNull();
+		} finally {
+			env2.SETUP_ARMED = undefined;
+		}
 	});
 
 	it('reports each method on its own once the owner exists', async () => {

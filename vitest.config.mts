@@ -15,7 +15,6 @@ export default defineConfig({
 					JWT_SECRET: 'test-jwt-secret-for-vitest-only',
 					INSTANCE_ID: 'test-instance',
 					BOOTSTRAP_ENABLED: 'true',
-					ADMIN_BOOTSTRAP_PASSWORD: 'test-bootstrap-password-0123456789',
 				},
 			},
 		}),

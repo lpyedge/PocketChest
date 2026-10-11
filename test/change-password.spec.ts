@@ -42,9 +42,13 @@ describe('POST /api/admin/security/password', () => {
 	});
 
 	it.each([
-		['too short', 'short-one', 'short-one', 'PASSWORD_TOO_SHORT'],
+		['seven characters', 'short-1', 'short-1', 'PASSWORD_TOO_SHORT'],
+		['seven emoji (code points, not UTF-16 units)', '😀'.repeat(7), '😀'.repeat(7), 'PASSWORD_TOO_SHORT'],
 		['not confirmed', NEW_PASSWORD, `${NEW_PASSWORD}-x`, 'PASSWORD_MISMATCH'],
 		['a repeated character', 'a'.repeat(20), 'a'.repeat(20), 'PASSWORD_TOO_WEAK'],
+		['too few distinct characters', 'abababab', 'abababab', 'PASSWORD_TOO_WEAK'],
+		['a common password', 'Password', 'Password', 'PASSWORD_TOO_WEAK'],
+		['a placeholder value', 'REPLACE_WITH_A_PASSWORD', 'REPLACE_WITH_A_PASSWORD', 'PASSWORD_TOO_WEAK'],
 		['the same as now', TEST_OWNER_PASSWORD, TEST_OWNER_PASSWORD, 'PASSWORD_UNCHANGED'],
 	])('refuses a password that is %s', async (_label, newPassword, confirm, code) => {
 		const owner = await ownerSignIn();
@@ -82,6 +86,19 @@ describe('POST /api/admin/security/password', () => {
 		const newLogin = await login(NEW_PASSWORD);
 		expect(newLogin.status).toBe(200);
 		await newLogin.text();
+	});
+
+	it('accepts exactly eight characters, and that password signs in', async () => {
+		const owner = await ownerSignIn();
+		await reauthPassword(owner);
+		const eight = 'Kx7pq2mz';
+		const response = await changeTo(owner, eight, eight);
+		expect(response.status).toBe(200);
+		await response.text();
+
+		const signedIn = await login(eight);
+		expect(signedIn.status).toBe(200);
+		await signedIn.text();
 	});
 
 	it('stores the new hash with a new salt', async () => {

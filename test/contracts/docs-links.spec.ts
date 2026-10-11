@@ -126,7 +126,7 @@ describe('docs: install and sign-in explained the same way in every language', (
 		expect(files.get('README.md')).toContain('Not yet verified on a real Cloudflare account');
 		expect(files.get('README.zh-Hant.md')).toContain('尚未在真實 Cloudflare 帳號上驗證');
 		expect(files.get('README.ja.md')).toContain('まだ検証していません');
-		expect(files.get('docs/REMOTE_ACCEPTANCE.md')).toContain('尚未驗證');
+		expect(files.get('docs/REMOTE_ACCEPTANCE.md')).toContain('not yet verified');
 	});
 
 	it('names the same install command everywhere', () => {

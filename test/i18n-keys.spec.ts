@@ -58,7 +58,8 @@ describe('language choice', () => {
 	it('takes the first browser language it supports, and falls back to the default', () => {
 		expect(resolveLocale(null, ['fr-FR', 'ja-JP', 'en-US'])).toBe('ja');
 		expect(resolveLocale(null, ['fr-FR', 'de'])).toBe(DEFAULT_LOCALE);
-		expect(resolveLocale(null, [])).toBe('zh-Hant');
+		expect(resolveLocale(null, [])).toBe('en');
+		expect(DEFAULT_LOCALE).toBe('en');
 	});
 
 	it('does not treat simplified Chinese as traditional', () => {

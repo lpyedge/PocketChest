@@ -1,52 +1,54 @@
-# 恢復（Owner）
+# Recovery (Owner)
 
-本文件說明在 Owner 登入出問題時能做什麼、不能做什麼。
+[English](RECOVERY.md) | [繁體中文](RECOVERY.zh-Hant.md) | [日本語](RECOVERY.ja.md)
 
-## 先說結論：不能離線重設密碼
+This document explains what you can and cannot do when the Owner cannot sign in.
 
-Owner 密碼以 `HMAC-SHA256-KEYED-V1` 儲存：一個隨機 Salt，加上由 Worker 的根密鑰（`JWT_SECRET`）衍生出來的專用金鑰。Cloudflare 不會把 Worker Secret 的值讀回給任何人，所以**只握有 R2 存取權的工具，無法寫出 Worker 會接受的密碼紀錄**。
+## The short answer: the password cannot be reset offline
 
-因此：
+The Owner password is stored as `HMAC-SHA256-KEYED-V1`: a random salt plus a key derived from the Worker's root secret (`JWT_SECRET`). Cloudflare does not return the value of a Worker secret to anyone, so **a tool that only has R2 access cannot write a password record the Worker would accept**.
 
-- `node scripts/reset-owner-password.mjs` **只會說明這件事並以錯誤結束**；它不讀、也不寫 R2。
-- 這是刻意的，不是缺漏：我們不用假的成功回報，也不新增公開的「忘記密碼」入口或永久後門。`ADMIN_BOOTSTRAP_PASSWORD` 只用於首次初始化，不能用來恢復。
-- 不需要、也不應該備份或貼出 `JWT_SECRET` 來換取離線重設功能。
+Therefore:
 
-## 日常做法：登入後改密碼
+- `node scripts/reset-owner-password.mjs` **only explains this and exits with an error**. It neither reads nor writes R2.
+- This is deliberate, not a gap. We do not report fake success, and we do not add a public "forgot password" entry or a permanent back door. On first setup the Worker generates the Owner password itself (the private R2 object `auth/initial-owner-password.txt`), and that password cannot be used for recovery either.
+- You do not need to, and should not, back up or paste `JWT_SECRET` to get offline reset.
 
-已登入的 Owner 在 **Security settings → Change password** 修改密碼（需要最近一次重新驗證）。所有其他登入中的 Session 會失效。
+## Day to day: change the password after signing in
 
-網站上有三種**彼此獨立**的登入方式：密碼、驗證器（TOTP）、Passkey。任何一種單獨就能登入（驗證器**不是**第二因素）。只要還有一種可用，就可以登入並在安全設定裡處理其餘的。建議在密碼之外再綁定一種方式，作為備援。
+A signed-in Owner changes the password in **Security settings → Change password** (a recent re-entry is required). Every other signed-in session then ends.
 
-## 所有登入方式都不可用時
+The site offers three **independent** ways to sign in: password, authenticator app (TOTP) and passkey. Any one of them signs in on its own (an authenticator code is **not** a second factor). As long as one of them works, you can sign in and manage the rest in Security settings. We recommend keeping a second method as a backup.
 
-目前沒有安全的離線重設路徑。可行的做法，由部署者自行評估：
+## When no sign-in method works
 
-1. 確認不是暫時問題：Passkey 是否在原本的網域上、驗證器的時間是否正確、是否被登入鎖定（等鎖定時間結束）。
-2. 若 Owner 紀錄損毀或確定無法恢復，而你**接受清空 Owner**：部署者可用自己的 Cloudflare 憑證刪除 `auth/owner.json` 與 `auth/bootstrap-marker`，並確認 `ADMIN_BOOTSTRAP_PASSWORD`（至少 16 個字元）仍設定著；網站下一次開啟時就會用它重新建立 Owner。這會讓所有 Owner Session 與所有已綁定的驗證器、Passkey 失效，但不會動 `codes/`、`sessions/` 與檔案資料。這是破壞性操作，請先備份 `auth/owner.json`，並在維護窗口進行。
-3. 若是 `JWT_SECRET` 被更換或遺失：密碼與驗證器都無法再驗證，處理方式同第 2 點；已簽發的上傳／下載令牌也會失效。
+There is currently no safe offline reset path. The deployer can consider these options:
 
-## 首次設定被中斷（有 marker、沒有 Owner）
+1. Rule out a temporary problem first: is the passkey on its original domain, is the authenticator's clock correct, is sign-in locked (wait for the lock to expire)?
+2. If the Owner record is damaged or cannot be recovered, and you **accept clearing the Owner**: the deployer, using their own Cloudflare credentials, deletes `auth/owner.json` and `auth/bootstrap-marker`, and confirms that `SETUP_ARMED` is still `yes`. The next time the site is opened, the Owner is created again: if `auth/initial-owner-password.txt` still exists, its password is used; otherwise a new one is generated and kept in the same object. This ends every Owner session and invalidates every bound authenticator and passkey, but leaves `codes/`, `sessions/` and file data untouched. This is destructive: back up `auth/owner.json` first and do it in a maintenance window.
+3. If `JWT_SECRET` was replaced or lost: the password and any authenticator can no longer be verified. Handle it as in point 2. Issued upload and download tokens also stop working.
 
-Worker 在首次設定時先計算密碼 hash，再領取 `auth/bootstrap-marker`，最後寫入 `auth/owner.json`。若 marker 已寫入但 Owner 寫入失敗，網站會顯示需要離線恢復。此時用部署者專用工具**只移除 marker**，讓首次設定能再執行一次：
+## First setup was interrupted (a marker exists, no Owner)
+
+When first setup runs, the Worker prepares the password, claims `auth/bootstrap-marker`, and then writes `auth/owner.json`. If the marker was written but the Owner write failed, the site asks for offline recovery. Use the deployer tool to **remove only the marker**, so first setup can run once more:
 
 ```bash
 npx wrangler login
 node scripts/recover-bootstrap.mjs --bucket pocket-chest
 ```
 
-- 只在「marker 存在且 Owner 不存在」時才會動作；Owner 已存在則拒絕，marker 保持不變。
-- 工具**不建立 Owner、不需要密碼**。移除後，首次設定仍須提供部署設定的 `ADMIN_BOOTSTRAP_PASSWORD`。
-- 沒有任何匿名 HTTP 重新初始化入口。`wrangler r2 object delete` 不是條件刪除，所以請在維護窗口進行，暫停對外的登入流程。
-- 不要手動刪除 `auth/bootstrap-marker` 以外的情況下重開設定；Owner 已存在時絕對不要刪除 marker。
+- It acts only when the marker exists and the Owner does not. If an Owner exists it refuses, and the marker stays.
+- The tool **creates no Owner and needs no password**. After it runs, first setup is completed by the Worker (it needs `SETUP_ARMED`, set by the deployer).
+- There is no anonymous HTTP route to set up again. `wrangler r2 object delete` is not a conditional delete, so run this in a maintenance window and pause public sign-in while you do.
+- Never remove the marker by hand in any other situation. If an Owner exists, never delete the marker.
 
-## 不屬於本文件的事
+## Out of scope for this document
 
-- 不修改 Cloudflare 帳號設定，不建立或刪除 R2 Bucket。
-- 不提供「忘記密碼」的公開 HTTP API。
+- Changing Cloudflare account settings, or creating or deleting R2 buckets.
+- A public "forgot password" HTTP API. There is none.
 
-## 測試
+## Tests
 
-- `test/recovery-cli.spec.ts`：離線重設會被拒絕，且不讀寫任何儲存、既有 Owner 與密碼完全不變。
-- `test/bootstrap-recovery.spec.ts`：中斷的首次設定只清除 marker，Owner 已存在、marker 不存在、清除期間出現 Owner 等狀態都被拒絕或回報。
-- 正式環境**不得**自動執行會改動 Owner 紀錄的測試；完整人工演練請在隔離的 R2 Bucket 進行。
+- `test/recovery-cli.spec.ts`: the offline reset is refused, and nothing is read or written; the existing Owner and password stay exactly as they are.
+- `test/bootstrap-recovery.spec.ts`: an interrupted first setup only clears the marker; an existing Owner, a missing marker, or an Owner appearing during the clear are refused or reported.
+- In production, tests that change the Owner record must **not** run automatically; a full manual rehearsal happens in an isolated R2 bucket.

@@ -3,7 +3,8 @@ import type enMessages from './locales/en.json';
 // Interface language. Only the three listed locales exist; anything else falls back to the default.
 export const LOCALES = ['zh-Hant', 'ja', 'en'] as const;
 export type Locale = (typeof LOCALES)[number];
-export const DEFAULT_LOCALE: Locale = 'zh-Hant';
+// English is the default: used when no stored choice, no supported browser language and no link language applies
+export const DEFAULT_LOCALE: Locale = 'en';
 export const LOCALE_STORAGE_KEY = 'pocketchest.locale';
 
 export function isLocale(value: unknown): value is Locale {

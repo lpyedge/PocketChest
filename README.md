@@ -10,7 +10,7 @@
 
 **One-click deployment** · [Full deployment guide](DEPLOYMENT.md) · [Manual deployment](DEPLOYMENT.md#2-manual-deployment)
 
-The button clones this repository into your GitHub account, builds it with Workers Builds and creates the R2 bucket. The only thing you choose is your **Owner password**, once; the signing secret is generated for you and the site never asks you to "set up" an account. Upgrading asks for nothing. The guide covers the button, `npm run deploy` and a manual GitHub Actions deploy, and what to check afterwards. **Not yet verified on a real Cloudflare account:** the one-click chain (the button prefilling `npm run deploy`, the secrets form, Workers Builds) has only been tested locally with simulated Cloudflare answers; a successful button deployment is not a production acceptance test.
+The button clones this repository into your GitHub account, builds it with Workers Builds and creates the R2 bucket. Nothing to choose or type: the signing secret is generated for you, and the Owner password is generated on first setup and kept privately in your R2 bucket. You read it there once, then change it. Upgrading asks for nothing. The guide covers the button, `npm run deploy` and a manual GitHub Actions deploy, and what to check afterwards. **Not yet verified on a real Cloudflare account:** the one-click chain (the button prefilling `npm run deploy`, the secrets form, Workers Builds) has only been tested locally with simulated Cloudflare answers; a successful button deployment is not a production acceptance test.
 
 ## ✨ Features
 

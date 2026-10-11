@@ -5,7 +5,6 @@ import { loadOwner, createOwnerOnce, mutateOwner, OwnerCorruptError, parseOwner 
 import { hashPassword, PASSWORD_ALGORITHM, verifyPassword } from '../src/worker/auth/password';
 import { openSeed, sealSeed } from '../src/worker/auth/totp';
 
-const BOOTSTRAP_PASSWORD = 'test-bootstrap-password-0123456789';
 const bucket = () => env.R2_STORAGE;
 const e = env as unknown as Record<string, string | undefined>;
 
@@ -162,16 +161,26 @@ describe('owner record', () => {
 });
 
 describe('automatic first setup', () => {
+	const credentialKey = 'auth/initial-owner-password.txt';
+	const armedBefore = e.SETUP_ARMED;
 	beforeEach(async () => {
 		await resetStorage();
 		e.BOOTSTRAP_ENABLED = 'true';
-		e.ADMIN_BOOTSTRAP_PASSWORD = BOOTSTRAP_PASSWORD;
+		e.SETUP_ARMED = 'yes';
 	});
 
 	afterEach(() => {
 		e.BOOTSTRAP_ENABLED = 'true';
-		e.ADMIN_BOOTSTRAP_PASSWORD = BOOTSTRAP_PASSWORD;
+		e.SETUP_ARMED = armedBefore;
 	});
+
+	const credential = async () => (await bucket().get(credentialKey))!.text();
+	const login = (password: string) =>
+		testFetch('http://example.com/api/auth/login/password', {
+			method: 'POST',
+			headers: { 'Content-Type': 'application/json', Origin: 'http://example.com' },
+			body: JSON.stringify({ password }),
+		});
 
 	it('has no route that lets a caller create an owner', async () => {
 		for (const method of ['POST', 'PUT', 'GET']) {
@@ -187,12 +196,13 @@ describe('automatic first setup', () => {
 		expect(await bucket().head('auth/bootstrap-marker')).toBeNull();
 	});
 
-	it('creates the owner from the deployment password on the first visit, stored only as a keyed hash', async () => {
+	it('creates the owner from a generated password on the first visit, stored only as a keyed hash', async () => {
 		const response = await methods();
 		expect(((await response.json()) as any).setup).toBe('ready');
 
+		const password = await credential();
 		const raw = await (await bucket().get('auth/owner.json'))!.text();
-		expect(raw).not.toContain(BOOTSTRAP_PASSWORD);
+		expect(raw).not.toContain(password);
 		const owner = JSON.parse(raw);
 		expect(owner).toMatchObject({
 			schemaVersion: 1,
@@ -206,18 +216,25 @@ describe('automatic first setup', () => {
 		expect(await bucket().head('auth/bootstrap-marker')).not.toBeNull();
 	});
 
-	it('the deployment password then signs in as an ordinary login, and no other password does', async () => {
+	it('the generated password signs in as an ordinary login, and no other password does', async () => {
 		await (await methods()).text();
-		const login = (password: string) =>
-			testFetch('http://example.com/api/auth/login/password', {
-				method: 'POST',
-				headers: { 'Content-Type': 'application/json', Origin: 'http://example.com' },
-				body: JSON.stringify({ password }),
-			});
-		expect((await login('not-the-deployment-password')).status).toBe(401);
-		const ok = await login(BOOTSTRAP_PASSWORD);
+		expect((await login('not-the-generated-password')).status).toBe(401);
+		const ok = await login(await credential());
 		expect(ok.status).toBe(200);
 		await ok.text();
+	});
+
+	it('never uses an older installation setup secret to create the owner', async () => {
+		e.ADMIN_BOOTSTRAP_PASSWORD = 'legacy-setup-secret-0123456789';
+		try {
+			expect(((await (await methods()).json()) as any).setup).toBe('ready');
+			expect((await login('legacy-setup-secret-0123456789')).status).toBe(401);
+			const ok = await login(await credential());
+			expect(ok.status).toBe(200);
+			await ok.text();
+		} finally {
+			delete e.ADMIN_BOOTSTRAP_PASSWORD;
+		}
 	});
 
 	it('creates exactly one owner when many first visits arrive together', async () => {
@@ -230,25 +247,26 @@ describe('automatic first setup', () => {
 		expect(((await (await methods()).json()) as any).setup).toBe('ready');
 	});
 
-	it('never replaces an existing owner, even if the deployment password differs', async () => {
+	it('never replaces an existing owner', async () => {
 		await createOwnerOnce(bucket(), 'the-existing-owner-password', TEST_JWT_SECRET);
 		const before = await (await bucket().get('auth/owner.json'))!.text();
-		e.ADMIN_BOOTSTRAP_PASSWORD = 'a-completely-different-setup-password';
 		expect(((await (await methods()).json()) as any).setup).toBe('ready');
 		expect(await (await bucket().get('auth/owner.json'))!.text()).toBe(before);
 		expect(await bucket().head('auth/bootstrap-marker')).toBeNull();
+		expect(await bucket().head(credentialKey)).toBeNull();
 	});
 
-	it('creates nothing without a usable setup password, and says so', async () => {
-		for (const password of [undefined, '', 'short']) {
-			e.ADMIN_BOOTSTRAP_PASSWORD = password;
+	it('creates nothing unless setup is armed and switched on, and says so', async () => {
+		for (const armed of [undefined, '', 'no', 'true']) {
+			e.SETUP_ARMED = armed;
 			expect(((await (await methods()).json()) as any).setup).toBe('password-missing');
 		}
-		e.ADMIN_BOOTSTRAP_PASSWORD = BOOTSTRAP_PASSWORD;
+		e.SETUP_ARMED = 'yes';
 		e.BOOTSTRAP_ENABLED = 'false';
 		expect(((await (await methods()).json()) as any).setup).toBe('password-missing');
 		expect(await bucket().head('auth/owner.json')).toBeNull();
 		expect(await bucket().head('auth/bootstrap-marker')).toBeNull();
+		expect(await bucket().head(credentialKey)).toBeNull();
 	});
 
 	it('does not reopen setup when the owner write failed after the marker was claimed', async () => {

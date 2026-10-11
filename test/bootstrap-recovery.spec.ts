@@ -7,7 +7,6 @@ import * as core from '../scripts/recovery-core.mjs';
 const original = env.R2_STORAGE;
 const bucket = () => original;
 const e = env as unknown as Record<string, unknown>;
-const SETUP = 'test-bootstrap-password-0123456789';
 const NEW_PASSWORD = 'first-owner-passphrase-2026';
 const MARKER = 'auth/bootstrap-marker';
 
@@ -49,11 +48,11 @@ describe('F-02 offline recovery of an interrupted first setup', () => {
 		expect(await (await bucket().get('codes/ABC123'))!.text()).toBe('shared-data-untouched');
 	});
 
-	it('setup then runs again by itself with the deployment setup password', async () => {
+	it('setup then runs again by itself, with a generated password read from the bucket', async () => {
 		await bucket().put(MARKER, 'claimed');
 		await core.recoverBootstrap(storage());
 		e.BOOTSTRAP_ENABLED = 'true';
-		e.ADMIN_BOOTSTRAP_PASSWORD = SETUP;
+		e.SETUP_ARMED = 'yes';
 
 		const methods = (await (await testFetch(`${TEST_ORIGIN}/api/auth/methods`)).json()) as any;
 		expect(methods.setup).toBe('ready');
@@ -63,8 +62,9 @@ describe('F-02 offline recovery of an interrupted first setup', () => {
 				headers: { 'Content-Type': 'application/json', Origin: TEST_ORIGIN },
 				body: JSON.stringify({ password }),
 			});
+		const generated = await bucket().get('auth/initial-owner-password.txt');
 		expect((await login('not-the-setup-password-000000')).status).toBe(401);
-		const ok = await login(SETUP);
+		const ok = await login(await generated!.text());
 		expect(ok.status).toBe(200);
 		await ok.text();
 	});

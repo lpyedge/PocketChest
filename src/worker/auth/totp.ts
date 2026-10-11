@@ -1,9 +1,11 @@
 /**
  * TOTP (RFC 6238: HMAC-SHA1, 6 digits, 30-second steps). The seed is stored only encrypted with
- * AES-256-GCM under AUTH_ENCRYPTION_KEY, and a missing or wrong key fails closed.
+ * AES-256-GCM under a key the Worker derives from its root secret (keys.ts), and a missing or wrong root fails
+ * closed. No seed exists until the Owner sets up an authenticator while signed in.
  */
 import { ApiError } from '../errors';
 import { constantTimeEqual, fromBase64Url, toBase64Url } from './encoding';
+import { totpAesKey } from './keys';
 import type { EncryptedSecret } from './owner';
 
 const STEP_SECONDS = 30;
@@ -74,31 +76,15 @@ export async function matchTotpStep(seed: Uint8Array, code: string, now: number)
 	return matched;
 }
 
-async function encryptionKey(keyBase64: string | undefined): Promise<CryptoKey> {
-	let raw: Uint8Array;
-	try {
-		if (!keyBase64) {
-			throw new Error('missing');
-		}
-		raw = Uint8Array.from(atob(keyBase64), (char) => char.charCodeAt(0));
-	} catch {
-		throw new ApiError(500, 'AUTH_NOT_CONFIGURED', 'Sign-in is not configured');
-	}
-	if (raw.length !== 32) {
-		throw new ApiError(500, 'AUTH_NOT_CONFIGURED', 'Sign-in is not configured');
-	}
-	return crypto.subtle.importKey('raw', raw, { name: 'AES-GCM' }, false, ['encrypt', 'decrypt']);
-}
-
-export async function sealSeed(seed: Uint8Array, keyBase64: string | undefined): Promise<EncryptedSecret> {
-	const key = await encryptionKey(keyBase64);
+export async function sealSeed(seed: Uint8Array, root: string | undefined): Promise<EncryptedSecret> {
+	const key = await totpAesKey(root);
 	const iv = crypto.getRandomValues(new Uint8Array(IV_BYTES));
 	const ciphertext = new Uint8Array(await crypto.subtle.encrypt({ name: 'AES-GCM', iv }, key, seed));
 	return { v: 1, iv: toBase64Url(iv), ct: toBase64Url(ciphertext) };
 }
 
-export async function openSeed(sealed: EncryptedSecret, keyBase64: string | undefined): Promise<Uint8Array> {
-	const key = await encryptionKey(keyBase64);
+export async function openSeed(sealed: EncryptedSecret, root: string | undefined): Promise<Uint8Array> {
+	const key = await totpAesKey(root);
 	try {
 		const plain = await crypto.subtle.decrypt({ name: 'AES-GCM', iv: fromBase64Url(sealed.iv) }, key, fromBase64Url(sealed.ct));
 		return new Uint8Array(plain);

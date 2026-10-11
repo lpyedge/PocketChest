@@ -2,7 +2,7 @@ import { Locale } from '../i18n';
 
 // The static home page of each language. The home pages have no script, so they cannot remember a choice:
 // the way back has to name the right one.
-const HOME: Record<Locale, string> = { 'zh-Hant': '/', ja: '/ja/', en: '/en/' };
+const HOME: Record<Locale, string> = { 'zh-Hant': '/zh-Hant/', ja: '/ja/', en: '/' };
 
 export function homeUrlFor(locale: Locale): string {
 	return HOME[locale];

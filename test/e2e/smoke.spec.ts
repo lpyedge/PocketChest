@@ -23,7 +23,7 @@ for (const { path, heading } of pages) {
 }
 
 test('home page links to both applications', async ({ page }) => {
-	await page.goto('/');
+	await page.goto('/zh-Hant/');
 	await expect(page.getByRole('link', { name: /分享檔案/ })).toHaveAttribute('href', '/upload/?lang=zh-Hant');
 	await expect(page.getByRole('link', { name: /取回檔案/ })).toHaveAttribute('href', '/retrieve/?lang=zh-Hant');
 });

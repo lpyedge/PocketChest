@@ -14,6 +14,7 @@ import { ApiError } from '../errors';
 import { fromBase64Url, toBase64Url } from './encoding';
 import { CHALLENGE_SECONDS, consumeChallenge, storeChallenge } from './challenges';
 import { isConfigured, isUsable, loadOwner, mutateOwner, OwnerConflictError, OwnerRecord, PasskeyCredential } from './owner';
+import { rotate, Rotated } from './security';
 import { assertRecentReauth, LoadedSession, markActivationProof, markReauthenticated, sha256Hex } from './sessions';
 
 export const RP_NAME = 'PocketChest';
@@ -91,7 +92,8 @@ export async function registrationVerify(
 	body: { challenge: string; response: RegistrationResponseJSON; label?: unknown },
 	now: number,
 	pinnedRpId?: string,
-): Promise<{ credentialId: string }> {
+	jwtSecret?: string,
+): Promise<{ credentialId: string; rotated: Rotated | null }> {
 	assertRecentReauth(session, now);
 	await consumeChallenge(bucket, body.challenge, 'register', await sha256Hex(session.sid), now);
 
@@ -117,9 +119,13 @@ export async function registrationVerify(
 		lastUsedAt: null,
 		transports: info.transports ?? [],
 	};
+	let firstPasskey = false;
+	let written: OwnerRecord;
 	try {
-		// Adding a credential does not switch the method on; that is a separate, explicit toggle
-		await mutateOwner(bucket, (owner) => {
+		// The first passkey switches the method on in the same change (it was just proved to work). A method the owner
+		// switched off on purpose stays off when another passkey is added, and then nothing about sign-in changes.
+		written = await mutateOwner(bucket, (owner) => {
+			firstPasskey = owner.methods.passkey.credentials.length === 0;
 			// Checked in the same swap as the write: a session from before a password reset must not add a passkey
 			if (owner.authVersion !== session.record.ownerAuthVersion) {
 				throw new ApiError(401, 'AUTH_INVALID', 'Sign in required');
@@ -127,13 +133,12 @@ export async function registrationVerify(
 			if (owner.methods.passkey.credentials.some((existing) => existing.id === credential.id)) {
 				throw new CredentialExistsError();
 			}
-			return {
-				...owner,
-				methods: {
-					...owner.methods,
-					passkey: { ...owner.methods.passkey, credentials: [...owner.methods.passkey.credentials, credential] },
-				},
-			};
+			const passkey = { ...owner.methods.passkey, credentials: [...owner.methods.passkey.credentials, credential] };
+			if (firstPasskey) {
+				// A change in how the owner signs in: every other session ends and this one is replaced below
+				return { ...owner, authVersion: owner.authVersion + 1, methods: { ...owner.methods, passkey: { ...passkey, enabled: true } } };
+			}
+			return { ...owner, methods: { ...owner.methods, passkey } };
 		});
 	} catch (error) {
 		if (error instanceof CredentialExistsError) {
@@ -144,7 +149,10 @@ export async function registrationVerify(
 		}
 		throw error;
 	}
-	return { credentialId: credential.id };
+	// Only a change that bumped authVersion replaces the session; the caller stays signed in with the new cookie
+	if (!firstPasskey) return { credentialId: credential.id, rotated: null };
+	if (!jwtSecret) throw new Error('A secret is needed to replace the session');
+	return { credentialId: credential.id, rotated: await rotate({ R2_STORAGE: bucket, JWT_SECRET: jwtSecret }, session, written, now) };
 }
 
 // --- Sign-in and re-entry with an existing passkey ---

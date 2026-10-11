@@ -3,7 +3,7 @@ import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import { resetStorage, setupTestEnvironment, testFetch } from './utils/test-setup';
 
 const e = env as unknown as Record<string, unknown>;
-const saved = { jwt: e.JWT_SECRET, enabled: e.BOOTSTRAP_ENABLED, password: e.ADMIN_BOOTSTRAP_PASSWORD };
+const saved = { jwt: e.JWT_SECRET, enabled: e.BOOTSTRAP_ENABLED, password: e.ADMIN_BOOTSTRAP_PASSWORD, armed: e.SETUP_ARMED };
 
 // The example file names every secret with a REPLACE_WITH_ value, and a deploy button may offer those as defaults.
 // A deployment that kept them must refuse to run, not run with a secret that everyone can read in the repository.
@@ -16,30 +16,34 @@ describe('values copied from .dev.vars.example are refused', () => {
 		e.JWT_SECRET = saved.jwt;
 		e.BOOTSTRAP_ENABLED = saved.enabled;
 		e.ADMIN_BOOTSTRAP_PASSWORD = saved.password;
+		e.SETUP_ARMED = saved.armed;
 	});
 
-	const bootstrap = (password: string) =>
-		testFetch('http://example.com/api/auth/bootstrap', {
-			method: 'POST',
-			headers: { 'Content-Type': 'application/json', Origin: 'http://example.com' },
-			body: JSON.stringify({ password }),
-		});
+	const methods = () => testFetch('http://example.com/api/auth/methods');
 
 	for (const placeholder of [
 		'REPLACE_WITH_UNIQUE_PASSWORD_16_CHARS_MINIMUM',
 		'replace_with_something_long_enough',
 		'change-me-change-me-change-me',
 	]) {
-		it(`will not create the owner with the setup password "${placeholder}", even when it is typed correctly`, async () => {
+		it(`ignores a leftover setup secret "${placeholder}": the owner gets the generated password, and the placeholder never signs in`, async () => {
 			e.BOOTSTRAP_ENABLED = 'true';
+			e.SETUP_ARMED = 'yes';
 			e.ADMIN_BOOTSTRAP_PASSWORD = placeholder;
 
-			const response = await bootstrap(placeholder);
+			const response = await methods();
 
-			expect(response.status).toBe(500);
-			expect(((await response.json()) as any).code).toBe('BOOTSTRAP_MISCONFIGURED');
-			expect(await env.R2_STORAGE.head('auth/owner.json')).toBeNull();
-			expect(await env.R2_STORAGE.head('auth/bootstrap-marker')).toBeNull();
+			expect(response.status).toBe(200);
+			expect(((await response.json()) as any).setup).toBe('ready');
+			const generated = await env.R2_STORAGE.get('auth/initial-owner-password.txt');
+			expect(await generated!.text()).not.toBe(placeholder);
+			const signIn = await testFetch('http://example.com/api/auth/login/password', {
+				method: 'POST',
+				headers: { 'Content-Type': 'application/json', Origin: 'http://example.com' },
+				body: JSON.stringify({ password: placeholder }),
+			});
+			expect(signIn.status).toBe(401);
+			await signIn.text();
 		});
 	}
 

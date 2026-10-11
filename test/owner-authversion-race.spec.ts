@@ -3,7 +3,7 @@ import { describe, it, expect, beforeEach } from 'vitest';
 import { createOwnerOnce, mutateOwner } from '../src/worker/auth/owner';
 import { changePassword, confirmTotp, removePasskey, setMethodEnabled } from '../src/worker/auth/security';
 import { LoadedSession } from '../src/worker/auth/sessions';
-import { ownerRecord, resetStorage, setupTestEnvironment, TEST_OWNER_PASSWORD } from './utils/test-setup';
+import { ownerRecord, resetStorage, setupTestEnvironment, TEST_OWNER_PASSWORD, TEST_JWT_SECRET } from './utils/test-setup';
 
 const NOW = Math.floor(Date.now() / 1000);
 
@@ -32,7 +32,7 @@ describe('FIX-04 an in-flight request from a superseded session', () => {
 	beforeEach(async () => {
 		await resetStorage();
 		await setupTestEnvironment();
-		await createOwnerOnce(env.R2_STORAGE, TEST_OWNER_PASSWORD);
+		await createOwnerOnce(env.R2_STORAGE, TEST_OWNER_PASSWORD, TEST_JWT_SECRET);
 	});
 
 	async function supersede(): Promise<{ session: LoadedSession; before: string }> {

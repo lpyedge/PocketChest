@@ -10,7 +10,7 @@ import type { LoadedSession } from '../src/worker/auth/sessions';
 
 const OLD_SEED = new Uint8Array(20).map((_, index) => 11 + index);
 const NOW = 1_800_000_000;
-const env2 = env as unknown as { R2_STORAGE: R2Bucket; JWT_SECRET: string; AUTH_ENCRYPTION_KEY?: string };
+const env2 = env as unknown as { R2_STORAGE: R2Bucket; JWT_SECRET: string };
 
 function sessionFor(owner: SignedIn, sid: string, reauthenticatedAt: number): LoadedSession {
 	return {
@@ -61,6 +61,45 @@ describe('authenticator enrolment', () => {
 		expect(JSON.stringify(await ownerRecord())).toBe(before);
 	});
 
+	async function enroll(owner: SignedIn) {
+		const prepared = (await (await call(owner, 'POST', '/api/admin/security/totp/prepare', {})).json()) as any;
+		const seed = base32ToBytes(prepared.otpauthUri.match(/secret=([A-Z2-7]+)/)![1]);
+		const code = await totpCodeAt(seed, Math.floor(Date.now() / 1000));
+		const confirmed = await call(owner, 'POST', '/api/admin/security/totp/confirm', { challenge: prepared.challenge, code });
+		expect(confirmed.status).toBe(200);
+		return { seed, ...(await adoptRotated(owner, confirmed)) };
+	}
+
+	it('a first authenticator is on as soon as its code is confirmed: no separate switch-on step, and it signs in', async () => {
+		const owner = await ownerSignIn();
+		await reauthPassword(owner);
+		expect((await ownerRecord()).methods.totp).toMatchObject({ enabled: false, encryptedSecret: null });
+
+		const { data, seed } = await enroll(owner);
+
+		expect(data.security.methods.totp).toEqual({ configured: true, enabled: true });
+		expect((await ownerRecord()).methods.totp.enabled).toBe(true);
+		const signedIn = await loginWithTotp(env2 as never, await totpCodeAt(seed, NOW), NOW);
+		expect(signedIn.cookie).toContain('__Host-pc_owner=');
+	});
+
+	it('replacing an authenticator the owner switched off keeps it off', async () => {
+		const owner = await ownerSignIn();
+		await configureTotp(OLD_SEED, false);
+		await reauthPassword(owner);
+
+		const { data, seed } = await enroll(owner);
+
+		expect(data.security.methods.totp).toEqual({ configured: true, enabled: false });
+		expect((await ownerRecord()).methods.totp.enabled).toBe(false);
+		await expect(loginWithTotp(env2 as never, await totpCodeAt(seed, NOW), NOW)).rejects.toMatchObject({ status: 403 });
+	});
+
+	it('no seed exists before the owner sets one up', async () => {
+		await ownerSignIn();
+		expect((await ownerRecord()).methods.totp.encryptedSecret).toBeNull();
+	});
+
 	it('replaces the seed when the code from the new seed is confirmed, and the old seed stops working', async () => {
 		const owner = await ownerSignIn();
 		await configureTotp(OLD_SEED, true);
@@ -75,7 +114,7 @@ describe('authenticator enrolment', () => {
 		const { session: replaced } = await adoptRotated(owner, confirmed);
 
 		const stored = await ownerRecord();
-		expect(await openSeed(stored.methods.totp.encryptedSecret!, env2.AUTH_ENCRYPTION_KEY)).toEqual(newSeed);
+		expect(await openSeed(stored.methods.totp.encryptedSecret!, env2.JWT_SECRET)).toEqual(newSeed);
 		expect(stored.methods.totp.lastAcceptedStep).not.toBeNull();
 
 		// The old session is gone, the replacement works, and the old authenticator no longer signs in
@@ -116,7 +155,7 @@ describe('authenticator enrolment', () => {
 		const right = await call(owner, 'POST', '/api/admin/security/totp/confirm', { challenge: prepared.challenge, code });
 		expect(right.status).toBe(200);
 		await right.text();
-		expect(await openSeed((await ownerRecord()).methods.totp.encryptedSecret!, env2.AUTH_ENCRYPTION_KEY)).toEqual(newSeed);
+		expect(await openSeed((await ownerRecord()).methods.totp.encryptedSecret!, env2.JWT_SECRET)).toEqual(newSeed);
 	});
 
 	it('C06: ends the enrolment after five wrong codes, so the QR cannot be guessed at without limit', async () => {
@@ -218,7 +257,7 @@ describe('authenticator enrolment', () => {
 async function readSeed(challenge: string): Promise<Uint8Array> {
 	const object = await env2.R2_STORAGE.get(`auth/challenges/${await sha256Hex(challenge)}`);
 	const record = JSON.parse(await object!.text());
-	return openSeed(record.payload, env2.AUTH_ENCRYPTION_KEY);
+	return openSeed(record.payload, env2.JWT_SECRET);
 }
 
 async function collectText(): Promise<string> {

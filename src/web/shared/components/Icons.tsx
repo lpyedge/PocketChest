@@ -30,14 +30,6 @@ export const HomeIcon = (p: IconProps) => (
 	</Icon>
 );
 
-export const HistoryIcon = (p: IconProps) => (
-	<Icon {...p}>
-		<path d="M3 12a9 9 0 1 0 3-6.7L3 8" />
-		<path d="M3 3v5h5" />
-		<path d="M12 7v5l3 2" />
-	</Icon>
-);
-
 export const UserIcon = (p: IconProps) => (
 	<Icon {...p}>
 		<path d="M19 21v-2a4 4 0 0 0-4-4H9a4 4 0 0 0-4 4v2" />
@@ -146,5 +138,32 @@ export const UploadCloudIcon = (p: IconProps) => (
 		<path d="M4 14.9A7 7 0 1 1 15.7 8h1.8a4.5 4.5 0 0 1 2.5 8.2" />
 		<path d="M12 12v9" />
 		<path d="m16 16-4-4-4 4" />
+	</Icon>
+);
+
+export const LinkIcon = (p: IconProps) => (
+	<Icon {...p}>
+		<path d="M10 13a5 5 0 0 0 7.5.5l3-3a5 5 0 0 0-7-7l-1.7 1.7" />
+		<path d="M14 11a5 5 0 0 0-7.5-.5l-3 3a5 5 0 0 0 7 7l1.7-1.7" />
+	</Icon>
+);
+
+export const RefreshIcon = (p: IconProps) => (
+	<Icon {...p}>
+		<path d="M21 12a9 9 0 0 0-15.5-6.2L3 8" />
+		<path d="M3 3v5h5" />
+		<path d="M3 12a9 9 0 0 0 15.5 6.2L21 16" />
+		<path d="M16 16h5v5" />
+	</Icon>
+);
+
+export const ListIcon = (p: IconProps) => (
+	<Icon {...p}>
+		<path d="M8 6h13" />
+		<path d="M8 12h13" />
+		<path d="M8 18h13" />
+		<path d="M3 6h.01" />
+		<path d="M3 12h.01" />
+		<path d="M3 18h.01" />
 	</Icon>
 );

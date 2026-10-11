@@ -1,114 +1,106 @@
 # PocketChest — デプロイガイド
 
-[English](DEPLOYMENT.md) | [繁體中文](DEPLOYMENT.zh-Hant.md) | [日本語](DEPLOYMENT.ja.md) | [PocketChest](README.ja.md)
+[English](DEPLOYMENT.md) | [繁體中文](DEPLOYMENT.zh-Hant.md) | [日本語](DEPLOYMENT.ja.md) | [PocketChest](README.md)
 
-> ファイルとテキストを共有する、自分で運用するプライベートな仕組み。Cloudflare Worker 1 つと R2 バケット 1 つだけで、データベースは不要です。
+> 個人用・セルフホストのファイルとテキストの共有。Cloudflare Worker 1 つと R2 バケット 1 つで動き、データベースは不要です。
 
 ## 1. ワンクリックデプロイ（推奨）
 
 [![Deploy to Cloudflare](https://deploy.workers.cloudflare.com/button)](https://deploy.workers.cloudflare.com/?url=https://github.com/lpyedge/PocketChest)
 
-1. ボタンを押し、Cloudflare にサインインして GitHub との連携を許可します。このリポジトリが自分のアカウントにコピーされ、`wrangler.jsonc` に従って Worker、R2 バケット（`R2_STORAGE`）、レート制限のバインディング、毎時の Cron が用意されます。
-2. シークレットのフォームには `JWT_SECRET`、`AUTH_ENCRYPTION_KEY`、`ADMIN_BOOTSTRAP_PASSWORD` が並び、`.dev.vars.example` のプレースホルダが入力済みになっています。**それぞれ、自分で生成したランダムな値に置き換えてください**（コマンドは[第 2 章](#2-手動デプロイ)）。プレースホルダのままのデプロイは拒否されます。API は `SERVER_MISCONFIGURED` を返し、プレースホルダのパスワードではオーナーを作成できません。
-3. **Build** が `npm run build`、**Deploy** が `npx wrangler deploy` になっていることを確認して、デプロイします。
-4. `https://<worker 名>.<サブドメイン>.workers.dev/upload/` を開きます。オーナーがまだ存在せず初期設定が有効な間は、初期設定用のパスワードを求められます。`ADMIN_BOOTSTRAP_PASSWORD` を入力してオーナーを作成します。変更するまで、それがオーナーのパスワードです。
-5. **すぐに初期設定を閉じます。** シークレット `ADMIN_BOOTSTRAP_PASSWORD` を削除します（Worker → Settings → Variables and Secrets）。これがなければ初期設定は実行できません。続いて、ボタンが GitHub に作成したリポジトリで `wrangler.jsonc` の `BOOTSTRAP_ENABLED` を `"false"` にしてコミットし、次回以降のビルドでもオフのままにします。ダッシュボードだけで変更しても、次のビルドで上書きされます。
-6. **セキュリティ設定**を開き、自分のパスワードを設定してから、認証アプリまたはパスキーを追加します。パスキーを登録する**前に**、本番のホスト名を決めて `PASSKEY_RP_ID` を設定してください（[運用](docs/OPERATIONS.md#passkey-domain)）。
+1. ボタンをクリックし、Cloudflare にサインインして GitHub との接続を許可します。このリポジトリがあなたのアカウントにコピーされ、`wrangler.jsonc` に従って Worker、R2 バケット（`R2_STORAGE`）、レート制限のバインディング、毎時の Cron が作成されます。
+2. フォームでは**何も入力しません**。Owner パスワードを選んだり入力したりする必要はなく、生成すべき署名用シークレットもありません。
+3. **Build** が `npm run build`、**Deploy** が `npm run deploy:installer` になっていることを確認してデプロイします。ビルドは 1 回だけ実行されます。インストーラーが署名用シークレット（`JWT_SECRET`）を自分で生成し、R2 バケットがなければ作成し、バケットが非公開であることを確認して初回セットアップを有効にします。ここでは素の `npx wrangler deploy` ではなく `npm run deploy:installer` を使ってください。素のデプロイでは、サイトが `SERVER_MISCONFIGURED` を返します。
+4. デプロイログの最後に、URL、バケット、オブジェクトキー、以下の手順が表示されます。`https://<あなたの-worker>.<あなたのサブドメイン>.workers.dev/upload/` を開きます。サイトは初回利用時に **Owner パスワード**を作成します。**このパスワードは Web サイト上には表示されません。**バケットから取得してください。
+   1. Cloudflare ダッシュボード → **R2** → ログに表示されたバケットを開きます。
+   2. **Objects** → `auth/initial-owner-password.txt` を開く → **Download**。
+   3. そのパスワードでサイトにサインインします。
+5. **Security settings** で直ちにパスワードを変更してください（8 文字以上。推測されやすいものや繰り返しは不可）。変更に成功すると、保存されたコピーは自動的に削除されます。変更に失敗した場合、ファイルは残ります。
+6. 後からオプションで認証アプリやパスキーを追加できます。パスキーを登録する**前に**、最終的なホスト名を決めて `PASSKEY_RP_ID` を設定してください（[運用ガイド](docs/OPERATIONS.md#passkey-domain)）。
 
-**デプロイできたことは、検証が済んだことではありません。**[第 6 章](#6-インストールの確認)に従い、お使いの Cloudflare プランで PBKDF2 の CPU 使用量、R2 の同時実行、Cron、レート制限、大きなファイルを確認してください。Free プランに収めるためにパスワードのハッシュを弱めてはいけません。
+**アップグレード**は何も入力する必要がありません。新しいコードをプッシュし、同じビルドを実行させてください。`npm run deploy:installer` はインストールが完了していることを確認し、コードのみをデプロイします。パスワード、シークレット、共有、設定は変更されません。アップグレードのために Deploy ボタンを再度押さないでください。
+
+**デプロイが成功しても、受け入れテストに合格したわけではありません。** R2 の同時実行、Cron、レート制限、大きなファイルは、ご自身の Cloudflare プランで確認してください。一覧は[第 6 節](#6-インストールの確認)にあります。
 
 ## 2. 手動デプロイ
 
-**必要なもの：**Cloudflare アカウント、Node.js 22.12 以上（24 を推奨）、npm、空の R2 バケット。PocketChest は新規インストール専用で、旧バージョンのデータベースからの移行はありません。
+**必要なもの**: Cloudflare アカウント、Node.js 22.12 以上（24 推奨）、npm。PocketChest は新規インストール専用です。古いデータベース版からの移行はありません。
 
 ```bash
 npm ci
 npx wrangler login
-npx wrangler r2 bucket create pocket-chest
-# 別のバケット名にする場合は、wrangler.jsonc の bucket_name も合わせて変更します。
+npm run deploy
 ```
 
-**互いに異なる** 3 つの値を生成し、他人に見られない場所に保管します。
+`npm run deploy` はビルドを 1 回行ってからインストーラーを実行します。入力は求められません。`wrangler.jsonc` で指定された Worker とバケットについて Cloudflare が何を答えるかを確認し、答えが不明確な場合は**拒否**して何も変更しません。初回インストールでは、バケットがなければ作成し、署名用シークレットを生成し、バケットが非公開（r2.dev オフ、カスタムドメインなし）であることを確認し、初回セットアップを有効にし、サイトの準備完了を確認します。取得手順は第 1 節と同じものが表示されます。別のバケット名を使う場合は、先に `wrangler.jsonc` の `bucket_name` を変更してください。
 
-```bash
-openssl rand -base64 48   # JWT_SECRET
-openssl rand -base64 32   # AUTH_ENCRYPTION_KEY：デコード後にちょうど 32 バイト
-openssl rand -base64 24   # ADMIN_BOOTSTRAP_PASSWORD：16 文字以上
-# openssl がない場合：node -e "console.log(require('crypto').randomBytes(48).toString('base64'))"
-```
+`npm run deploy` をもう一度実行するとアップグレードになります。シークレット、Owner、バケットのデータは変更されません。Owner は存在するのに Worker に署名用シークレットがない場合（アカウントや Worker 名の誤り）や、初回セットアップが途中で止まった場合は、理由を示して拒否されます（[オフライン復旧](docs/RECOVERY.md)）。R2 のセットアップマーカーを手作業で削除しないでください。
 
-```bash
-npx wrangler secret put JWT_SECRET
-npx wrangler secret put AUTH_ENCRYPTION_KEY
-npx wrangler secret put ADMIN_BOOTSTRAP_PASSWORD
-```
+### GitHub Actions でのデプロイ
 
-リポジトリの `BOOTSTRAP_ENABLED` は、初回インストール用に `"true"` になっています。ビルドしてデプロイします。
+PocketChest のコピーやフォークを使っている場合、`.github/workflows/deploy-manual.yml`（「Deploy (manual)」）を **Actions** タブから実行してインストールやアップグレードができます。手動で開始したときだけ動き、先にテストとドライランを実行したうえで、`npm run deploy` と同じインストーラーを実行します。
 
-```bash
-npm run build
-npx wrangler deploy        # または npm run deploy（先にビルドします）
-```
+1. Settings → Secrets and variables → Actions で `CLOUDFLARE_API_TOKEN`（Workers Scripts: Edit と Workers R2 Storage: Edit、あなたのアカウントのみ）と `CLOUDFLARE_ACCOUNT_ID` を追加します。Owner パスワードを追加する必要はありません。必要に応じて `production` という Environment を作成し、毎回の実行に承認者を設定できます。
+2. Actions → Deploy (manual) → Run workflow。対象の Worker とバケットは `wrangler.jsonc` で指定したものです。
+3. ジョブログの最後に、URL、バケット、最初のパスワードのオブジェクトキーが表示されます。パスワードの取得は第 1 節と同じ方法でバケットから行ってください。以降の実行はアップグレードで、シークレット、Owner、バケットのデータは変更されません。
 
-`/upload/` を開いてオーナーを作成し、公開する前に**初期設定を閉じます**。
+インストールに使うデプロイ方法は、このワークフロー、**または** Workers Builds / 手元の `npm run deploy` のどちらか一方だけにしてください。
 
-```bash
-npx wrangler secret delete ADMIN_BOOTSTRAP_PASSWORD
-# wrangler.jsonc の BOOTSTRAP_ENABLED を "false" にしてから：
-npx wrangler deploy
-```
+## 3. シークレット、オブジェクト、設定
 
-初期設定を再び開くために、R2 の初期設定マーカーを削除してはいけません。初期設定が途中で止まった場合は、`node scripts/recover-bootstrap.mjs` を実行します（[オフライン復旧](docs/RECOVERY.md)参照）。
-
-## 3. シークレットと設定
-
-| 名前 | 種類 | 内容 |
+| 名前 | 種類 | 説明 |
 | --- | --- | --- |
-| `JWT_SECRET` | Worker シークレット | アップロードとダウンロードのトークンに署名します。24 文字以上のランダムな値で、サンプルの値は不可。 |
-| `AUTH_ENCRYPTION_KEY` | Worker シークレット | ちょうど 32 バイトのランダム値を Base64 にしたもの。認証アプリのシードを暗号化します。バックアップしてください。失うと認証アプリを設定し直す必要があります。 |
-| `ADMIN_BOOTSTRAP_PASSWORD` | 一度だけ使う Worker シークレット | 16 文字以上。オーナーの作成に使い、**作成後は削除**します。 |
-| `BOOTSTRAP_ENABLED` | `wrangler.jsonc` の変数 | 初回インストールの間だけ `"true"`。オーナー作成後は `"false"`。 |
-| `PASSKEY_RP_ID` | 任意の変数 | パスキーを結び付ける唯一のホスト名。パスキーを登録する前に設定します。 |
-| `R2_STORAGE` | R2 バインディング | ファイルとすべてのメタデータを、1 つのプライベートなバケットに保存します。 |
-| `AUTH_LIMITER`、`RETRIEVE_LIMITER`、`UPLOAD_LIMITER`、`PART_LIMITER`、`PART_TOTAL_LIMITER`、`DOWNLOAD_LIMITER` | レート制限バインディング | サインイン、受け取り、アップロード、アップロードのパート、ダウンロードに対するクライアントごとの制限。追加のデータベースは不要です。 |
+| `auth/initial-owner-password.txt` | Worker が作成する非公開の R2 オブジェクト | 最初の Owner パスワード。一度だけ生成されます（32 バイトの乱数）。R2 ダッシュボードで読み取り、パスワードを変更するとファイルは削除されます。サイト、API、ビルドログには決して表示されません。 |
+| `JWT_SECRET` | 自動で作られる Worker シークレット | インストーラーが一度だけ生成します。入力もバックアップも不要です。アップロード・ダウンロードのトークンに署名し、パスワード用の鍵と認証器のシード用の鍵の基になります。**Owner が作成された後は絶対に変更しないでください。** パスワードや認証器が検証できなくなります（デプロイはこの変更を拒否します）。 |
+| `SETUP_ARMED` | インストーラーが設定する Worker シークレット | バケットが非公開だと確認できた後にだけ有効になり、Worker が最初のパスワードを作れるようにします。手動で設定しないでください。 |
+| `ADMIN_BOOTSTRAP_PASSWORD` | 現在は使用されません | Worker はこれを読まず、インストーラーも入力を求めたり設定したりしません。旧フォームで作成されたインストールは引き続き動きます。Owner はすでに存在し、アップグレードでもこのシークレットは削除されません。 |
+| `PASSKEY_RP_ID` | 任意の変数 | パスキーを紐づける唯一のホスト名。パスキーを登録する前に設定します。 |
+| `INSTANCE_ID` | 任意の変数 | 通常は未設定。レート制限カウンターの ID はバケット内に一度だけ作られます。 |
+| `R2_STORAGE` | R2 バインディング | ファイルとすべてのメタデータを、1 つの非公開バケットに保存します。 |
+| `AUTH_LIMITER`、`RETRIEVE_LIMITER`、`UPLOAD_LIMITER`、`PART_LIMITER`、`PART_TOTAL_LIMITER`、`DOWNLOAD_LIMITER` | レート制限バインディング | サインイン、取得、アップロード、アップロードのパート、ダウンロードごとの、クライアント単位の制限です。追加のデータベースは不要です。 |
 
-ローカル開発では `npm run setup:local` が、新しいランダムな値で `.dev.vars` を作成します。`.dev.vars` を公開しないでください。サンプルの値を実際の環境で使ってはいけません。
+バケットは非公開のままにしてください。r2.dev アクセスをオフにし、カスタムドメインを付けないでください。インストーラーは初回セットアップを有効にする前にこれを確認します。Worker 自身の `workers.dev` アドレスはバケットとは別のもので、サイトを開くときに使うのはこちらです。
+
+設定が必要な認証器キーはありません。認証アプリを設定すると、Worker は `JWT_SECRET` から導出した鍵でそのシードを保護します。ローカル開発では `npm run setup:local` が `.dev.vars` を作成し、新しいランダムな値を書き込みます。`.dev.vars` は公開せず、実際の環境でサンプル値は決して使わないでください。
 
 ## 4. ビルドとデプロイの設定
 
-GitHub からの Workers Builds では、**Build** を `npm run build`、**Deploy** を `npx wrangler deploy` にします。ここで `npm run deploy` は使わないでください。もう一度ビルドしてしまいます。`dist/` フォルダは Workers Static Assets として配信され、Worker 自体が処理するのは `/api/*` だけです。`/upload/` が白紙または 404 になる場合は、デプロイ前に `dist/` をビルドしていません。
+GitHub からの Workers Builds を使う場合は、**Build** を `npm run build`、**Deploy** を `npm run deploy:installer` に設定します。ビルドの手順で `dist/` が作られ、デプロイの手順でインストーラーが実行されてデプロイされます。`npm run deploy` は、ローカルで同じ 2 つの手順を 1 コマンドで行うものです。`npm run deploy:code` は Wrangler でコードだけを送ります。`dist/` フォルダーは Workers Static Assets として配信され、Worker 自体は `/api/*` だけを扱います。`/upload/` が空白または 404 になる場合は、デプロイ前に `dist/` がビルドされていなかったことを意味します。インストールごとにデプロイ方法は 1 つだけにしてください。Workers Builds か、ご自身の `npm run deploy` のどちらかです。
 
-## 5. 初期設定と日々の使い方
+## 5. 初回の利用と日常の利用
 
-- 初期設定用のパスワードが、そのままオーナーのパスワードになります。**セキュリティ設定**で（16 文字以上に）変更してください。
-- パスワード、認証アプリ、パスキーは、それぞれ単独でサインインできます。端末を 1 つ失っても締め出されないよう、少なくとも 2 つ設定しておきます。すべての方法を失った場合は[オフライン復旧](docs/RECOVERY.md)を参照してください。
-- アップロードのセッションは開始から 24 時間で終了します。共有の有効期間は 1、3、7、14 日または無期限で、毎時のクリーンアップが期限切れを削除します。
+- Owner パスワードでサインインします。最初のパスワードは第 1 節のバケット内のオブジェクトにあります。すぐに **Security settings** で変更してください（8 文字以上）。
+- パスワード、認証アプリ、パスキーは 3 つの**独立した**サインイン方法で、どれか 1 つだけでサインインできます。認証コードはパスワードに重ねる**第二要素では**ありません。デバイスを 1 台失っても締め出されないように、少なくとも 2 つを設定してください。すべてを失った場合は[復旧ガイド](docs/RECOVERY.md)を参照してください（パスワードはオフラインでリセットできません）。
+- アップロードのセッションは開始から 24 時間で終了します。共有は 1、3、7、14 日間、または無期限で、毎時のクリーンアップで期限切れのものを削除します。**共有の記録**（Security settings の隣）では有効な共有の一覧を確認でき、延長や取り消しができます。
 
 ## 6. インストールの確認
 
-- [ ] `/`、`/ja/`、`/en/`、`/upload/`、`/retrieve/` が開く。
-- [ ] オーナーは一度だけ作成され、`ADMIN_BOOTSTRAP_PASSWORD` は削除済みで、デプロイ済みの設定で `BOOTSTRAP_ENABLED` が `"false"` になっている。
-- [ ] テキストと小さなファイルをアップロードでき、内容とファイル名が正しいままダウンロードできる。
-- [ ] 使っているサインイン方法がすべて動き、オフにした方法ではサインインできない。
-- [ ] パスワードのサインインが、お使いの Workers プランの CPU の範囲内で完了する（実測してください。[既知の制限](docs/OPERATIONS.md#known-limits)を参照）。
+- [ ] `/`、`/ja/`、`/en/`、`/upload/`、`/retrieve/` が読み込まれる。
+- [ ] `/upload/` に通常のサインイン画面が表示される（2 回目の「セットアップ」手順はない）。バケットの最初のパスワードでサインインでき、変更後は新しいパスワードでサインインできる。
+- [ ] バケットで r2.dev がオフ、カスタムドメインなしと表示される。
+- [ ] テキストと小さなファイルをアップロードでき、内容とファイル名が正しくダウンロードできる。
+- [ ] 使用するサインイン方法がすべて機能し、オフにした方法ではサインインできない。
 - [ ] 毎時の Cron がエラーなく動き、実際の Worker でレート制限が `429` を返す。
-- [ ] 20 MiB を超える大きなファイルをアップロード・ダウンロードできる。
-- [ ] `PASSKEY_RP_ID` を設定したうえで、本番ホスト名でパスキーが使える。
+- [ ] 大きなファイル（20 MiB 超）をアップロードしてダウンロードできる。
+- [ ] `PASSKEY_RP_ID` を設定したあと、最終的なホスト名でパスキーが機能する。
 
-完全な一覧は [REMOTE_ACCEPTANCE.md](docs/REMOTE_ACCEPTANCE.md) にあります。ログ、クリーンアップ、保存されるキー、独自ドメイン、既知の制限は [docs/OPERATIONS.md](docs/OPERATIONS.md) を参照してください。
+完全な一覧は [REMOTE_ACCEPTANCE.md](docs/REMOTE_ACCEPTANCE.md) にあります。ログ、クリーンアップ、保存されるキー、カスタムドメイン、既知の制限は [docs/OPERATIONS.md](docs/OPERATIONS.md) にあります。
 
 ## 7. トラブルシューティング
 
 | 症状 | 考えられる原因 |
 | --- | --- |
-| すべての `/api/*` が `SERVER_MISCONFIGURED` を返す | `JWT_SECRET` が未設定、短すぎる、またはサンプルの値のまま。 |
-| 初期設定が `BOOTSTRAP_MISCONFIGURED` を返す | `ADMIN_BOOTSTRAP_PASSWORD` が 16 文字未満、またはサンプルの値のまま。 |
-| 初期設定が `BOOTSTRAP_DISABLED` を返す | `BOOTSTRAP_ENABLED` が `"true"` でない、またはシークレットが未設定。 |
-| 認証アプリの設定で `AUTH_NOT_CONFIGURED` になる | `AUTH_ENCRYPTION_KEY` が未設定、または 32 バイトの Base64 ではない。 |
-| `/upload/` が白紙または 404 | デプロイ前に `dist/` をビルドしていない（第 4 章）。 |
-| ストレージのエラー | R2 バケットがない、または `wrangler.jsonc` の `bucket_name` が一致していない。 |
-| パスキーが `PASSKEY_DOMAIN_MISMATCH` で拒否される | `PASSKEY_RP_ID` 以外のホスト名からのリクエスト。 |
+| すべての `/api/*` が `SERVER_MISCONFIGURED` を返す | 署名用シークレットがありません。素の `wrangler deploy` でデプロイされています。`npm run deploy`（またはインストーラーのデプロイコマンド）を実行してください。 |
+| `/upload/` に「まだ設定できません」と表示される | 初回セットアップが有効になっていません。インストーラーが完了していません。デプロイをもう一度実行してください。拒否された場合は理由が表示されます。 |
+| デプロイが `bucket-not-private` で拒否される | r2.dev アクセスがオンか、バケットにカスタムドメインが付いています。R2 ダッシュボードで両方をオフにしてから、もう一度デプロイしてください。 |
+| `/upload/` に「初回セットアップが途中で止まりました」と表示される | セットアップマーカーはあるのに Owner がありません。`node scripts/recover-bootstrap.mjs --bucket <名前>` を実行してください（[復旧ガイド](docs/RECOVERY.md)）。 |
+| デプロイが「まだ準備できていません」と表示する | ログに不足している項目（サインインの準備、Owner、最初のパスワードのオブジェクトがバケットにない）が出ます。直してからデプロイをやり直してください。 |
+| `npm run deploy` が拒否される | 理由が表示され、何も変更されていません。よくある原因は第 2 節にあります。 |
+| 認証器の設定やサインインで `AUTH_NOT_CONFIGURED` になる | `JWT_SECRET` がない、短すぎる、または認証器の設定時の値と違います。 |
+| `/upload/` が空白、または 404 | デプロイ前に `dist/` がビルドされていません（第 4 節を参照）。 |
+| ストレージのエラー | R2 バケットが存在しないか、`wrangler.jsonc` の `bucket_name` と一致していません。 |
+| `PASSKEY_DOMAIN_MISMATCH` でパスキーが拒否される | `PASSKEY_RP_ID` と異なるホスト名からリクエストが来ています。 |
 
-## 8. プロジェクトの由来と追加機能
+## 8. プロジェクトの由来と拡張
 
-[Hzao/PocketChest](https://github.com/Hzao/PocketChest) からのフォークです。このフォークでは、Worker 1 つ + R2 のみの構成、ワンクリックデプロイ、オーナー限定のアップロード、パスワード／TOTP／パスキーの独立したサインイン、セキュリティ設定、多言語 UI、共有リンクの改善、レート制限とクリーンアップの強化を加えました。独立したフォークであり、元の作者による承認を示すものではありません。
+[Hzao/PocketChest](https://github.com/Hzao/PocketChest) からフォークしたものです。このフォークでは、単一の Worker + R2 のみの構成、ワンクリックデプロイ、オーナーのみのアップロード、独立したパスワード / TOTP / パスキーによるサインイン、セキュリティ設定、ローカライズされた UI、改良された共有リンク、レート制限、クリーンアップを追加しています。独立したフォークであり、上流の作者による推奨を意味するものではありません。

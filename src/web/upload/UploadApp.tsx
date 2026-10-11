@@ -11,10 +11,9 @@ import { AuthMethodPicker } from '@/components/AuthMethodPicker';
 import { SecuritySettingsModal } from '@/components/SecuritySettingsModal';
 import { AppHeader } from '@/components/AppHeader';
 import { IconButton } from '@/components/IconButton';
-import { CheckCircleIcon, HistoryIcon, UserIcon } from '@/components/Icons';
-import { ShareHistoryModal } from '@/components/ShareHistoryModal';
+import { CheckCircleIcon, ListIcon, UserIcon } from '@/components/Icons';
+import { ShareManagementModal } from '@/components/ShareManagementModal';
 import { useI18n } from '@/i18n/I18nProvider';
-import { addHistory, clearHistory, expiryFromDays } from '@/lib/history';
 import { ClientError, messageKeyFor } from '@/lib/errors';
 import { TextItem, ValidityDays } from '@/lib/types';
 
@@ -31,7 +30,7 @@ export default function UploadApp() {
 	const [authChecked, setAuthChecked] = useState(false);
 	const [methods, setMethods] = useState<AuthMethodsStatus | null>(null);
 	const [showSecurity, setShowSecurity] = useState(false);
-	const [showHistory, setShowHistory] = useState(false);
+	const [showShares, setShowShares] = useState(false);
 	const [startError, setStartError] = useState<string | null>(null);
 
 	useEffect(() => {
@@ -55,6 +54,7 @@ export default function UploadApp() {
 	const api = new PocketChestAPI();
 
 	// Check the owner session and which sign-in methods are on, once on load
+	// A failed check is not the same as "signed out": the page says it could not check, and offers one retry
 	const loadAuth = () => {
 		return Promise.all([authApi.session(), authApi.methods()])
 			.then(([session, status]) => {
@@ -86,9 +86,7 @@ export default function UploadApp() {
 	// Text is one item: everything typed in the box, stored as a .txt file
 	const buildTextItems = (): TextItem[] => (text.trim() ? [{ content: text, filename: `${t('text.defaultName')}.txt` }] : []);
 
-	const finishShare = (code: string, textCount: number) => {
-		const now = Date.now();
-		addHistory({ code, createdAt: now, expiresAt: expiryFromDays(validityDays, now), files: files.length, texts: textCount }, now);
+	const finishShare = (code: string) => {
 		setUploadResult(code);
 		setFiles([]);
 		setText('');
@@ -113,7 +111,7 @@ export default function UploadApp() {
 		if (retry && sessionData && hasPendingCompletion(sessionData.sessionId)) {
 			try {
 				const result = await retryUpload(sessionData.sessionId, sessionData.uploadToken, files, textItems, validityDays);
-				finishShare(result.retrievalCode, textItems.length);
+				finishShare(result.retrievalCode);
 			} catch (error) {
 				console.error('Completing again failed:', error);
 			}
@@ -139,7 +137,7 @@ export default function UploadApp() {
 			const result = retry
 				? await retryUpload(session.sessionId, session.uploadToken, files, textItems, validityDays)
 				: await uploadWithSession(session.sessionId, session.uploadToken, files, textItems, validityDays);
-			finishShare(result.retrievalCode, textItems.length);
+			finishShare(result.retrievalCode);
 		} catch (error) {
 			console.error('Upload failed:', error);
 			// Errors are shown by the progress component; a cancelled upload is not an error
@@ -189,7 +187,21 @@ export default function UploadApp() {
 							}}
 						/>
 					) : (
-						<p className="text-sm text-gray-700">{t('upload.reachFailed')}</p>
+						<div className="space-y-3">
+							<p role="alert" className="text-sm text-gray-700">
+								{t('upload.reachFailed')}
+							</p>
+							<button
+								type="button"
+								onClick={() => {
+									setAuthChecked(false);
+									loadAuth();
+								}}
+								className="w-full rounded-lg border border-gray-300 py-2 text-sm text-gray-800 hover:bg-gray-50"
+							>
+								{t('upload.retry')}
+							</button>
+						</div>
 					)}
 				</div>
 			</div>,
@@ -198,8 +210,8 @@ export default function UploadApp() {
 
 	const icons = (
 		<>
-			<IconButton label={t('nav.history')} onClick={() => setShowHistory(true)}>
-				<HistoryIcon />
+			<IconButton label={t('shares.open')} onClick={() => setShowShares(true)}>
+				<ListIcon />
 			</IconButton>
 			<IconButton label={t('upload.security')} onClick={() => setShowSecurity(true)} align="right">
 				<UserIcon />
@@ -209,15 +221,25 @@ export default function UploadApp() {
 
 	const dialogs = (
 		<>
-			{showHistory && <ShareHistoryModal onClose={() => setShowHistory(false)} />}
+			{showShares && (
+				<ShareManagementModal
+					csrfToken={csrfToken}
+					onClose={() => setShowShares(false)}
+					onSignedOut={() => {
+						setShowShares(false);
+						setCsrfToken(null);
+						setSessionData(null);
+						setUploadResult(null);
+						loadAuth();
+					}}
+				/>
+			)}
 			{showSecurity && (
 				<SecuritySettingsModal
 					csrfToken={csrfToken}
 					onRotated={(token) => setCsrfToken(token)}
 					onClose={() => setShowSecurity(false)}
 					onSignedOut={() => {
-						// The saved codes open shares: they do not stay behind on a browser that is signed out
-						clearHistory();
 						setShowSecurity(false);
 						setCsrfToken(null);
 						setSessionData(null);

@@ -69,6 +69,7 @@ export function SecuritySettingsModal({ csrfToken, onRotated, onClose, onSignedO
 	const { t, locale } = useI18n();
 	const [status, setStatus] = useState<SecurityStatus | null>(null);
 	const [message, setMessage] = useState<string | null>(null);
+	const [notice, setNotice] = useState<string | null>(null);
 	const [busy, setBusy] = useState(false);
 	const [pending, setPending] = useState<PendingAction | null>(null);
 	const [newPassword, setNewPassword] = useState('');
@@ -92,9 +93,10 @@ export function SecuritySettingsModal({ csrfToken, onRotated, onClose, onSignedO
 	}, []);
 
 	// Runs an action; a missing or old re-entry opens the re-entry panel, and the action then runs again
-	const attempt = async (run: (token: string) => Promise<Rotation | void>, required: Method | null = null) => {
+	const attempt = async (run: (token: string) => Promise<Rotation | void>, required: Method | null = null, success?: () => string) => {
 		setBusy(true);
 		setMessage(null);
+		setNotice(null);
 		try {
 			const result = await run(csrf);
 			if (result && 'csrfToken' in result) {
@@ -102,12 +104,13 @@ export function SecuritySettingsModal({ csrfToken, onRotated, onClose, onSignedO
 				onRotated(result.csrfToken);
 			}
 			await refresh();
+			if (success) setNotice(success());
 		} catch (error) {
 			if (error instanceof AuthRequestError && error.code === 'ACTIVATION_PROOF_REQUIRED' && required) {
-				setPending({ run: () => attempt(run, required), required, activate: true });
+				setPending({ run: () => attempt(run, required, success), required, activate: true });
 			} else if (error instanceof AuthRequestError && (error.code === 'REAUTH_REQUIRED' || error.code === 'REAUTH_METHOD_REQUIRED')) {
 				// Any method that is on can re-enter; the method being switched on (if any) is proved separately afterwards
-				setPending({ run: () => attempt(run, required), required: null });
+				setPending({ run: () => attempt(run, required, success), required: null });
 			} else if (error instanceof AuthRequestError && error.status === 409) {
 				setMessage(t('security.conflict'));
 				await refresh();
@@ -159,57 +162,73 @@ export function SecuritySettingsModal({ csrfToken, onRotated, onClose, onSignedO
 	const toggle = (method: Method, enabled: boolean) =>
 		attempt((token) => authApi.setMethod(token, method, enabled), enabled ? method : null);
 
-	const registerPasskey = () =>
-		attempt(async (token) => {
-			const options = await authApi.passkeyRegisterOptions(token);
-			const response = await startRegistration({ optionsJSON: options });
-			await authApi.passkeyRegisterVerify(token, options.challenge, response, t('security.thisDevice'));
-		});
+	const registerPasskey = () => {
+		// Whether this is the first passkey (and so switches the method on) is known from what is on screen now
+		const first = !status?.methods.passkey.configured;
+		return attempt(
+			async (token) => {
+				const options = await authApi.passkeyRegisterOptions(token);
+				const response = await startRegistration({ optionsJSON: options });
+				const registered = await authApi.passkeyRegisterVerify(token, options.challenge, response, t('security.thisDevice'));
+				// The first passkey replaces the session: carry on with the new token the server sent with it
+				if (registered.csrfToken && registered.security) return { csrfToken: registered.csrfToken, security: registered.security };
+			},
+			null,
+			() => t(first ? 'security.passkeyDone' : 'security.passkeyAdded'),
+		);
+	};
 
 	const removePasskey = (id: string, label: string) => {
 		if (!window.confirm(t('security.removeConfirm', { label }))) return;
 		attempt((token) => authApi.passkeyRemove(token, id));
 	};
 
-	const submitTotpCode = () =>
-		attempt(async (token) => {
-			if (!totpSetup) return;
-			try {
-				const rotated = await authApi.totpConfirm(token, totpSetup.challenge, totpCode);
-				setTotpSetup(null);
-				setTotpCode('');
-				return rotated;
-			} catch (error) {
-				if (error instanceof AuthRequestError && error.code === 'CHALLENGE_INVALID') {
-					// Too many wrong codes, or the setup timed out: the QR on screen is dead, so it is removed
-					// instead of being left to mislead; the message tells the owner to start again
+	const submitTotpCode = () => {
+		const replacing = Boolean(status?.methods.totp.configured);
+		return attempt(
+			async (token) => {
+				if (!totpSetup) return;
+				try {
+					const rotated = await authApi.totpConfirm(token, totpSetup.challenge, totpCode);
 					setTotpSetup(null);
+					setTotpCode('');
+					return rotated;
+				} catch (error) {
+					if (error instanceof AuthRequestError && error.code === 'CHALLENGE_INVALID') {
+						// Too many wrong codes, or the setup timed out: the QR on screen is dead, so it is removed
+						// instead of being left to mislead; the message tells the owner to start again
+						setTotpSetup(null);
+					}
+					// A wrong code keeps the same QR on screen: the key is still good, only the code has to be typed again
+					setTotpCode('');
+					throw error;
 				}
-				// A wrong code keeps the same QR on screen: the key is still good, only the code has to be typed again
-				setTotpCode('');
-				throw error;
-			}
-		});
+			},
+			null,
+			() => t(replacing ? 'security.totpReplaced' : 'security.totpDone'),
+		);
+	};
 
 	// Why a method's switch cannot be used: it was never set up, or it is the only way left to sign in
 	const lockReason = (method: Method): string | null => {
 		if (!status) return null;
 		const item = status.methods[method];
-		if (!item.enabled && !item.configured) return t('security.setUpFirst');
 		const enabledCount = Object.values(status.methods).filter((entry) => entry.enabled).length;
 		if (item.enabled && enabledCount <= 1) return t('code.LAST_AUTH_METHOD');
 		return null;
 	};
 
-	const methodToggle = (method: Method, label: string) => (
-		<Toggle
-			checked={status?.methods[method].enabled ?? false}
-			onChange={(enabled) => toggle(method, enabled)}
-			label={t('security.switchLabel', { name: label })}
-			disabled={busy || lockReason(method) !== null}
-			title={lockReason(method) ?? undefined}
-		/>
-	);
+	// A method that is not set up has nothing to switch: the one call to action is its "set up" button
+	const methodToggle = (method: Method, label: string) =>
+		!status || (!status.methods[method].enabled && !status.methods[method].configured) ? null : (
+			<Toggle
+				checked={status?.methods[method].enabled ?? false}
+				onChange={(enabled) => toggle(method, enabled)}
+				label={t('security.switchLabel', { name: label })}
+				disabled={busy || lockReason(method) !== null}
+				title={lockReason(method) ?? undefined}
+			/>
+		);
 
 	if (!status) {
 		return (
@@ -221,7 +240,17 @@ export function SecuritySettingsModal({ csrfToken, onRotated, onClose, onSignedO
 
 	return (
 		<Dialog title={t('security.title')} onClose={onClose}>
-			{message && <p className="mb-4 text-sm text-red-700">{message}</p>}
+			{message && (
+				<p role="alert" className="mb-4 text-sm text-red-700">
+					{message}
+				</p>
+			)}
+			{notice && !message && (
+				<p role="status" className="mb-4 text-sm text-green-700">
+					{notice}
+				</p>
+			)}
+			<p className="mb-4 text-xs text-gray-600">{t('security.independentNote')}</p>
 
 			{pending && (
 				<section className="mb-6 p-4 border border-amber-300 bg-amber-50 rounded-lg space-y-3">
@@ -346,6 +375,7 @@ export function SecuritySettingsModal({ csrfToken, onRotated, onClose, onSignedO
 				control={methodToggle('totp', t('security.authenticatorSection'))}
 				hint={lockReason('totp')}
 			>
+				<p className="mb-3 text-xs text-gray-600">{t('security.totpNote')}</p>
 				{!totpSetup ? (
 					<button
 						type="button"

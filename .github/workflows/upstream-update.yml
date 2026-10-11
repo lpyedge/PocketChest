@@ -1,0 +1,84 @@
+name: Update from upstream
+
+# Opens a pull request that brings the official PocketChest code (lpyedge/PocketChest, master) into this copy or fork.
+# It only prepares a branch and a pull request for you to review. It does not merge, does not deploy, and has no access
+# to Cloudflare or to any of your secrets: your Worker, bucket, Owner password and settings are not touched here.
+# After you merge the pull request, your normal deploy (Workers Builds or `npm run deploy`) upgrades the code only.
+
+on:
+  workflow_dispatch:
+  # Weekly check. GitHub only runs schedules on the default branch, and pauses them in forks that see no activity.
+  schedule:
+    - cron: '17 3 * * 1'
+
+# The token can write this repository's branches and pull requests, nothing else
+permissions:
+  contents: write
+  pull-requests: write
+
+concurrency:
+  group: upstream-update
+  cancel-in-progress: false
+
+jobs:
+  update:
+    name: Prepare the update pull request
+    runs-on: ubuntu-latest
+    # The official repository is the source of the update, not a target of it
+    if: github.repository != 'lpyedge/PocketChest'
+    steps:
+      - name: Checkout this repository
+        uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v5
+        with:
+          node-version-file: '.nvmrc'
+
+      - name: Fetch the official code (master of lpyedge/PocketChest)
+        run: |
+          git remote add upstream https://github.com/lpyedge/PocketChest.git
+          git fetch --no-tags upstream master
+
+      - name: Prepare the update branch
+        id: prepare
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          set +e
+          node scripts/prepare-upstream-update.mjs --upstream-ref upstream/master > result.json
+          echo "exit=$?" >> "$GITHUB_OUTPUT"
+          cat result.json
+          echo "status=$(node -p "JSON.parse(require('fs').readFileSync('result.json','utf8')).status")" >> "$GITHUB_OUTPUT"
+          echo "branch=$(node -p "JSON.parse(require('fs').readFileSync('result.json','utf8')).branch || ''")" >> "$GITHUB_OUTPUT"
+          echo "sha=$(node -p "(JSON.parse(require('fs').readFileSync('result.json','utf8')).upstreamSha || '').slice(0,12)")" >> "$GITHUB_OUTPUT"
+
+      - name: Explain why there is no pull request
+        if: steps.prepare.outputs.status != 'ready' && steps.prepare.outputs.status != 'up-to-date'
+        run: |
+          echo "::error::The update could not be prepared automatically (${{ steps.prepare.outputs.status }}). Nothing was changed. Details above; merge upstream by hand if you want this update."
+          exit 1
+
+      - name: Push the branch and open the pull request
+        if: steps.prepare.outputs.status == 'ready'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          BRANCH: ${{ steps.prepare.outputs.branch }}
+          SHA: ${{ steps.prepare.outputs.sha }}
+        run: |
+          git push origin "$BRANCH"
+          cat > body.md <<'BODY'
+          This brings the official PocketChest code into this repository. Review it, then merge it.
+
+          - Nothing was deployed. After you merge, your normal deploy upgrades the code only.
+          - Your Owner password, secrets, shares and Cloudflare settings are not part of this change.
+          - Your Worker name, bucket, routes and passkey domain were checked: the merge keeps them.
+          - Files under `.github/workflows/` are never taken from upstream.
+          BODY
+          if ! gh pr create --base "${{ github.event.repository.default_branch }}" --head "$BRANCH" \
+            --title "Update from PocketChest upstream ($SHA)" --body-file body.md; then
+            echo "::error::The branch $BRANCH was pushed but the pull request could not be created. If this repository does not allow Actions to create pull requests (Settings > Actions > General > Workflow permissions), open one from that branch by hand."
+            exit 1
+          fi

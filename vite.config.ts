@@ -29,6 +29,7 @@ export default defineConfig({
 				home: resolve(webRoot, 'index.html'),
 				upload: resolve(webRoot, 'upload/index.html'),
 				retrieve: resolve(webRoot, 'retrieve/index.html'),
+				'zh-Hant': resolve(webRoot, 'zh-Hant/index.html'),
 				ja: resolve(webRoot, 'ja/index.html'),
 				en: resolve(webRoot, 'en/index.html'),
 			},

@@ -1,6 +1,6 @@
 import { env } from 'cloudflare:test';
 import { expect } from 'vitest';
-import { testFetch, TEST_ORIGIN, TEST_OWNER_PASSWORD } from './test-setup';
+import { testFetch, TEST_ORIGIN, TEST_OWNER_PASSWORD, TEST_JWT_SECRET } from './test-setup';
 import { mutateOwner } from '../../src/worker/auth/owner';
 import { sealSeed } from '../../src/worker/auth/totp';
 
@@ -43,7 +43,7 @@ export async function adoptRotated(session: SignedIn, response: Response): Promi
 
 // Gives the owner a configured method. `enabled` decides whether it is switched on.
 export async function configureTotp(seed: Uint8Array, enabled: boolean) {
-	const sealed = await sealSeed(seed, (env as unknown as { AUTH_ENCRYPTION_KEY?: string }).AUTH_ENCRYPTION_KEY);
+	const sealed = await sealSeed(seed, TEST_JWT_SECRET);
 	await mutateOwner(env.R2_STORAGE, (owner) => ({
 		...owner,
 		methods: {

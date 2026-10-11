@@ -6,8 +6,8 @@
 //
 // Output: assets/screenshots/{home,login,upload,share-result,retrieve,security-settings}-<lang>.png (desktop)
 //         and {upload,retrieve}-<lang>-mobile.png (375px). Review every image before committing it.
-import { spawn } from 'node:child_process';
-import { mkdirSync, mkdtempSync, rmSync } from 'node:fs';
+import { execFileSync, spawn } from 'node:child_process';
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { randomBytes } from 'node:crypto';
@@ -58,6 +58,18 @@ const SAMPLE_TEXT = {
 	en: 'The link and agenda for Friday’s meeting are here.',
 };
 
+// The owner password is the first password the Worker stores privately, so this run seeds that object with its own
+// password before the first status check, and arms setup (the same path the end-to-end suite uses)
+const seed = join(STATE, 'owner-password.txt');
+mkdirSync(STATE, { recursive: true });
+writeFileSync(seed, PASSWORD, { mode: 0o600 });
+execFileSync(
+	'npx',
+	['wrangler', 'r2', 'object', 'put', 'pocket-chest/auth/initial-owner-password.txt', '--local', '--persist-to', STATE, '--file', seed],
+	{ stdio: 'ignore' },
+);
+rmSync(seed, { force: true });
+
 const server = spawn(
 	'npx',
 	[
@@ -70,7 +82,7 @@ const server = spawn(
 		'--var',
 		'BOOTSTRAP_ENABLED:true',
 		'--var',
-		`ADMIN_BOOTSTRAP_PASSWORD:${PASSWORD}`,
+		'SETUP_ARMED:yes',
 		'--var',
 		`JWT_SECRET:${randomBytes(48).toString('base64')}`,
 	],

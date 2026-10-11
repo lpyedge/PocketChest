@@ -1,10 +1,9 @@
 /**
- * First setup. Two ways to get the first owner password, and no person types one in:
- *   - the Worker generates it: 32 random bytes, base64url, stored once in a private R2 object
- *     (auth/initial-owner-password.txt, create-only). The owner record keeps only its keyed hash.
- *   - an older installation's ADMIN_BOOTSTRAP_PASSWORD secret, if it is still set (it is never read otherwise).
- * The generated path runs only when the deployer has armed setup (SETUP_ARMED, set by scripts/deploy-core.mjs after
- * the bucket was proven private), so an unauthenticated request cannot make a credential on an unchecked bucket.
+ * First setup. The Worker generates the first owner password: 32 random bytes, base64url, stored once in a private R2
+ * object (auth/initial-owner-password.txt, create-only). The owner record keeps only its keyed hash, and no person
+ * types a password. The generated path runs only when the deployer has armed setup (SETUP_ARMED, set by
+ * scripts/deploy-core.mjs after the bucket was proven private), so an unauthenticated request cannot make a credential
+ * on an unchecked bucket. An older installation's ADMIN_BOOTSTRAP_PASSWORD secret is never used to create an owner.
  *
  * Setup is claimed in this order:
  *   1. the credential is made (create-only); if another request made it first, that one is used
@@ -14,7 +13,6 @@
  * setup never reopens by itself: the deployer clears the marker with scripts/recover-bootstrap.mjs (docs/RECOVERY.md).
  * An existing owner always closes setup for good; nothing here can change or replace it.
  */
-import { isPlaceholder } from '../config';
 import { toBase64Url } from './encoding';
 import { buildFirstOwner, loadOwner, OWNER_KEY, storeFirstOwner } from './owner';
 import { verifyPassword } from './password';
@@ -26,7 +24,6 @@ export interface BootstrapEnv {
 	R2_STORAGE: R2Bucket;
 	// Optional kill switch: only the exact value "false" turns automatic setup off
 	BOOTSTRAP_ENABLED?: string;
-	ADMIN_BOOTSTRAP_PASSWORD?: string;
 	// Set by the deployer only after the bucket was proven private: the exact value "yes" arms generated setup
 	SETUP_ARMED?: string;
 	// Root secret the password hash is keyed with
@@ -42,19 +39,11 @@ export interface BootstrapEnv {
  */
 export type SetupState = 'ready' | 'initializing' | 'password-missing' | 'recovery-required' | 'failed';
 
-export const MIN_BOOTSTRAP_PASSWORD_LENGTH = 16;
 // A claim younger than this is another request still working; older means it stopped halfway
 const CLAIM_IN_PROGRESS_SECONDS = 60;
 
 export function setupArmed(env: Pick<BootstrapEnv, 'BOOTSTRAP_ENABLED' | 'SETUP_ARMED'>): boolean {
 	return env.SETUP_ARMED === 'yes' && env.BOOTSTRAP_ENABLED !== 'false';
-}
-
-export function usableSetupPassword(env: Pick<BootstrapEnv, 'BOOTSTRAP_ENABLED' | 'ADMIN_BOOTSTRAP_PASSWORD'>): string | null {
-	const configured = env.ADMIN_BOOTSTRAP_PASSWORD;
-	if (env.BOOTSTRAP_ENABLED === 'false' || !configured) return null;
-	if (configured.length < MIN_BOOTSTRAP_PASSWORD_LENGTH || isPlaceholder(configured)) return null;
-	return configured;
 }
 
 /** The stored credential, or a new one made now. Create-only: a request that loses the race reads the winner's copy. */
@@ -96,16 +85,15 @@ export async function ensureOwner(env: BootstrapEnv, now: number = Math.floor(Da
 		return 'ready';
 	}
 
-	const password = usableSetupPassword(env);
 	const marker = await env.R2_STORAGE.head(BOOTSTRAP_MARKER_KEY);
 	if (marker) {
 		// Claimed, no owner: either a request is finishing right now, or it stopped and needs the deployer
 		return now - Math.floor(marker.uploaded.getTime() / 1000) < CLAIM_IN_PROGRESS_SECONDS ? 'initializing' : 'recovery-required';
 	}
-	if (!password && !setupArmed(env)) return 'password-missing';
+	if (!setupArmed(env)) return 'password-missing';
 
 	try {
-		const owner = await buildFirstOwner(password ?? (await initialPassword(env.R2_STORAGE)), env.JWT_SECRET);
+		const owner = await buildFirstOwner(await initialPassword(env.R2_STORAGE), env.JWT_SECRET);
 		const claimed = await env.R2_STORAGE.put(BOOTSTRAP_MARKER_KEY, new Date(now * 1000).toISOString(), {
 			onlyIf: new Headers({ 'If-None-Match': '*' }),
 		});

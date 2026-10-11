@@ -53,7 +53,7 @@ Use this **or** Workers Builds / `npm run deploy` for an installation, not both.
 | `auth/initial-owner-password.txt` | Private R2 object, made by the Worker | Your first Owner password, generated once (32 random bytes). Read it in the R2 dashboard, change your password, and the file is removed. Never shown by the site, the API or a build log. |
 | `JWT_SECRET` | Worker secret made for you | Generated once by the installer; never typed or backed up by you. Signs upload and download tokens and is the root the Worker derives the password key and the authenticator-seed key from. **Never replace it after the Owner exists:** the password and any authenticator would no longer verify (the deploy refuses to). |
 | `SETUP_ARMED` | Worker secret set by the installer | Turned on only after the bucket was proven private. It lets the Worker make the first password. Do not set it by hand. |
-| `ADMIN_BOOTSTRAP_PASSWORD` | Older installations only | Installations made with the older form keep this as their Owner password. The installer no longer asks for it or sets it, and an upgrade never removes it. |
+| `ADMIN_BOOTSTRAP_PASSWORD` | Not used any more | The Worker never reads it and the installer never asks for or sets it. Installations made with the older form keep working: their Owner already exists and an upgrade never removes this secret. |
 | `PASSKEY_RP_ID` | Optional variable | The one hostname passkeys are bound to. Set it before registering a passkey. |
 | `INSTANCE_ID` | Optional variable | Normally unset: an id for the rate-limit counters is created once in the bucket. |
 | `R2_STORAGE` | R2 binding | Files and all metadata, in one private bucket. |

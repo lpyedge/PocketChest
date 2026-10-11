@@ -14,7 +14,6 @@ export interface AuthEnv {
 	R2_STORAGE: R2Bucket;
 	JWT_SECRET: string;
 	BOOTSTRAP_ENABLED?: string;
-	ADMIN_BOOTSTRAP_PASSWORD?: string;
 	SETUP_ARMED?: string;
 }
 

@@ -97,11 +97,13 @@ describe('first setup with a generated owner password', () => {
 		expect(await credential()).toBeNull();
 	});
 
-	it('an older installation with its own setup secret keeps using that secret, and no credential is made', async () => {
+	it('an older installation setup secret is never used: the generated password makes the owner', async () => {
 		e.ADMIN_BOOTSTRAP_PASSWORD = 'legacy-setup-password-0123456789';
 		expect(await setupState()).toBe('ready');
-		expect(await credential()).toBeNull();
-		const response = await signIn('legacy-setup-password-0123456789');
+		const password = await credential();
+		expect(password).toMatch(/^[A-Za-z0-9_-]{43}$/);
+		expect((await signIn('legacy-setup-password-0123456789')).status).toBe(401);
+		const response = await signIn(password!);
 		expect(response.status).toBe(200);
 		await response.text();
 	});

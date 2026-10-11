@@ -13,6 +13,7 @@
 import { ApiError } from '../errors';
 import { toBase64Url } from './encoding';
 import { beginAttempts, storeChallenge } from './challenges';
+import { retireInitialPassword } from './bootstrap';
 import { hashPassword, verifyPassword } from './password';
 import { MIN_PASSWORD_LENGTH, passwordProblem } from './password-policy';
 import { isConfigured, isUsable, loadOwner, mutateOwner, Method, OwnerConflictError, OwnerInvariantError, OwnerRecord } from './owner';
@@ -256,6 +257,8 @@ export async function changePassword(
 	} catch (error) {
 		throw conflict(error);
 	}
+	// The one-time initial password is useless now; removing it is best effort and retried on later status checks
+	await retireInitialPassword(env);
 	return rotate(env, session, written, now);
 }
 

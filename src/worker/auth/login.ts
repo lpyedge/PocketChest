@@ -3,7 +3,7 @@
  * (or not configured) never grants access, whatever the others say.
  */
 import { ApiError } from '../errors';
-import { ensureOwner, SetupState } from './bootstrap';
+import { ensureOwner, retireInitialPassword, SetupState } from './bootstrap';
 import { isConfigured, isUsable, loadOwner, mutateOwner, Method, OwnerConflictError, OwnerRecord } from './owner';
 import { verifyPassword } from './password';
 import { matchTotpStep, openSeed } from './totp';
@@ -15,6 +15,7 @@ export interface AuthEnv {
 	JWT_SECRET: string;
 	BOOTSTRAP_ENABLED?: string;
 	ADMIN_BOOTSTRAP_PASSWORD?: string;
+	SETUP_ARMED?: string;
 }
 
 export interface MethodsStatus {
@@ -34,6 +35,9 @@ export async function authMethods(env: AuthEnv): Promise<MethodsStatus> {
 		if (setup === 'ready') {
 			loaded = await loadOwner(env.R2_STORAGE);
 		}
+	} else {
+		// Finishes removing the one-time initial password after an owner password change, if that did not happen yet
+		await retireInitialPassword(env);
 	}
 	const methods: Record<Method, { enabled: boolean }> = {
 		password: { enabled: loaded ? isUsable(loaded.owner, 'password') : false },

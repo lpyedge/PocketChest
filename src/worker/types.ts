@@ -135,6 +135,8 @@ export interface Env {
 	// Initial setup (see auth/bootstrap.ts). BOOTSTRAP_ENABLED is a plain var; the password is a secret.
 	BOOTSTRAP_ENABLED?: string;
 	ADMIN_BOOTSTRAP_PASSWORD?: string;
+	// Armed by the deployer after the bucket is proven private (see auth/bootstrap.ts)
+	SETUP_ARMED?: string;
 	ASSETS: Fetcher;
 	R2_STORAGE: R2Bucket;
 	JWT_SECRET: string;

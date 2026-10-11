@@ -33,9 +33,9 @@
 |:--:|:--:|
 | <img src="assets/screenshots/home-ja.png" alt="ホーム" width="420"><br>ホーム | <img src="assets/screenshots/login-ja.png" alt="オーナーのサインイン" width="420"><br>オーナーのサインイン |
 | <img src="assets/screenshots/upload-ja.png" alt="アップロード" width="420"><br>アップロード | <img src="assets/screenshots/share-result-ja.png" alt="共有結果" width="420"><br>共有結果 |
-| <img src="assets/screenshots/retrieve-ja.png" alt="受け取り" width="420"><br>受け取り | <img src="assets/screenshots/security-settings-ja.png" alt="セキュリティ設定" width="420"><br>セキュリティ設定 |
+| <img src="assets/screenshots/retrieve-ja.png" alt="受け取り" width="420"><br>受け取り | <img src="assets/screenshots/share-records-ja.png" alt="共有の記録" width="420"><br>共有の記録 |
+| <img src="assets/screenshots/security-settings-ja.png" alt="セキュリティ設定" width="420"><br>セキュリティ設定 | <img src="assets/screenshots/upload-ja-mobile.png" alt="アップロード (mobile)" width="200"> <img src="assets/screenshots/retrieve-ja-mobile.png" alt="受け取り (mobile)" width="200"> |
 
-<img src="assets/screenshots/upload-ja-mobile.png" alt="アップロード (mobile)" width="200"> <img src="assets/screenshots/retrieve-ja-mobile.png" alt="受け取り (mobile)" width="200">
 
 `npm run screenshots` が現在のビルドから撮影したものです（[docs/SCREENSHOTS.md](docs/SCREENSHOTS.md) 参照）。表示されているコードは使い捨てのテスト用データです。
 

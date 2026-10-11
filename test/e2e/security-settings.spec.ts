@@ -44,7 +44,7 @@ test('adds a passkey that works straight away, signs in with it, and removes it 
 	// The first passkey is on at once, with a short confirmation, and the page is still signed in
 	await expect(passkeys.getByText('On', { exact: true })).toBeVisible();
 	await expect(dialog.getByText('Passkey added. You can now sign in with it.')).toBeVisible();
-	await expect(passkeys.getByRole('button', { name: 'Turn off' })).toBeVisible();
+	await expect(passkeys.getByRole('switch', { name: 'Sign in with Passkeys' })).toBeChecked();
 
 	// Sign out, then sign in again with the passkey alone
 	await dialog.getByRole('button', { name: 'Sign out' }).click();
@@ -162,7 +162,7 @@ test('a wrong authenticator code keeps the QR usable, and the right code then co
 		// A first authenticator is on as soon as its code is confirmed: no separate "turn on" step
 		await expect(authenticator.getByText('On', { exact: true })).toBeVisible();
 		// Leave the shared development state as it was: switch it off again (the re-entry just made still counts)
-		await authenticator.getByRole('button', { name: 'Turn off' }).click();
+		await authenticator.getByRole('switch', { name: 'Sign in with Authenticator app' }).click();
 		await expect(authenticator.getByText('Off (set up)')).toBeVisible();
 	}
 });
@@ -176,6 +176,8 @@ test('says the three methods are independent, and offers no switch for a method 
 	const dialog = page.getByRole('dialog', { name: 'Security settings' });
 
 	await expect(dialog.getByText('three separate ways to sign in')).toBeVisible();
-	await expect(dialog.getByRole('button', { name: 'Set up first' })).toHaveCount(0);
+	await expect(dialog.getByRole('switch', { name: 'Sign in with Passkeys' })).toHaveCount(0);
+	// The only sign-in method that is on cannot be switched off
+	await expect(dialog.getByRole('switch', { name: 'Sign in with Password' })).toBeDisabled();
 	await expect(dialog.getByRole('button', { name: 'Add passkey' })).toBeVisible();
 });

@@ -10,8 +10,8 @@ async function openUploadPage(page: Page, request: import('@playwright/test').AP
 	await page.goto('/upload/?lang=en');
 	await page.getByLabel('Password', { exact: true }).fill(OWNER_PASSWORD);
 	await page.getByRole('button', { name: 'Sign in with password' }).click();
+	await page.getByRole('switch', { name: 'Add text' }).click();
 	await page.locator('textarea').first().fill('some text');
-	await page.getByRole('button', { name: 'Add Text' }).click();
 }
 
 const submit = (page: Page) => page.getByRole('button', { name: 'Upload & Generate Code' });
@@ -27,7 +27,7 @@ test('N2-T14: while the share is being completed there is no Cancel to press, an
 	await expect(page.getByText('Finishing…')).toBeVisible();
 	await expect(page.getByRole('button', { name: 'Cancel' })).toHaveCount(0);
 
-	await expect(page.locator('code').filter({ hasText: '/retrieve/#' }).first()).toBeVisible();
+	await expect(page.locator('textarea[readonly]').first()).toHaveValue(/\/retrieve\/#[A-Z0-9]{6}$/);
 });
 
 test('N2-T14: Cancel is only shown as done after the server has confirmed it', async ({ page, request }) => {
@@ -101,8 +101,7 @@ test('N2-T14: when the answer to Complete is lost, Retry asks again for the same
 	await expect(page.getByRole('button', { name: /Retry Upload/ })).toBeVisible();
 	await page.getByRole('button', { name: /Retry Upload/ }).click();
 
-	const link = page.locator('code').filter({ hasText: '/retrieve/#' }).first();
-	await expect(link).toBeVisible();
+	await expect(page.locator('textarea[readonly]').first()).toHaveValue(/\/retrieve\/#[A-Z0-9]{6}$/);
 	expect(sessions).toBe(1);
 	expect(fileUploads).toBe(1);
 	expect(completes).toBe(2);

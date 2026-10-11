@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, type ReactNode } from 'react';
 import { FileUpload } from '@/components/FileUpload';
 import { TextInput } from '@/components/TextInput';
 import { ExpirySelector } from '@/components/ExpirySelector';
@@ -9,17 +9,18 @@ import { PocketChestAPI } from '@/lib/api';
 import { authApi, AuthMethodsStatus } from '@/lib/auth-api';
 import { AuthMethodPicker } from '@/components/AuthMethodPicker';
 import { SecuritySettingsModal } from '@/components/SecuritySettingsModal';
+import { AppHeader } from '@/components/AppHeader';
+import { IconButton } from '@/components/IconButton';
+import { CheckCircleIcon, CloseIcon, ListIcon, UserIcon } from '@/components/Icons';
 import { ShareManagementModal } from '@/components/ShareManagementModal';
-import { LanguageSwitcher } from '@/components/LanguageSwitcher';
 import { useI18n } from '@/i18n/I18nProvider';
-import { homeUrlFor } from '@/lib/home';
 import { ClientError, messageKeyFor } from '@/lib/errors';
 import { TextItem, ValidityDays } from '@/lib/types';
 
 export default function UploadApp() {
-	const { t, locale } = useI18n();
+	const { t } = useI18n();
 	const [files, setFiles] = useState<File[]>([]);
-	const [textItems, setTextItems] = useState<TextItem[]>([]);
+	const [text, setText] = useState('');
 	const [validityDays, setValidityDays] = useState<ValidityDays>(7);
 	const [uploadResult, setUploadResult] = useState<string | null>(null);
 	const [sessionData, setSessionData] = useState<{ sessionId: string; uploadToken: string } | null>(null);
@@ -28,7 +29,6 @@ export default function UploadApp() {
 	const [csrfToken, setCsrfToken] = useState<string | null>(null);
 	const [authChecked, setAuthChecked] = useState(false);
 	const [methods, setMethods] = useState<AuthMethodsStatus | null>(null);
-	const [signOutError, setSignOutError] = useState<string | null>(null);
 	const [showSecurity, setShowSecurity] = useState(false);
 	const [showShares, setShowShares] = useState(false);
 	const [startError, setStartError] = useState<string | null>(null);
@@ -44,6 +44,7 @@ export default function UploadApp() {
 		isUploading,
 		isFinalizing,
 		hasPendingCompletion,
+		resetUpload,
 		uploadProgress,
 		uploadStatus,
 		fileProgress,
@@ -71,20 +72,6 @@ export default function UploadApp() {
 		loadAuth();
 	}, []);
 
-	const signOut = async () => {
-		if (!csrfToken) return;
-		setSignOutError(null);
-		try {
-			await authApi.logout(csrfToken);
-			setCsrfToken(null);
-			setSessionData(null);
-			setUploadResult(null);
-			await loadAuth();
-		} catch {
-			setSignOutError(t('upload.signOutFailed'));
-		}
-	};
-
 	// Every upload runs in its own session: a session is closed by completing it, cancelling it or a failed attempt
 	const startSession = async (): Promise<{ sessionId: string; uploadToken: string }> => {
 		if (!csrfToken) {
@@ -96,7 +83,17 @@ export default function UploadApp() {
 		return started;
 	};
 
+	// Text is one item: everything typed in the box, stored as a .txt file
+	const buildTextItems = (): TextItem[] => (text.trim() ? [{ content: text, filename: `${t('text.defaultName')}.txt` }] : []);
+
+	const finishShare = (code: string) => {
+		setUploadResult(code);
+		setFiles([]);
+		setText('');
+	};
+
 	const runUpload = async (retry: boolean) => {
+		const textItems = buildTextItems();
 		if (files.length === 0 && textItems.length === 0) {
 			alert(t('error.noItems'));
 			return;
@@ -114,9 +111,7 @@ export default function UploadApp() {
 		if (retry && sessionData && hasPendingCompletion(sessionData.sessionId)) {
 			try {
 				const result = await retryUpload(sessionData.sessionId, sessionData.uploadToken, files, textItems, validityDays);
-				setUploadResult(result.retrievalCode);
-				setFiles([]);
-				setTextItems([]);
+				finishShare(result.retrievalCode);
 			} catch (error) {
 				console.error('Completing again failed:', error);
 			}
@@ -142,9 +137,7 @@ export default function UploadApp() {
 			const result = retry
 				? await retryUpload(session.sessionId, session.uploadToken, files, textItems, validityDays)
 				: await uploadWithSession(session.sessionId, session.uploadToken, files, textItems, validityDays);
-			setUploadResult(result.retrievalCode);
-			setFiles([]);
-			setTextItems([]);
+			finishShare(result.retrievalCode);
 		} catch (error) {
 			console.error('Upload failed:', error);
 			// Errors are shown by the progress component; a cancelled upload is not an error
@@ -163,65 +156,72 @@ export default function UploadApp() {
 		}
 	};
 
+	const shell = (icons: ReactNode, body: ReactNode) => (
+		<div className="min-h-screen bg-gray-50">
+			<AppHeader>{icons}</AppHeader>
+			<main className="mx-auto max-w-2xl px-4 py-6">{body}</main>
+		</div>
+	);
+
 	// Until the sign-in check finishes, the page shows nothing to upload with
 	if (!authChecked) {
-		return (
-			<main className="min-h-screen bg-gray-50 py-8">
-				<div className="max-w-2xl mx-auto px-4 text-center text-gray-600">{t('upload.checking')}</div>
-			</main>
-		);
+		return shell(null, <p className="py-12 text-center text-sm text-gray-600">{t('upload.checking')}</p>);
 	}
 
 	// Signed out: only the sign-in methods that are switched on are offered; with none, nothing is uploadable
 	if (!csrfToken) {
-		return (
-			<main className="min-h-screen bg-gray-50 py-8">
-				<div className="max-w-md mx-auto px-4">
-					<div className="text-center mb-8">
-						<a href={homeUrlFor(locale)} className="text-blue-600 hover:text-blue-800 text-sm">
-							{t('common.backHome')}
-						</a>
-						<h1 className="text-4xl font-bold text-gray-900 mt-4 mb-2">{t('upload.pageTitle')}</h1>
-						<p className="text-lg text-gray-600">{t('upload.signInSubtitle')}</p>
-						<div className="flex justify-center mt-2">
-							<LanguageSwitcher />
-						</div>
-					</div>
-					<div className="bg-white rounded-lg shadow-md p-8">
-						{methods ? (
-							<AuthMethodPicker
-								status={methods}
-								onSignedIn={(token) => {
-									setCsrfToken(token);
+		return shell(
+			null,
+			<div className="mx-auto max-w-md">
+				<div className="mb-5 text-center">
+					<h1 className="text-xl font-semibold text-gray-900">{t('upload.pageTitle')}</h1>
+					<p className="mt-1 text-sm text-gray-600">{t('upload.signInSubtitle')}</p>
+				</div>
+				<div className="rounded-2xl bg-white p-6 shadow-sm ring-1 ring-gray-200">
+					{methods ? (
+						<AuthMethodPicker
+							status={methods}
+							onSignedIn={(token) => {
+								setCsrfToken(token);
+								loadAuth();
+							}}
+						/>
+					) : (
+						<div className="space-y-3">
+							<p role="alert" className="text-sm text-gray-700">
+								{t('upload.reachFailed')}
+							</p>
+							<button
+								type="button"
+								onClick={() => {
+									setAuthChecked(false);
 									loadAuth();
 								}}
-							/>
-						) : (
-							<div className="space-y-3">
-								<p role="alert" className="text-gray-700">
-									{t('upload.reachFailed')}
-								</p>
-								<button
-									type="button"
-									onClick={() => {
-										setAuthChecked(false);
-										loadAuth();
-									}}
-									className="w-full py-2 border border-gray-300 rounded-lg text-gray-800 hover:bg-gray-50"
-								>
-									{t('upload.retry')}
-								</button>
-							</div>
-						)}
-					</div>
+								className="w-full rounded-lg border border-gray-300 py-2 text-sm text-gray-800 hover:bg-gray-50"
+							>
+								{t('upload.retry')}
+							</button>
+						</div>
+					)}
 				</div>
-			</main>
+			</div>,
 		);
 	}
 
-	const modals = (
+	const icons = (
 		<>
-			{showShares && csrfToken && (
+			<IconButton label={t('shares.open')} onClick={() => setShowShares(true)}>
+				<ListIcon />
+			</IconButton>
+			<IconButton label={t('upload.security')} onClick={() => setShowSecurity(true)} align="right">
+				<UserIcon />
+			</IconButton>
+		</>
+	);
+
+	const dialogs = (
+		<>
+			{showShares && (
 				<ShareManagementModal
 					csrfToken={csrfToken}
 					onClose={() => setShowShares(false)}
@@ -234,7 +234,7 @@ export default function UploadApp() {
 					}}
 				/>
 			)}
-			{showSecurity && csrfToken && (
+			{showSecurity && (
 				<SecuritySettingsModal
 					csrfToken={csrfToken}
 					onRotated={(token) => setCsrfToken(token)}
@@ -251,161 +251,101 @@ export default function UploadApp() {
 		</>
 	);
 
+	const title = (
+		<div className="mb-5">
+			<h1 className="text-xl font-semibold text-gray-900">{t('upload.pageTitle')}</h1>
+			<p className="mt-1 text-sm text-gray-600">{t('upload.subtitle')}</p>
+		</div>
+	);
+
 	if (uploadResult) {
 		return (
-			<main className="min-h-screen bg-gray-50 py-8">
-				<div className="max-w-2xl mx-auto px-4">
-					<div className="text-center mb-8">
-						<a href={homeUrlFor(locale)} className="text-blue-600 hover:text-blue-800 text-sm">
-							{t('common.backHome')}
-						</a>
-						<h1 className="text-4xl font-bold text-gray-900 mt-4 mb-2">{t('upload.resultTitle')}</h1>
-						<div className="flex justify-center mt-2">
-							<LanguageSwitcher />
-						</div>
-						<div className="flex justify-center gap-4 mt-4 text-sm">
-							<button type="button" onClick={() => setShowShares(true)} className="text-blue-600 hover:text-blue-800 underline">
-								{t('shares.open')}
-							</button>
-							<button type="button" onClick={() => setShowSecurity(true)} className="text-blue-600 hover:text-blue-800 underline">
-								{t('upload.security')}
-							</button>
-							<button type="button" onClick={signOut} className="text-gray-700 hover:text-gray-900 underline">
-								{t('upload.signOut')}
-							</button>
-						</div>
-						{signOutError && <p className="text-red-700 text-sm mt-2">{signOutError}</p>}
-					</div>
-
-					<div className="bg-white rounded-lg shadow-md p-8">
-						<div className="text-center">
-							<div className="text-8xl mb-6">✅</div>
-							<h2 className="text-3xl font-bold text-green-700 mb-4">{t('upload.resultHeading')}</h2>
-							<p className="text-gray-600 mb-8 text-lg">{t('upload.resultBody')}</p>
-
-							<ShareResult code={uploadResult} />
-
-							<div className="space-y-3">
-								<button
-									onClick={() => {
-										setUploadResult(null);
-										clearError();
-									}}
-									className="w-full py-3 bg-blue-500 text-white rounded-lg hover:bg-blue-600 font-semibold"
-								>
-									{t('upload.shareMore')}
-								</button>
-								<a
-									href={homeUrlFor(locale)}
-									className="block w-full py-3 bg-gray-500 text-white rounded-lg hover:bg-gray-600 font-semibold text-center"
-								>
-									{t('common.backHome')}
-								</a>
+			<>
+				{shell(
+					icons,
+					<>
+						{title}
+						<section className="rounded-2xl bg-white p-6 shadow-sm ring-1 ring-gray-200">
+							<div className="mb-5 flex items-center gap-2 text-green-700">
+								<CheckCircleIcon width={22} height={22} />
+								<h2 className="text-base font-semibold">{t('upload.resultHeading')}</h2>
 							</div>
-						</div>
-					</div>
-				</div>
-				{modals}
-			</main>
+							<ShareResult code={uploadResult} />
+							<button
+								type="button"
+								onClick={() => {
+									setUploadResult(null);
+									resetUpload();
+								}}
+								className="mt-6 w-full rounded-lg bg-blue-600 py-2.5 text-sm font-semibold text-white hover:bg-blue-700"
+							>
+								{t('upload.shareMore')}
+							</button>
+						</section>
+					</>,
+				)}
+				{dialogs}
+			</>
 		);
 	}
 
+	const textItems = buildTextItems();
+	const nothingToShare = files.length === 0 && textItems.length === 0;
+
 	return (
-		<main className="min-h-screen bg-gray-50 py-8">
-			<div className="max-w-3xl mx-auto px-4">
-				<div className="text-center mb-8">
-					<a href={homeUrlFor(locale)} className="text-blue-600 hover:text-blue-800 text-sm">
-						{t('common.backHome')}
-					</a>
-					<h1 className="text-4xl font-bold text-gray-900 mt-4 mb-2">{t('upload.pageTitle')}</h1>
-					<p className="text-xl text-gray-600">{t('upload.subtitle')}</p>
-					<div className="flex justify-center mt-2">
-						<LanguageSwitcher />
-					</div>
-					<div className="flex justify-center gap-4 mt-4 text-sm">
-						<button type="button" onClick={() => setShowShares(true)} className="text-blue-600 hover:text-blue-800 underline">
-							{t('shares.open')}
-						</button>
-						<button type="button" onClick={() => setShowSecurity(true)} className="text-blue-600 hover:text-blue-800 underline">
-							{t('upload.security')}
-						</button>
-						<button type="button" onClick={signOut} className="text-gray-700 hover:text-gray-900 underline">
-							{t('upload.signOut')}
-						</button>
-					</div>
-					{signOutError && <p className="text-red-700 text-sm mt-2">{signOutError}</p>}
-				</div>
+		<>
+			{shell(
+				icons,
+				<>
+					{title}
 
-				{startError && (
-					<div className="mb-6 p-4 bg-red-50 border border-red-200 rounded-lg">
-						<div className="flex justify-between items-center">
-							<p className="text-red-700">{startError}</p>
-							<button onClick={() => setStartError(null)} className="text-red-500 hover:text-red-700">
-								✕
+					{startError && (
+						<div className="mb-4 flex items-center justify-between rounded-lg border border-red-200 bg-red-50 p-3" role="alert">
+							<p className="text-sm text-red-700">{startError}</p>
+							<button onClick={() => setStartError(null)} aria-label={t('common.close')} className="text-red-500 hover:text-red-700">
+								<CloseIcon width={16} height={16} />
 							</button>
 						</div>
-					</div>
-				)}
+					)}
 
-				{error && (
-					<div className="mb-6 p-4 bg-red-50 border border-red-200 rounded-lg">
-						<div className="flex justify-between items-center">
-							<p className="text-red-700">{error}</p>
-							<button onClick={clearError} className="text-red-500 hover:text-red-700">
-								✕
+					{error && (
+						<div className="mb-4 flex items-center justify-between rounded-lg border border-red-200 bg-red-50 p-3">
+							<p className="text-sm text-red-700">{error}</p>
+							<button onClick={clearError} aria-label={t('common.close')} className="text-red-500 hover:text-red-700">
+								<CloseIcon width={16} height={16} />
 							</button>
 						</div>
-					</div>
-				)}
+					)}
 
-				{/* Upload Progress */}
-				<UploadProgress
-					files={files}
-					textItems={textItems}
-					isUploading={isUploading}
-					isFinalizing={isFinalizing}
-					progress={uploadProgress}
-					fileProgress={fileProgress}
-					uploadStatus={uploadStatus}
-					error={error || undefined}
-					onRetry={handleRetry}
-					onCancel={handleCancel}
-				/>
+					<UploadProgress
+						files={files}
+						textItems={textItems}
+						isUploading={isUploading}
+						isFinalizing={isFinalizing}
+						progress={uploadProgress}
+						fileProgress={fileProgress}
+						uploadStatus={uploadStatus}
+						error={error || undefined}
+						onRetry={handleRetry}
+						onCancel={handleCancel}
+					/>
 
-				<div className="bg-white rounded-lg shadow-md p-8">
-					<div className="space-y-8">
-						{/* Text Section */}
-						<div>
-							<h2 className="text-2xl font-bold text-gray-900 mb-4">{t('upload.textSection')}</h2>
-							<TextInput textItems={textItems} onTextItemsChange={setTextItems} />
-						</div>
-
-						{/* Files Section */}
-						<div>
-							<h2 className="text-2xl font-bold text-gray-900 mb-4">{t('upload.filesSection')}</h2>
-							<FileUpload files={files} onFilesChange={setFiles} />
-						</div>
-
+					<section className="space-y-6 rounded-2xl bg-white p-6 shadow-sm ring-1 ring-gray-200">
+						<FileUpload files={files} onFilesChange={setFiles} />
+						<TextInput value={text} onChange={setText} />
 						<ExpirySelector value={validityDays} onChange={setValidityDays} />
 
 						<button
 							onClick={handleUpload}
-							disabled={isUploading || (files.length === 0 && textItems.length === 0)}
-							className="w-full py-4 bg-blue-500 text-white rounded-lg hover:bg-blue-600 disabled:bg-gray-300 disabled:cursor-not-allowed font-semibold text-lg"
+							disabled={isUploading || nothingToShare}
+							className="w-full rounded-lg bg-blue-600 py-3 text-sm font-semibold text-white hover:bg-blue-700 disabled:cursor-not-allowed disabled:bg-gray-300"
 						>
-							{isUploading ? (
-								<span className="flex items-center justify-center gap-2">
-									<div className="animate-spin text-xl">⏳</div>
-									{t('upload.uploadingShort')}
-								</span>
-							) : (
-								t('upload.submit')
-							)}
+							{isUploading ? t('upload.uploadingShort') : t('upload.submit')}
 						</button>
-					</div>
-				</div>
-			</div>
-			{modals}
-		</main>
+					</section>
+				</>,
+			)}
+			{dialogs}
+		</>
 	);
 }

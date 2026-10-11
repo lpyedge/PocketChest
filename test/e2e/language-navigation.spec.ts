@@ -10,7 +10,7 @@ const LANGS = [
 		password: 'パスワード',
 		signIn: 'パスワードでサインイン',
 		homeHeading: /PocketChest/,
-		back: /ホームへ/,
+		back: /^ホーム$/,
 	},
 	{
 		lang: 'en',
@@ -20,7 +20,7 @@ const LANGS = [
 		password: 'Password',
 		signIn: 'Sign in with password',
 		homeHeading: /PocketChest/,
-		back: /Back to Home/,
+		back: /^Home$/,
 	},
 	{
 		lang: 'zh-Hant',
@@ -29,7 +29,7 @@ const LANGS = [
 		password: '密碼',
 		signIn: '以密碼登入',
 		homeHeading: /PocketChest/,
-		back: /回到首頁/,
+		back: /^首頁$/,
 	},
 ];
 
@@ -95,19 +95,16 @@ for (const c of LANGS) {
 
 			await page.getByLabel(c.password, { exact: true }).fill(OWNER_PASSWORD);
 			await page.getByRole('button', { name: c.signIn }).click();
+			await page.getByRole('switch', { name: /Add text|テキストを追加|加入文字/ }).click();
 			await page.locator('textarea').first().fill('hello');
-			await page
-				.getByRole('button')
-				.filter({ hasText: /Add Text|テキストを追加|加入文字/ })
-				.click();
 			await page
 				.getByRole('button')
 				.filter({ hasText: /Upload & Generate Code|アップロードしてコードを作成|上傳並產生取件碼/ })
 				.click();
-			await expect(page.locator('code').filter({ hasText: '/retrieve/#' }).first()).toBeVisible();
+			await expect(page.locator('textarea[readonly]').first()).toHaveValue(/\/retrieve\/#[A-Z0-9]{6}$/);
 
 			if (c.lang !== 'en') expect(await page.locator('body').innerText()).not.toMatch(/Back to Home/);
-			// The page offers the way home twice (top and bottom); both go to the same place
+			// The header offers the way home (the icon and the project name); both go to the same place
 			const homes = page.getByRole('link', { name: c.back });
 			for (const link of await homes.all()) await expect(link).toHaveAttribute('href', c.homeAfter ?? c.home);
 			const home = homes.first();

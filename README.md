@@ -33,9 +33,9 @@ The button clones this repository into your GitHub account, builds it with Worke
 |:--:|:--:|
 | <img src="assets/screenshots/home-en.png" alt="Home" width="420"><br>Home | <img src="assets/screenshots/login-en.png" alt="Owner sign-in" width="420"><br>Owner sign-in |
 | <img src="assets/screenshots/upload-en.png" alt="Upload" width="420"><br>Upload | <img src="assets/screenshots/share-result-en.png" alt="Share result" width="420"><br>Share result |
-| <img src="assets/screenshots/retrieve-en.png" alt="Retrieve" width="420"><br>Retrieve | <img src="assets/screenshots/security-settings-en.png" alt="Security settings" width="420"><br>Security settings |
+| <img src="assets/screenshots/retrieve-en.png" alt="Retrieve" width="420"><br>Retrieve | <img src="assets/screenshots/share-records-en.png" alt="Share records" width="420"><br>Share records |
+| <img src="assets/screenshots/security-settings-en.png" alt="Security settings" width="420"><br>Security settings | <img src="assets/screenshots/upload-en-mobile.png" alt="Upload (mobile)" width="200"> <img src="assets/screenshots/retrieve-en-mobile.png" alt="Retrieve (mobile)" width="200"> |
 
-<img src="assets/screenshots/upload-en-mobile.png" alt="Upload (mobile)" width="200"> <img src="assets/screenshots/retrieve-en-mobile.png" alt="Retrieve (mobile)" width="200">
 
 Captured from the current build by `npm run screenshots` (see [docs/SCREENSHOTS.md](docs/SCREENSHOTS.md)); the codes shown are throw-away test data.
 

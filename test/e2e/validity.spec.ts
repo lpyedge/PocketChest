@@ -15,7 +15,7 @@ const LANGUAGES = [
 		locale: 'en-US',
 		password: 'Password',
 		signIn: 'Sign in with password',
-		addText: 'Add Text',
+		addText: 'Add text',
 		submit: 'Upload & Generate Code',
 		twoWeeks: /^2 Weeks/,
 	},
@@ -34,8 +34,8 @@ for (const language of LANGUAGES) {
 			await page.goto('/upload/');
 			await page.getByLabel(language.password, { exact: true }).fill(OWNER_PASSWORD);
 			await page.getByRole('button', { name: language.signIn }).click();
+			await page.getByRole('switch', { name: language.addText }).click();
 			await page.locator('textarea').first().fill('two weeks');
-			await page.getByRole('button', { name: language.addText }).click();
 			await page.getByRole('button', { name: language.twoWeeks }).click();
 
 			const completing = page.waitForRequest((req) => req.url().endsWith('/complete') && req.method() === 'POST');
@@ -44,8 +44,9 @@ for (const language of LANGUAGES) {
 			const sent = (await completing).postDataJSON() as { validityDays: number };
 			expect(sent.validityDays).toBe(14);
 
-			const link = page.locator('code').filter({ hasText: '/retrieve/#' }).first();
-			const code = ((await link.textContent()) ?? '').slice(-6);
+			const link = page.locator('textarea[readonly]').first();
+			await expect(link).toHaveValue(/\/retrieve\/#[A-Z0-9]{6}$/);
+			const code = (await link.inputValue()).slice(-6);
 			const retrieved = await request.post('/api/retrieve', { headers: { 'CF-Connecting-IP': clientIp }, data: { code } });
 			const { expiryDate } = (await retrieved.json()) as { expiryDate: string };
 			const seconds = Date.parse(expiryDate) / 1000 - started;

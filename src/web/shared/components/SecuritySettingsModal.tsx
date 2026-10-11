@@ -1,10 +1,14 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useState, type ReactNode } from 'react';
 import { startRegistration, startAuthentication } from '@simplewebauthn/browser';
 import { authApi, AuthRequestError, Rotation, SecurityStatus } from '@/lib/auth-api';
 import { describeAuthError } from '@/components/AuthMethodPicker';
 import { useI18n } from '@/i18n/I18nProvider';
 import { QrCode } from '@/components/QrCode';
 import { totpSecretFrom } from '@/lib/qr';
+import { Dialog } from '@/components/Dialog';
+import { IconButton } from '@/components/IconButton';
+import { Toggle } from '@/components/Toggle';
+import { CheckIcon, CopyIcon, FingerprintIcon, LockIcon, LogOutIcon, PhoneIcon, ShieldIcon, TrashIcon } from '@/components/Icons';
 
 type Method = 'password' | 'totp' | 'passkey';
 
@@ -41,21 +45,21 @@ function ManualKey({ otpauthUri }: { otpauthUri: string }) {
 		<div className="space-y-1">
 			<p className="text-sm text-gray-700">{t('security.orTypeKey')}</p>
 			<div className="flex items-center gap-2">
-				<code data-testid="totp-secret" className="block bg-gray-100 p-2 rounded text-sm tracking-wider break-all">
+				<code data-testid="totp-secret" className="block flex-1 rounded-lg bg-gray-100 p-2 text-sm tracking-wider break-all">
 					{key.grouped}
 				</code>
-				<button
-					type="button"
+				<IconButton
+					label={copied ? t('security.keyCopied') : t('security.copyKey')}
+					align="right"
 					onClick={() => {
 						navigator.clipboard
 							.writeText(key.secret)
 							.then(() => setCopied(true))
 							.catch(() => setCopied(false));
 					}}
-					className="text-sm text-gray-700 underline"
 				>
-					{copied ? t('security.keyCopied') : t('security.copyKey')}
-				</button>
+					{copied ? <CheckIcon className="text-green-600" /> : <CopyIcon />}
+				</IconButton>
 			</div>
 		</div>
 	);
@@ -205,16 +209,37 @@ export function SecuritySettingsModal({ csrfToken, onRotated, onClose, onSignedO
 		);
 	};
 
+	// Why a method's switch cannot be used: it was never set up, or it is the only way left to sign in
+	const lockReason = (method: Method): string | null => {
+		if (!status) return null;
+		const item = status.methods[method];
+		const enabledCount = Object.values(status.methods).filter((entry) => entry.enabled).length;
+		if (item.enabled && enabledCount <= 1) return t('code.LAST_AUTH_METHOD');
+		return null;
+	};
+
+	// A method that is not set up has nothing to switch: the one call to action is its "set up" button
+	const methodToggle = (method: Method, label: string) =>
+		!status || (!status.methods[method].enabled && !status.methods[method].configured) ? null : (
+			<Toggle
+				checked={status?.methods[method].enabled ?? false}
+				onChange={(enabled) => toggle(method, enabled)}
+				label={t('security.switchLabel', { name: label })}
+				disabled={busy || lockReason(method) !== null}
+				title={lockReason(method) ?? undefined}
+			/>
+		);
+
 	if (!status) {
 		return (
-			<Dialog title={t('security.title')} onClose={onClose}>
+			<Dialog title={t('security.title')} icon={<ShieldIcon width={18} height={18} />} onClose={onClose}>
 				<p className="text-gray-600">{message ?? t('common.loading')}</p>
 			</Dialog>
 		);
 	}
 
 	return (
-		<Dialog title={t('security.title')} onClose={onClose}>
+		<Dialog title={t('security.title')} icon={<ShieldIcon width={18} height={18} />} onClose={onClose}>
 			{message && (
 				<p role="alert" className="mb-4 text-sm text-red-700">
 					{message}
@@ -228,7 +253,7 @@ export function SecuritySettingsModal({ csrfToken, onRotated, onClose, onSignedO
 			<p className="mb-4 text-xs text-gray-600">{t('security.independentNote')}</p>
 
 			{pending && (
-				<section className="mb-6 p-4 border border-amber-300 bg-amber-50 rounded-lg space-y-3">
+				<section className="mb-4 p-4 border border-amber-300 bg-amber-50 rounded-xl space-y-3">
 					<p className="text-sm text-gray-800">
 						{pending.required ? t('security.confirmTitleWith', { method: t(`method.${pending.required}`) }) : t('security.confirmTitle')}
 					</p>
@@ -248,9 +273,13 @@ export function SecuritySettingsModal({ csrfToken, onRotated, onClose, onSignedO
 										aria-label={t('auth.password')}
 										value={reauthPassword}
 										onChange={(event) => setReauthPassword(event.target.value)}
-										className="flex-1 border border-gray-300 rounded px-3 py-2"
+										className="flex-1 border border-gray-300 rounded-lg px-3 py-2 text-sm"
 									/>
-									<button type="submit" disabled={busy} className="px-4 py-2 bg-blue-500 text-white rounded disabled:opacity-50">
+									<button
+										type="submit"
+										disabled={busy}
+										className="rounded-lg bg-blue-600 px-3 py-2 text-sm font-medium text-white hover:bg-blue-700 disabled:opacity-50"
+									>
 										{t('security.confirmPassword')}
 									</button>
 								</form>
@@ -272,9 +301,13 @@ export function SecuritySettingsModal({ csrfToken, onRotated, onClose, onSignedO
 											maxLength={6}
 											value={reauthCode}
 											onChange={(event) => setReauthCode(event.target.value)}
-											className="flex-1 border border-gray-300 rounded px-3 py-2"
+											className="flex-1 border border-gray-300 rounded-lg px-3 py-2 text-sm"
 										/>
-										<button type="submit" disabled={busy} className="px-4 py-2 bg-blue-500 text-white rounded disabled:opacity-50">
+										<button
+											type="submit"
+											disabled={busy}
+											className="rounded-lg bg-blue-600 px-3 py-2 text-sm font-medium text-white hover:bg-blue-700 disabled:opacity-50"
+										>
 											{t('security.confirmAuthenticator')}
 										</button>
 									</form>
@@ -288,7 +321,7 @@ export function SecuritySettingsModal({ csrfToken, onRotated, onClose, onSignedO
 								type="button"
 								disabled={busy}
 								onClick={() => reenter('passkey', pending.run, pending.activate)}
-								className="px-4 py-2 bg-gray-800 text-white rounded disabled:opacity-50"
+								className="rounded-lg border border-gray-300 bg-white px-3 py-1.5 text-sm font-medium text-gray-800 hover:bg-gray-50 disabled:opacity-50"
 							>
 								{t('security.confirmPasskey')}
 							</button>
@@ -300,10 +333,15 @@ export function SecuritySettingsModal({ csrfToken, onRotated, onClose, onSignedO
 				</section>
 			)}
 
-			<Section title={t('auth.password')} item={status.methods.password} label={statusLabel(status.methods.password, t)}>
-				<ToggleButton item={status.methods.password} busy={busy} onToggle={(enabled) => toggle('password', enabled)} />
+			<Section
+				title={t('auth.password')}
+				icon={<LockIcon />}
+				label={statusLabel(status.methods.password, t)}
+				control={methodToggle('password', t('auth.password'))}
+				hint={lockReason('password')}
+			>
 				<form
-					className="mt-4 space-y-2"
+					className="space-y-2"
 					onSubmit={(event) => {
 						event.preventDefault();
 						const next = newPassword;
@@ -320,7 +358,7 @@ export function SecuritySettingsModal({ csrfToken, onRotated, onClose, onSignedO
 						autoComplete="new-password"
 						value={newPassword}
 						onChange={(event) => setNewPassword(event.target.value)}
-						className="w-full border border-gray-300 rounded px-3 py-2"
+						className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm"
 					/>
 					<input
 						type="password"
@@ -329,18 +367,27 @@ export function SecuritySettingsModal({ csrfToken, onRotated, onClose, onSignedO
 						autoComplete="new-password"
 						value={confirmPassword}
 						onChange={(event) => setConfirmPassword(event.target.value)}
-						className="w-full border border-gray-300 rounded px-3 py-2"
+						className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm"
 					/>
-					<button type="submit" disabled={busy} className="px-4 py-2 bg-gray-800 text-white rounded disabled:opacity-50">
+					<button
+						type="submit"
+						disabled={busy}
+						className="rounded-lg border border-gray-300 bg-white px-3 py-1.5 text-sm font-medium text-gray-800 hover:bg-gray-50 disabled:opacity-50"
+					>
 						{t('security.changePassword')}
 					</button>
 					<p className="text-xs text-gray-500">{t('security.changeNote')}</p>
 				</form>
 			</Section>
 
-			<Section title={t('security.authenticatorSection')} item={status.methods.totp} label={statusLabel(status.methods.totp, t)}>
-				<ToggleButton item={status.methods.totp} busy={busy} onToggle={(enabled) => toggle('totp', enabled)} />
-				<p className="mt-2 text-xs text-gray-600">{t('security.totpNote')}</p>
+			<Section
+				title={t('security.authenticatorSection')}
+				icon={<PhoneIcon />}
+				label={statusLabel(status.methods.totp, t)}
+				control={methodToggle('totp', t('security.authenticatorSection'))}
+				hint={lockReason('totp')}
+			>
+				<p className="mb-3 text-xs text-gray-600">{t('security.totpNote')}</p>
 				{!totpSetup ? (
 					<button
 						type="button"
@@ -351,12 +398,12 @@ export function SecuritySettingsModal({ csrfToken, onRotated, onClose, onSignedO
 								setTotpSetup({ challenge: prepared.challenge, otpauthUri: prepared.otpauthUri });
 							})
 						}
-						className="mt-3 px-4 py-2 bg-gray-800 text-white rounded disabled:opacity-50"
+						className="rounded-lg border border-gray-300 bg-white px-3 py-1.5 text-sm font-medium text-gray-800 hover:bg-gray-50 disabled:opacity-50"
 					>
 						{status.methods.totp.configured ? t('security.replaceAuthenticator') : t('security.setUpAuthenticator')}
 					</button>
 				) : (
-					<div className="mt-3 space-y-2">
+					<div className="space-y-2">
 						<p className="text-sm text-gray-700">{t('security.scanQr')}</p>
 						<QrCode value={totpSetup.otpauthUri} label={t('security.qrLabel')} />
 						<ManualKey otpauthUri={totpSetup.otpauthUri} />
@@ -374,9 +421,13 @@ export function SecuritySettingsModal({ csrfToken, onRotated, onClose, onSignedO
 								maxLength={6}
 								value={totpCode}
 								onChange={(event) => setTotpCode(event.target.value)}
-								className="flex-1 border border-gray-300 rounded px-3 py-2"
+								className="flex-1 border border-gray-300 rounded-lg px-3 py-2 text-sm"
 							/>
-							<button type="submit" disabled={busy} className="px-4 py-2 bg-blue-500 text-white rounded disabled:opacity-50">
+							<button
+								type="submit"
+								disabled={busy}
+								className="rounded-lg bg-blue-600 px-3 py-2 text-sm font-medium text-white hover:bg-blue-700 disabled:opacity-50"
+							>
 								{t('security.confirmCode')}
 							</button>
 						</form>
@@ -387,9 +438,14 @@ export function SecuritySettingsModal({ csrfToken, onRotated, onClose, onSignedO
 				)}
 			</Section>
 
-			<Section title={t('security.passkeysSection')} item={status.methods.passkey} label={statusLabel(status.methods.passkey, t)}>
-				<ToggleButton item={status.methods.passkey} busy={busy} onToggle={(enabled) => toggle('passkey', enabled)} />
-				<ul className="mt-3 space-y-2">
+			<Section
+				title={t('security.passkeysSection')}
+				icon={<FingerprintIcon />}
+				label={statusLabel(status.methods.passkey, t)}
+				control={methodToggle('passkey', t('security.passkeysSection'))}
+				hint={lockReason('passkey')}
+			>
+				<ul className="mb-3 space-y-2 empty:hidden">
 					{status.methods.passkey.credentials.map((credential) => (
 						<li key={credential.id} className="flex items-center justify-between gap-2 text-sm">
 							<span>
@@ -417,90 +473,59 @@ export function SecuritySettingsModal({ csrfToken, onRotated, onClose, onSignedO
 					type="button"
 					disabled={busy}
 					onClick={registerPasskey}
-					className="mt-3 px-4 py-2 bg-gray-800 text-white rounded disabled:opacity-50"
+					className="rounded-lg border border-gray-300 bg-white px-3 py-1.5 text-sm font-medium text-gray-800 hover:bg-gray-50 disabled:opacity-50"
 				>
 					{t('security.addPasskey')}
 				</button>
 				<p className="mt-2 text-xs text-gray-500">{t('security.passkeyNote')}</p>
 			</Section>
 
-			<div className="mt-6 flex justify-between">
-				<button
-					type="button"
-					onClick={async () => {
-						try {
-							await authApi.logout(csrf);
-							onSignedOut();
-						} catch (error) {
-							setMessage(describeAuthError(error, t));
-						}
-					}}
-					className="text-sm text-gray-700 underline"
-				>
-					{t('upload.signOut')}
-				</button>
-				<button type="button" onClick={onClose} className="px-4 py-2 bg-gray-200 rounded">
-					{t('common.close')}
-				</button>
-			</div>
+			<button
+				type="button"
+				onClick={async () => {
+					try {
+						await authApi.logout(csrf);
+						onSignedOut();
+					} catch (error) {
+						setMessage(describeAuthError(error, t));
+					}
+				}}
+				className="flex w-full items-center justify-center gap-2 rounded-lg border border-gray-300 py-2.5 text-sm font-medium text-gray-700 hover:bg-gray-50"
+			>
+				<LogOutIcon width={16} height={16} />
+				{t('upload.signOut')}
+			</button>
 		</Dialog>
 	);
 }
 
-function ToggleButton({
-	item,
-	busy,
-	onToggle,
+function Section({
+	title,
+	icon,
+	label,
+	control,
+	hint,
+	children,
 }: {
-	item: { configured: boolean; enabled: boolean };
-	busy: boolean;
-	onToggle: (enabled: boolean) => void;
+	title: string;
+	icon: ReactNode;
+	label: string;
+	control: ReactNode;
+	hint: string | null;
+	children: ReactNode;
 }) {
-	const { t } = useI18n();
-	// A method that is not set up has nothing to switch: the one call to action is the "set up" button below it
-	if (!item.enabled && !item.configured) return null;
 	return (
-		<button
-			type="button"
-			disabled={busy}
-			onClick={() => onToggle(!item.enabled)}
-			className="px-4 py-2 border border-gray-400 rounded hover:bg-gray-50 disabled:opacity-50"
-		>
-			{item.enabled ? t('security.turnOff') : t('security.turnOn')}
-		</button>
-	);
-}
-
-function Section({ title, label, children }: { title: string; item: unknown; label: string; children: React.ReactNode }) {
-	return (
-		<section className="mb-6 border-b border-gray-200 pb-6">
-			<div className="flex items-baseline justify-between">
-				<h3 className="font-semibold text-gray-900">{title}</h3>
-				<span className="text-sm text-gray-600">{label}</span>
-			</div>
-			<div className="mt-3">{children}</div>
-		</section>
-	);
-}
-
-function Dialog({ title, children, onClose }: { title: string; children: React.ReactNode; onClose: () => void }) {
-	const { t } = useI18n();
-	return (
-		<div
-			className="fixed inset-0 bg-black/40 flex items-start justify-center p-4 overflow-y-auto z-50"
-			role="dialog"
-			aria-modal="true"
-			aria-label={title}
-		>
-			<div className="bg-white rounded-lg shadow-xl w-full max-w-lg p-6 mt-10">
-				<div className="flex justify-between items-center mb-4">
-					<h2 className="text-xl font-bold text-gray-900">{title}</h2>
-					<button type="button" onClick={onClose} aria-label={t('common.close')} className="text-gray-500 hover:text-gray-800">
-						✕
-					</button>
+		<section className="mb-4 rounded-xl border border-gray-200 p-4">
+			<div className="flex items-center gap-3">
+				<span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-gray-100 text-gray-600">{icon}</span>
+				<div className="min-w-0 flex-1">
+					<h3 className="text-sm font-semibold text-gray-900">{title}</h3>
+					<p className="text-xs text-gray-500">{label}</p>
 				</div>
-				{children}
+				{control}
 			</div>
-		</div>
+			{hint && <p className="mt-2 text-xs text-gray-500">{hint}</p>}
+			<div className="mt-2 border-t border-gray-100 pt-3">{children}</div>
+		</section>
 	);
 }

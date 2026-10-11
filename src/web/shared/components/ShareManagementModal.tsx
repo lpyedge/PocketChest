@@ -1,4 +1,7 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
+import { Dialog } from '@/components/Dialog';
+import { IconButton } from '@/components/IconButton';
+import { CheckIcon, CopyIcon, KeyIcon, LinkIcon, RefreshIcon, TrashIcon, ListIcon } from '@/components/Icons';
 import { sharesApi, ShareRecord } from '@/lib/shares-api';
 import { AuthRequestError } from '@/lib/auth-api';
 import { codeKeyFor } from '@/lib/errors';
@@ -22,8 +25,6 @@ const EXTEND_OPTIONS: { value: ValidityDays; label: 'expiry.1d' | 'expiry.3d' | 
 	{ value: -1, label: 'expiry.permanent' },
 ];
 
-const FOCUSABLE = 'button:not([disabled]), select:not([disabled]), a[href], input:not([disabled]), [tabindex]:not([tabindex="-1"])';
-
 export function ShareManagementModal({ csrfToken, onClose, onSignedOut }: ShareManagementModalProps) {
 	const { t, locale } = useI18n();
 	const [shares, setShares] = useState<ShareRecord[] | null>(null);
@@ -33,7 +34,6 @@ export function ShareManagementModal({ csrfToken, onClose, onSignedOut }: ShareM
 	const [busyId, setBusyId] = useState<string | null>(null);
 	const [copied, setCopied] = useState<string | null>(null);
 	const [extendDays, setExtendDays] = useState<Record<string, ValidityDays>>({});
-	const dialogRef = useRef<HTMLDivElement>(null);
 
 	const failure = useCallback(
 		(error: unknown) => {
@@ -80,35 +80,6 @@ export function ShareManagementModal({ csrfToken, onClose, onSignedOut }: ShareM
 		if (shares !== null && shares.length === 0 && cursor && !loading && message?.kind !== 'error') load(cursor, false);
 	}, [shares, cursor, loading, load, message]);
 
-	// Keyboard: focus moves into the dialog, Tab stays inside it, Escape closes it, focus returns to where it was
-	useEffect(() => {
-		const previous = document.activeElement as HTMLElement | null;
-		dialogRef.current?.querySelector<HTMLElement>(FOCUSABLE)?.focus();
-		const onKey = (event: KeyboardEvent) => {
-			if (event.key === 'Escape') {
-				onClose();
-				return;
-			}
-			if (event.key !== 'Tab' || !dialogRef.current) return;
-			const items = [...dialogRef.current.querySelectorAll<HTMLElement>(FOCUSABLE)];
-			if (items.length === 0) return;
-			const first = items[0];
-			const last = items[items.length - 1];
-			if (event.shiftKey && document.activeElement === first) {
-				event.preventDefault();
-				last.focus();
-			} else if (!event.shiftKey && document.activeElement === last) {
-				event.preventDefault();
-				first.focus();
-			}
-		};
-		document.addEventListener('keydown', onKey);
-		return () => {
-			document.removeEventListener('keydown', onKey);
-			previous?.focus?.();
-		};
-	}, [onClose]);
-
 	const copy = async (id: string, text: string) => {
 		try {
 			await navigator.clipboard.writeText(text);
@@ -147,127 +118,123 @@ export function ShareManagementModal({ csrfToken, onClose, onSignedOut }: ShareM
 		}
 	};
 
-	const expiryText = (share: ShareRecord) =>
-		share.expiresAt === null
-			? t('retrieve.expiresNever')
-			: t('retrieve.expires', { date: new Date(share.expiresAt * 1000).toLocaleString(locale) });
-
 	return (
-		<div
-			className="fixed inset-0 bg-black/40 flex items-start justify-center p-4 overflow-y-auto z-50"
-			role="dialog"
-			aria-modal="true"
-			aria-label={t('shares.title')}
+		<Dialog
+			title={t('shares.title')}
+			icon={<ListIcon width={18} height={18} />}
+			onClose={onClose}
+			wide
+			actions={
+				<IconButton label={t('shares.refresh')} onClick={() => load(null, true)} disabled={loading}>
+					<RefreshIcon />
+				</IconButton>
+			}
 		>
-			<div ref={dialogRef} className="bg-white rounded-lg shadow-xl w-full max-w-2xl p-4 sm:p-6 mt-6 sm:mt-10">
-				<div className="flex justify-between items-center mb-4 gap-2">
-					<h2 className="text-xl font-bold text-gray-900">{t('shares.title')}</h2>
-					<div className="flex items-center gap-3">
-						<button
-							type="button"
-							onClick={() => load(null, true)}
-							disabled={loading}
-							className="text-sm text-blue-600 underline disabled:text-gray-400"
-						>
-							{t('shares.refresh')}
-						</button>
-						<button type="button" onClick={onClose} aria-label={t('common.close')} className="text-gray-500 hover:text-gray-800">
-							✕
-						</button>
-					</div>
-				</div>
+			{message && (
+				<p
+					role={message.kind === 'error' ? 'alert' : 'status'}
+					className={`mb-3 text-sm ${message.kind === 'error' ? 'text-red-700' : 'text-green-700'}`}
+				>
+					{message.text}
+				</p>
+			)}
 
-				{message && (
-					<p
-						role={message.kind === 'error' ? 'alert' : 'status'}
-						className={`mb-3 text-sm ${message.kind === 'error' ? 'text-red-700' : 'text-green-700'}`}
-					>
-						{message.text}
-					</p>
-				)}
+			{shares === null && loading && <p className="text-sm text-gray-600">{t('common.loading')}</p>}
+			{shares !== null && shares.length === 0 && !loading && !cursor && (
+				<p className="py-6 text-center text-sm text-gray-500">{t('shares.empty')}</p>
+			)}
 
-				{shares === null && loading && <p className="text-gray-600">{t('common.loading')}</p>}
-				{shares !== null && shares.length === 0 && !loading && !cursor && <p className="text-gray-600">{t('shares.empty')}</p>}
-
-				<ul className="space-y-3">
-					{shares?.map((share) => (
-						<li key={share.sessionId} data-testid="share-row" className="border border-gray-200 rounded-lg p-3">
-							<div className="flex flex-wrap items-center justify-between gap-2">
-								<code className="text-lg font-mono tracking-widest text-gray-900">{share.retrievalCode}</code>
-								<div className="flex gap-3 text-sm">
-									<button
-										type="button"
+			<ul className="space-y-2">
+				{shares?.map((share) => {
+					const dateFormat: Intl.DateTimeFormatOptions = { dateStyle: 'medium', timeStyle: 'short' };
+					return (
+						<li key={share.sessionId} data-testid="share-row" className="rounded-xl border border-gray-200 px-3 py-2">
+							{/* Line 1: the code, what is in it, and the actions */}
+							<div className="flex items-center justify-between gap-2">
+								<div className="flex min-w-0 items-baseline gap-2">
+									<code className="font-mono text-base font-semibold tracking-wider text-gray-900">{share.retrievalCode}</code>
+									<span className="truncate text-xs text-gray-500">
+										{t('shares.summary', {
+											count: share.fileCount,
+											size: formatBytes(share.totalSize, locale, { zero: t('size.zero'), bytes: t('size.bytes') }),
+										})}
+									</span>
+								</div>
+								<div className="-mr-1 flex shrink-0 items-center">
+									<IconButton
+										label={copied === `${share.sessionId}:code` ? t('shares.copied') : t('shares.copyCode')}
 										onClick={() => copy(`${share.sessionId}:code`, share.retrievalCode)}
-										className="text-blue-600 underline"
+										className="h-8 w-8"
 									>
-										{copied === `${share.sessionId}:code` ? t('shares.copied') : t('shares.copyCode')}
-									</button>
+										{copied === `${share.sessionId}:code` ? <CheckIcon className="text-green-600" /> : <KeyIcon />}
+									</IconButton>
+									<IconButton
+										label={copied === `${share.sessionId}:link` ? t('shares.copied') : t('shares.copyLink')}
+										onClick={() => copy(`${share.sessionId}:link`, getShareLink(share.retrievalCode))}
+										className="h-8 w-8"
+									>
+										{copied === `${share.sessionId}:link` ? <CheckIcon className="text-green-600" /> : <LinkIcon />}
+									</IconButton>
+									<IconButton
+										label={t('shares.revoke')}
+										onClick={() => revoke(share)}
+										disabled={busyId === share.sessionId}
+										align="right"
+										className="h-8 w-8"
+									>
+										<TrashIcon className="text-red-600" />
+									</IconButton>
+								</div>
+							</div>
+							{/* Line 2: when, and the way to extend it */}
+							<div className="mt-1 flex flex-wrap items-center justify-between gap-x-3 gap-y-1">
+								<p className="min-w-0 text-xs text-gray-500">
+									{t('shares.created', { date: new Date(share.createdAt * 1000).toLocaleString(locale, dateFormat) })}
+									<span className="mx-1.5 text-gray-300">·</span>
+									{share.expiresAt === null
+										? t('retrieve.expiresNever')
+										: t('retrieve.expires', { date: new Date(share.expiresAt * 1000).toLocaleString(locale, dateFormat) })}
+								</p>
+								<div className="flex items-center gap-1.5">
+									<select
+										aria-label={t('shares.extendTo')}
+										value={extendDays[share.sessionId] ?? 7}
+										onChange={(event) =>
+											setExtendDays((current) => ({ ...current, [share.sessionId]: Number(event.target.value) as ValidityDays }))
+										}
+										className="rounded-md border border-gray-300 bg-white px-1.5 py-0.5 text-xs"
+									>
+										{EXTEND_OPTIONS.map((option) => (
+											<option key={option.value} value={option.value}>
+												{t(option.label)}
+											</option>
+										))}
+									</select>
 									<button
 										type="button"
-										onClick={() => copy(`${share.sessionId}:link`, getShareLink(share.retrievalCode))}
-										className="text-blue-600 underline"
+										onClick={() => extend(share)}
+										disabled={busyId === share.sessionId}
+										className="rounded-md bg-blue-600 px-2.5 py-0.5 text-xs font-medium text-white hover:bg-blue-700 disabled:bg-gray-300"
 									>
-										{copied === `${share.sessionId}:link` ? t('shares.copied') : t('shares.copyLink')}
+										{t('shares.extend')}
 									</button>
 								</div>
 							</div>
-							<p className="text-sm text-gray-600 mt-1 break-words">
-								{t('shares.summary', {
-									count: share.fileCount,
-									size: formatBytes(share.totalSize, locale, { zero: t('size.zero'), bytes: t('size.bytes') }),
-								})}
-							</p>
-							<p className="text-sm text-gray-600 break-words">
-								{t('shares.created', { date: new Date(share.createdAt * 1000).toLocaleString(locale) })}
-							</p>
-							<p className="text-sm text-gray-600 break-words">{expiryText(share)}</p>
-							<div className="flex flex-wrap items-center gap-2 mt-3">
-								<select
-									aria-label={t('shares.extendTo')}
-									value={extendDays[share.sessionId] ?? 7}
-									onChange={(event) =>
-										setExtendDays((current) => ({ ...current, [share.sessionId]: Number(event.target.value) as ValidityDays }))
-									}
-									className="border border-gray-300 rounded px-2 py-1 text-sm"
-								>
-									{EXTEND_OPTIONS.map((option) => (
-										<option key={option.value} value={option.value}>
-											{t(option.label)}
-										</option>
-									))}
-								</select>
-								<button
-									type="button"
-									onClick={() => extend(share)}
-									disabled={busyId === share.sessionId}
-									className="px-3 py-1 text-sm bg-blue-500 text-white rounded hover:bg-blue-600 disabled:bg-gray-300"
-								>
-									{t('shares.extend')}
-								</button>
-								<button
-									type="button"
-									onClick={() => revoke(share)}
-									disabled={busyId === share.sessionId}
-									className="px-3 py-1 text-sm border border-red-300 text-red-700 rounded hover:bg-red-50 disabled:text-gray-400"
-								>
-									{t('shares.revoke')}
-								</button>
-							</div>
 						</li>
-					))}
-				</ul>
+					);
+				})}
+			</ul>
 
-				{cursor && (
-					<button
-						type="button"
-						onClick={() => load(cursor, false)}
-						disabled={loading}
-						className="mt-4 w-full py-2 text-sm border border-gray-300 rounded hover:bg-gray-50 disabled:text-gray-400"
-					>
-						{loading ? t('common.loading') : t('shares.loadMore')}
-					</button>
-				)}
-			</div>
-		</div>
+			{cursor && (
+				<button
+					type="button"
+					onClick={() => load(cursor, false)}
+					disabled={loading}
+					className="mt-4 w-full rounded-lg border border-gray-300 py-2 text-sm hover:bg-gray-50 disabled:text-gray-400"
+				>
+					{loading ? t('common.loading') : t('shares.loadMore')}
+				</button>
+			)}
+		</Dialog>
 	);
 }

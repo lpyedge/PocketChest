@@ -12,10 +12,10 @@ async function signIn(page: Page, request: import('@playwright/test').APIRequest
 }
 
 async function makeShare(page: Page, text: string) {
+	await page.getByRole('switch', { name: 'Add text' }).click();
 	await page.locator('textarea').first().fill(text);
-	await page.getByRole('button', { name: 'Add Text' }).click();
 	await page.getByRole('button', { name: 'Upload & Generate Code' }).click();
-	await expect(page.locator('code').filter({ hasText: '/retrieve/#' }).first()).toBeVisible();
+	await expect(page.locator('textarea[readonly]').first()).toHaveValue(/\/retrieve\/#[A-Z0-9]{6}$/);
 }
 
 const rows = (page: Page) => page.getByTestId('share-row');
@@ -31,7 +31,6 @@ test('share records are reachable from the upload page and from the result page'
 	await makeShare(page, 'entry check');
 	await expect(page.getByRole('button', { name: 'Share records' })).toBeVisible();
 	await expect(page.getByRole('button', { name: 'Security settings' })).toBeVisible();
-	await expect(page.getByRole('button', { name: 'Sign out' })).toBeVisible();
 	// The copy and share actions of the result stay in place
 	await expect(page.getByRole('button', { name: /Copy/ }).first()).toBeVisible();
 });
@@ -49,7 +48,7 @@ test('create, list, extend, revoke: the recipient is refused afterwards', async 
 	await signIn(page, request);
 	page.on('dialog', (dialog) => dialog.accept());
 	await makeShare(page, 'manage me');
-	const link = (await page.locator('code').filter({ hasText: '/retrieve/#' }).first().innerText()).trim();
+	const link = (await page.locator('textarea[readonly]').first().inputValue()).trim();
 	const code = link.split('#')[1];
 
 	await page.getByRole('button', { name: 'Share records' }).click();

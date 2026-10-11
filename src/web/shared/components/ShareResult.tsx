@@ -1,99 +1,68 @@
 import { useState } from 'react';
 import { getRetrievePageUrl, getShareLink } from '@/lib/share';
+import { CheckIcon, CopyIcon } from '@/components/Icons';
 import { useI18n } from '@/i18n/I18nProvider';
 
 interface ShareResultProps {
 	code: string;
 }
 
-type CopyTarget = 'link' | 'page' | 'code' | 'message';
+type CopyTarget = 'link' | 'message';
 
+// Two things to hand over: the link that opens the files right away, and a message that names the page and the code
 export function ShareResult({ code }: ShareResultProps) {
 	const { t } = useI18n();
 	const [copied, setCopied] = useState<CopyTarget | null>(null);
-	const [message, setMessage] = useState<string | null>(null);
+	const [failed, setFailed] = useState(false);
 
 	const shareLink = getShareLink(code);
-	const retrievePageUrl = getRetrievePageUrl();
-	// The message is written in the current language and names the retrieval page and the code separately.
-	// The direct link keeps its own /retrieve/#CODE form and has its own copy button.
-	const shareMessage = t('share.message', { page: retrievePageUrl, code });
+	// The message is written in the current language and names the retrieval page and the code separately
+	const shareMessage = t('share.message', { page: getRetrievePageUrl(), code });
 
 	const copy = async (target: CopyTarget, text: string) => {
 		try {
 			await navigator.clipboard.writeText(text);
+			setFailed(false);
 			setCopied(target);
 			setTimeout(() => setCopied(null), 2000);
 		} catch (error) {
 			console.error('Copy failed:', error);
-			setMessage(t('share.copyFailed'));
+			setFailed(true);
 		}
 	};
 
-	const canNativeShare = typeof navigator !== 'undefined' && typeof navigator.share === 'function';
-
-	const nativeShare = async () => {
-		try {
-			await navigator.share({ title: 'PocketChest', url: shareLink });
-		} catch {
-			// User dismissed the share sheet
-		}
-	};
-
-	const copyButton = (target: CopyTarget, text: string, label = t('share.copy')) => (
-		<button
-			onClick={() => copy(target, text)}
-			className={`shrink-0 px-3 py-2 rounded-lg border-2 text-sm font-medium transition-colors ${
-				copied === target
-					? 'text-green-600 bg-green-50 border-green-200'
-					: 'text-blue-600 hover:bg-blue-50 border-blue-200 hover:border-blue-300'
-			}`}
-		>
-			{copied === target ? t('share.copied') : label}
-		</button>
+	const block = (target: CopyTarget, text: string, label: string, rows: number) => (
+		<div className="space-y-2">
+			<textarea
+				readOnly
+				rows={rows}
+				value={text}
+				aria-label={label}
+				onFocus={(event) => event.currentTarget.select()}
+				className="block field-sizing-content min-h-10 w-full resize-none rounded-lg border border-gray-300 bg-gray-50 p-3 font-mono text-sm text-gray-800 focus:border-blue-500 focus:outline-2 focus:outline-blue-500"
+			/>
+			<button
+				type="button"
+				onClick={() => copy(target, text)}
+				className={`flex w-full items-center justify-center gap-2 rounded-lg border py-2 text-sm font-medium transition-colors ${
+					copied === target ? 'border-green-200 bg-green-50 text-green-700' : 'border-blue-200 text-blue-700 hover:bg-blue-50'
+				}`}
+			>
+				{copied === target ? <CheckIcon width={16} height={16} /> : <CopyIcon width={16} height={16} />}
+				{copied === target ? t('share.copied') : t('share.copy')}
+			</button>
+		</div>
 	);
 
 	return (
-		<div className="space-y-4 mb-8 text-left">
-			{message && (
+		<div className="space-y-5 text-left">
+			{failed && (
 				<p role="status" className="text-sm text-red-700">
-					{message}
+					{t('share.copyFailed')}
 				</p>
 			)}
-			<div className="bg-gray-50 rounded-lg p-5">
-				<p className="text-sm text-gray-600 mb-2 font-medium">{t('share.directLink')}</p>
-				<div className="flex items-center gap-2">
-					<code className="flex-1 min-w-0 truncate font-mono text-blue-600 bg-white px-3 py-2 rounded-lg border-2 border-blue-200">
-						{shareLink}
-					</code>
-					{copyButton('link', shareLink)}
-				</div>
-				{canNativeShare && (
-					<button
-						onClick={nativeShare}
-						className="mt-3 w-full py-2 rounded-lg border-2 border-blue-200 text-blue-600 hover:bg-blue-50 font-medium"
-					>
-						{t('share.share')}
-					</button>
-				)}
-			</div>
-
-			<div className="bg-gray-50 rounded-lg p-5">
-				<p className="text-sm text-gray-600 mb-2 font-medium">{t('share.pageAndCode')}</p>
-				<div className="flex items-center gap-2 mb-2">
-					<code className="flex-1 min-w-0 truncate font-mono text-gray-700 bg-white px-3 py-2 rounded-lg border-2 border-gray-200">
-						{retrievePageUrl}
-					</code>
-					{copyButton('page', retrievePageUrl)}
-				</div>
-				<div className="flex items-center gap-2 mb-3">
-					<code className="flex-1 text-center text-3xl font-mono font-bold text-blue-600 bg-white px-3 py-2 rounded-lg border-2 border-blue-200">
-						{code}
-					</code>
-					{copyButton('code', code)}
-				</div>
-				{copyButton('message', shareMessage, t('share.copyAsMessage'))}
-			</div>
+			{block('link', shareLink, t('share.linkLabel'), 1)}
+			{block('message', shareMessage, t('share.messageLabel'), 2)}
 		</div>
 	);
 }

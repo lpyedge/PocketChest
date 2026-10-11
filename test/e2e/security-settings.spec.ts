@@ -45,9 +45,12 @@ test('adds a passkey, switches it on, signs in with it, and removes it again', a
 	await expect(passkeys.getByText('Off (set up)')).toBeVisible();
 
 	// Switching it on needs a re-entry with the passkey itself
-	await passkeys.getByRole('button', { name: 'Turn on' }).click();
+	const passkeySwitch = passkeys.getByRole('switch', { name: 'Sign in with Passkeys' });
+	await expect(passkeySwitch).not.toBeChecked();
+	await passkeySwitch.click();
 	await dialog.getByRole('button', { name: 'Confirm with passkey' }).click();
 	await expect(passkeys.getByText('On', { exact: true })).toBeVisible();
+	await expect(passkeySwitch).toBeChecked();
 
 	// Sign out, then sign in again with the passkey alone
 	await dialog.getByRole('button', { name: 'Sign out' }).click();
@@ -59,6 +62,23 @@ test('adds a passkey, switches it on, signs in with it, and removes it again', a
 	await passkeys.getByRole('button', { name: 'Remove' }).click();
 	await dialog.getByRole('button', { name: 'Confirm with passkey' }).click();
 	await expect(passkeys.getByText('Not set up')).toBeVisible();
+});
+
+test('a switch that cannot be used is disabled: the only sign-in method stays on, and an unset method cannot be switched on', async ({
+	page,
+	request,
+}) => {
+	await request.post('/api/auth/bootstrap', { headers: { Origin: ORIGIN }, data: { password: OWNER_PASSWORD } });
+	await page.goto('/upload/');
+	await page.getByLabel('Password', { exact: true }).fill(OWNER_PASSWORD);
+	await page.getByRole('button', { name: 'Sign in with password' }).click();
+	await page.getByRole('button', { name: 'Security settings' }).click();
+
+	const dialog = page.getByRole('dialog', { name: 'Security settings' });
+	// A fresh deployment signs in with the password alone: it cannot be switched off
+	await expect(dialog.getByRole('switch', { name: 'Sign in with Password' })).toBeChecked();
+	await expect(dialog.getByRole('switch', { name: 'Sign in with Password' })).toBeDisabled();
+	await expect(dialog.getByRole('switch', { name: 'Sign in with Passkeys' })).toBeDisabled();
 });
 
 test('shows a scannable QR code and the manual key for the authenticator, and cancelling changes nothing', async ({ page, request }) => {
@@ -155,7 +175,7 @@ test('a wrong authenticator code keeps the QR usable, and the right code then co
 	await expect(authenticator.getByText(/Off \(set up\)|On/).first()).toBeVisible();
 
 	// C25a: switching the method on asks for a code again. The one just used cannot be used twice, and the panel says so
-	await authenticator.getByRole('button', { name: 'Turn on' }).click();
+	await authenticator.getByRole('switch', { name: 'Sign in with Authenticator app' }).click();
 	await expect(dialog.getByText(/wait for the next code/i)).toBeVisible();
 	await dialog.getByRole('button', { name: 'Cancel', exact: true }).click();
 });

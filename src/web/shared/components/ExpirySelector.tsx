@@ -18,14 +18,17 @@ export function ExpirySelector({ value, onChange }: ExpirySelectorProps) {
 	const { t } = useI18n();
 	return (
 		<div className="space-y-2">
-			<label className="block text-sm font-medium text-gray-700">{t('expiry.label')}</label>
-			<div className="grid grid-cols-1 sm:grid-cols-5 gap-2">
+			<label className="block text-sm font-medium text-gray-900">{t('expiry.label')}</label>
+			<div className="grid grid-cols-2 sm:grid-cols-5 gap-2" role="group" aria-label={t('expiry.label')}>
 				{expiryOptions.map((option) => (
 					<button
 						key={option.value}
+						type="button"
+						title={t(option.description)}
+						aria-pressed={value === option.value}
 						onClick={() => onChange(option.value)}
 						className={`
-              p-3 rounded-lg border text-left transition-colors
+              px-3 py-2 rounded-lg border text-center transition-colors
               ${
 								value === option.value
 									? 'border-blue-500 bg-blue-50 text-blue-700'
@@ -34,7 +37,6 @@ export function ExpirySelector({ value, onChange }: ExpirySelectorProps) {
             `}
 					>
 						<div className="font-medium text-sm">{t(option.label)}</div>
-						<div className="text-xs text-gray-500 mt-1">{t(option.description)}</div>
 					</button>
 				))}
 			</div>

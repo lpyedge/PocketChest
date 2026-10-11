@@ -2,8 +2,10 @@ import { useState, useEffect } from 'react';
 import { RetrieveClient } from '@/components/RetrieveClient';
 import { readCodeFromLocation } from '@/lib/share';
 import { useI18n } from '@/i18n/I18nProvider';
-import { LanguageSwitcher } from '@/components/LanguageSwitcher';
-import { appUrl, homeUrlFor } from '@/lib/home';
+import { AppHeader } from '@/components/AppHeader';
+import { IconButton } from '@/components/IconButton';
+import { KeyIcon } from '@/components/Icons';
+import { appUrl } from '@/lib/home';
 
 export default function RetrieveApp() {
 	const { t, locale } = useI18n();
@@ -66,75 +68,66 @@ export default function RetrieveApp() {
 	}
 
 	return (
-		<main className="min-h-screen bg-linear-to-br from-green-50 via-white to-emerald-50 flex items-center justify-center p-4">
-			<div className="max-w-md w-full">
-				<div className="flex justify-end mb-2">
-					<LanguageSwitcher />
-				</div>
-				<div className="text-center mb-8">
-					<a href={homeUrlFor(locale)} className="text-green-600 hover:text-green-800 text-sm">
-						{t('common.backHome')}
-					</a>
-					<div className="text-8xl mb-6 mt-4">📥</div>
-					<h1 className="text-4xl font-bold text-gray-900 mb-4">{t('retrieve.pageTitle')}</h1>
-					<p className="text-xl text-gray-600">{t('retrieve.enterCode')}</p>
+		<div className="min-h-screen bg-gray-50">
+			<AppHeader>
+				<IconButton label={t('nav.enterCode')} onClick={handleBack} align="right">
+					<KeyIcon />
+				</IconButton>
+			</AppHeader>
+			<main className="mx-auto max-w-md px-4 py-10">
+				<div className="mb-6 text-center">
+					<h1 className="text-xl font-semibold text-gray-900">{t('retrieve.pageTitle')}</h1>
+					<p className="mt-1 text-sm text-gray-600">{t('retrieve.enterCode')}</p>
 				</div>
 
-				<div className="bg-white rounded-2xl shadow-lg p-8">
-					<div className="space-y-6">
+				<div className="rounded-2xl bg-white p-6 shadow-sm ring-1 ring-gray-200">
+					<div className="space-y-5">
 						<div>
-							<label className="block text-sm font-medium text-gray-700 mb-3">{t('retrieve.codeField')}</label>
+							<label htmlFor="retrieval-code" className="mb-2 block text-sm font-medium text-gray-900">
+								{t('retrieve.codeField')}
+							</label>
 							<input
+								id="retrieval-code"
 								type="text"
 								value={retrievalCode}
 								onChange={(e) => setRetrievalCode(e.target.value.toUpperCase())}
-								onKeyPress={handleKeyPress}
+								onKeyDown={handleKeyPress}
 								placeholder="A1B2C3"
 								maxLength={6}
-								className="w-full p-4 text-center text-2xl font-mono font-bold border-2 border-gray-300 rounded-lg focus:ring-2 focus:ring-green-500 focus:border-green-500 transition-colors"
+								autoFocus
+								autoComplete="off"
+								className="w-full rounded-lg border-2 border-gray-300 p-3 text-center font-mono text-xl font-bold tracking-widest focus:border-blue-500 focus:outline-none"
 							/>
-							<div className="flex justify-between items-center mt-2">
+							<div className="mt-2 flex items-center justify-between">
 								<p className="text-xs text-gray-500">{t('retrieve.codeHelp')}</p>
-								<p
-									className={`text-xs ${
-										retrievalCode.length === 6 ? 'text-green-600' : retrievalCode.length > 6 ? 'text-red-600' : 'text-gray-400'
-									}`}
-								>
-									{retrievalCode.length}/6
-								</p>
+								<p className={`text-xs ${retrievalCode.length === 6 ? 'text-green-600' : 'text-gray-400'}`}>{retrievalCode.length}/6</p>
 							</div>
 						</div>
 
 						<button
 							onClick={handleRetrieve}
-							disabled={!retrievalCode.trim() || retrievalCode.trim().length !== 6}
-							className="w-full py-4 bg-green-500 text-white rounded-lg hover:bg-green-600 disabled:bg-gray-300 disabled:cursor-not-allowed font-semibold text-lg transition-colors"
+							disabled={retrievalCode.trim().length !== 6}
+							className="w-full rounded-lg bg-blue-600 py-3 text-sm font-semibold text-white hover:bg-blue-700 disabled:cursor-not-allowed disabled:bg-gray-300"
 						>
 							{t('retrieve.access')}
 						</button>
 
-						<div className="text-center">
-							<p className="text-sm text-gray-500">
-								{t('retrieve.noCode')}{' '}
-								<a href={appUrl('/upload/', locale)} className="text-green-600 hover:text-green-800 font-medium">
-									{t('retrieve.shareInstead')}
-								</a>
-							</p>
-						</div>
+						<p className="text-center text-sm text-gray-500">
+							{t('retrieve.noCode')}{' '}
+							<a href={appUrl('/upload/', locale)} className="font-medium text-blue-600 hover:text-blue-800">
+								{t('retrieve.shareInstead')}
+							</a>
+						</p>
 					</div>
 				</div>
 
-				<div className="mt-8 text-center">
-					<div className="bg-white rounded-lg p-4 shadow-sm">
-						<h3 className="font-medium text-gray-900 mb-2">{t('retrieve.howTitle')}</h3>
-						<div className="text-sm text-gray-600 space-y-1">
-							<p>{t('retrieve.how1')}</p>
-							<p>{t('retrieve.how2')}</p>
-							<p>{t('retrieve.how3')}</p>
-						</div>
-					</div>
+				<div className="mt-6 space-y-1 rounded-xl bg-white/60 p-4 text-xs text-gray-600">
+					<h2 className="mb-1 text-sm font-medium text-gray-900">{t('retrieve.howTitle')}</h2>
+					<p>{t('retrieve.how1')}</p>
+					<p>{t('retrieve.how2')}</p>
+					<p>{t('retrieve.how3')}</p>
 				</div>
-			</div>
-		</main>
+			</main>
+		</div>
 	);
 }

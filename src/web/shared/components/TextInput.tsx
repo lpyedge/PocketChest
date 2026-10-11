@@ -1,113 +1,39 @@
 import { useState } from 'react';
-import { TextItem } from '@/lib/types';
+import { Toggle } from '@/components/Toggle';
 import { useI18n } from '@/i18n/I18nProvider';
 
 interface TextInputProps {
-	onTextItemsChange: (items: TextItem[]) => void;
-	textItems: TextItem[];
+	value: string;
+	onChange: (value: string) => void;
 }
 
-export function TextInput({ onTextItemsChange, textItems }: TextInputProps) {
+// Text is optional and secondary to files: it stays behind a switch, and one box holds all of it
+export function TextInput({ value, onChange }: TextInputProps) {
 	const { t } = useI18n();
-	const [currentText, setCurrentText] = useState('');
-	const [currentFilename, setCurrentFilename] = useState('');
+	const [open, setOpen] = useState(value.length > 0);
 
-	const addTextItem = () => {
-		if (!currentText.trim()) return;
-
-		const defaultName = t('text.defaultName', { n: textItems.length + 1 });
-		const displayName = currentFilename.trim() || defaultName;
-		const newItem: TextItem = {
-			content: currentText,
-			filename: `${displayName}.txt`, // Still store as .txt for backend
-		};
-
-		onTextItemsChange([...textItems, newItem]);
-		setCurrentText('');
-		setCurrentFilename('');
-	};
-
-	const removeTextItem = (index: number) => {
-		const newItems = textItems.filter((_, i) => i !== index);
-		onTextItemsChange(newItems);
-	};
-
-	const handleKeyDown = (e: React.KeyboardEvent) => {
-		if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) {
-			addTextItem();
-		}
+	const setVisible = (next: boolean) => {
+		// Hidden text would still be uploaded, so closing the box discards it (after asking, when there is some)
+		if (!next && value.trim() && !window.confirm(t('text.discardConfirm'))) return;
+		if (!next) onChange('');
+		setOpen(next);
 	};
 
 	return (
-		<div className="w-full space-y-4">
-			<div className="border border-gray-300 rounded-lg p-4">
-				<div className="space-y-3">
-					<div>
-						<label className="block text-sm font-medium text-gray-700 mb-1">{t('text.content')}</label>
-						<textarea
-							value={currentText}
-							onChange={(e) => setCurrentText(e.target.value)}
-							onKeyDown={handleKeyDown}
-							placeholder={t('text.placeholder')}
-							className="w-full h-48 p-4 border-2 border-gray-300 rounded-lg resize-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 font-mono text-sm"
-						/>
-					</div>
-
-					<div className="flex gap-2">
-						<div className="flex-1">
-							<label className="block text-sm font-medium text-gray-700 mb-1">{t('text.label')}</label>
-							<input
-								type="text"
-								value={currentFilename}
-								onChange={(e) => setCurrentFilename(e.target.value)}
-								placeholder={t('text.defaultName', { n: textItems.length + 1 })}
-								className="w-full p-2 border border-gray-300 rounded focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-							/>
-						</div>
-						<div className="flex items-end">
-							<button
-								onClick={addTextItem}
-								disabled={!currentText.trim()}
-								className="px-4 py-2 bg-blue-500 text-white rounded hover:bg-blue-600 disabled:bg-gray-300 disabled:cursor-not-allowed"
-							>
-								{t('text.add')}
-							</button>
-						</div>
-					</div>
-				</div>
+		<div>
+			<div className="flex items-center justify-between gap-3">
+				<span className="text-sm font-medium text-gray-900">{t('text.toggle')}</span>
+				<Toggle checked={open} onChange={setVisible} label={t('text.toggle')} />
 			</div>
-
-			{textItems.length > 0 && (
-				<div className="space-y-2">
-					<h3 className="font-medium">{t('text.items', { count: textItems.length })}</h3>
-					{textItems.map((item, index) => {
-						// Remove .txt extension for display
-						const displayName = item.filename?.endsWith('.txt')
-							? item.filename.slice(0, -4)
-							: item.filename || t('text.defaultName', { n: index + 1 });
-						return (
-							<div key={index} className="p-3 bg-gray-50 rounded">
-								<div className="flex items-start justify-between">
-									<div className="flex-1 min-w-0">
-										<p className="text-sm font-medium">{displayName}</p>
-										<p className="text-xs text-gray-500 mt-1 line-clamp-2 font-mono">
-											{item.content.slice(0, 100)}
-											{item.content.length > 100 ? '...' : ''}
-										</p>
-										<p className="text-xs text-gray-400 mt-1">{t('text.characters', { count: item.content.length })}</p>
-									</div>
-									<button
-										onClick={() => removeTextItem(index)}
-										aria-label={t('common.remove')}
-										className="ml-2 text-red-500 hover:text-red-700"
-									>
-										✕
-									</button>
-								</div>
-							</div>
-						);
-					})}
-				</div>
+			{open && (
+				<textarea
+					value={value}
+					onChange={(event) => onChange(event.target.value)}
+					placeholder={t('text.placeholder')}
+					aria-label={t('text.content')}
+					autoFocus
+					className="mt-3 block h-40 w-full resize-y rounded-lg border border-gray-300 p-3 font-mono text-sm focus:border-blue-500 focus:outline-2 focus:outline-blue-500"
+				/>
 			)}
 		</div>
 	);

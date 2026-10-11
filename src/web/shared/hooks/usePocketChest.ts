@@ -218,6 +218,14 @@ export function usePocketChest() {
 		[abortController, api, isFinalizing],
 	);
 
+	// Back to a clean slate once a finished share has been shown, so its progress does not linger into the next one
+	const resetUpload = useCallback(() => {
+		setUploadStatus('idle');
+		setUploadProgress({ percentage: 0, loaded: 0, total: 0 });
+		setFileProgress([]);
+		setError(null);
+	}, []);
+
 	const hasPendingCompletion = useCallback((sessionId: string) => pendingCompletion.current?.sessionId === sessionId, []);
 
 	return {
@@ -234,6 +242,7 @@ export function usePocketChest() {
 		uploadStatus,
 		isFinalizing,
 		hasPendingCompletion,
+		resetUpload,
 		fileProgress,
 		clearError: () => setError(null),
 	};

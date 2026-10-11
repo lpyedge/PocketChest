@@ -20,7 +20,7 @@ describe('wording that must match what the service does', () => {
 	});
 
 	it('does not use "item(s)" and works for a count of one', () => {
-		for (const key of ['progress.items', 'progress.successBody']) {
+		for (const key of ['progress.items', 'history.files']) {
 			expect(en[key as keyof typeof en]).not.toContain('(s)');
 			expect(en[key as keyof typeof en]).not.toMatch(/\{count\} items/);
 		}

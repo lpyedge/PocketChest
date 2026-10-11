@@ -1,6 +1,7 @@
 import { useState, useRef, DragEvent } from 'react';
 import { useI18n } from '@/i18n/I18nProvider';
 import { formatBytes } from '@/lib/format';
+import { CloseIcon, FileIcon, UploadCloudIcon } from '@/components/Icons';
 
 interface FileUploadProps {
 	onFilesChange: (files: File[]) => void;
@@ -54,7 +55,7 @@ export function FileUpload({ onFilesChange, files }: FileUploadProps) {
 		<div className="w-full">
 			<div
 				className={`
-          border-2 border-dashed rounded-lg p-8 text-center transition-colors cursor-pointer
+          border-2 border-dashed rounded-xl p-6 text-center transition-colors cursor-pointer
           ${isDragOver ? 'border-blue-500 bg-blue-50' : 'border-gray-300 hover:border-gray-400 hover:bg-gray-50'}
         `}
 				onDragEnter={handleDragEnter}
@@ -64,10 +65,10 @@ export function FileUpload({ onFilesChange, files }: FileUploadProps) {
 				onClick={() => fileInputRef.current?.click()}
 			>
 				<div className="space-y-2">
-					<div className="text-4xl">📁</div>
+					<UploadCloudIcon width={32} height={32} className="mx-auto text-gray-400" />
 					<div>
-						<p className="text-lg font-medium">{t('files.dropHere')}</p>
-						<p className="text-sm text-gray-500">{t('files.selectMultiple')}</p>
+						<p className="text-sm font-medium text-gray-900">{t('files.dropHere')}</p>
+						<p className="text-xs text-gray-500">{t('files.selectMultiple')}</p>
 					</div>
 				</div>
 
@@ -76,9 +77,10 @@ export function FileUpload({ onFilesChange, files }: FileUploadProps) {
 
 			{files.length > 0 && (
 				<div className="mt-4 space-y-2">
-					<h3 className="font-medium">{t('files.selected', { count: files.length })}</h3>
+					<h3 className="text-sm font-medium text-gray-700">{t('files.selected', { count: files.length })}</h3>
 					{files.map((file, index) => (
-						<div key={index} className="flex items-center justify-between p-3 bg-gray-50 rounded">
+						<div key={index} className="flex items-center gap-3 p-2.5 bg-gray-50 rounded-lg">
+							<FileIcon width={18} height={18} className="shrink-0 text-gray-400" />
 							<div className="flex-1 min-w-0">
 								<p className="text-sm font-medium truncate">{file.name}</p>
 								<p className="text-xs text-gray-500">{formatFileSize(file.size)}</p>
@@ -89,9 +91,10 @@ export function FileUpload({ onFilesChange, files }: FileUploadProps) {
 									removeFile(index);
 								}}
 								aria-label={t('files.remove', { name: file.name })}
-								className="ml-2 text-red-500 hover:text-red-700"
+								title={t('files.remove', { name: file.name })}
+								className="rounded p-1 text-gray-400 hover:bg-red-50 hover:text-red-600"
 							>
-								✕
+								<CloseIcon width={16} height={16} />
 							</button>
 						</div>
 					))}

@@ -1,0 +1,62 @@
+<!doctype html>
+<html lang="zh-Hant">
+	<head>
+		<meta charset="UTF-8" />
+		<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+		<title>PocketChest</title>
+		<meta name="description" content="快速分享檔案與文字" />
+		<link rel="icon" href="/favicon.png" type="image/png" />
+		<link rel="apple-touch-icon" href="/favicon.png" />
+		<link rel="stylesheet" href="/shared/globals.css" />
+	</head>
+	<body>
+		<main class="min-h-screen bg-linear-to-br from-blue-50 via-white to-indigo-50 flex items-center justify-center p-4">
+			<div class="max-w-4xl w-full">
+				<nav class="flex justify-end gap-4 mb-6 text-sm" aria-label="語言">
+					<a href="/zh-Hant/" hreflang="zh-Hant" lang="zh-Hant" class="text-blue-600 hover:text-blue-800 underline">繁體中文</a>
+					<a href="/ja/" hreflang="ja" lang="ja" class="text-blue-600 hover:text-blue-800 underline">日本語</a>
+					<a href="/en/" hreflang="en" lang="en" class="text-blue-600 hover:text-blue-800 underline">English</a>
+				</nav>
+				<div class="text-center mb-12">
+					<div class="text-8xl mb-6">📦</div>
+					<h1 class="text-4xl sm:text-6xl font-bold text-gray-900 mb-4">PocketChest</h1>
+					<p class="text-xl text-gray-600 max-w-2xl mx-auto">安全的暫存檔案分享。上傳檔案或文字，取得取件碼，即可分享給任何人。</p>
+				</div>
+
+				<div class="grid md:grid-cols-2 gap-8 max-w-4xl mx-auto">
+					<a href="/upload/?lang=zh-Hant" class="group block">
+						<div
+							class="bg-white rounded-2xl shadow-lg hover:shadow-xl transition-all duration-300 p-8 text-center border-2 border-transparent hover:border-blue-200 transform hover:scale-105 h-full flex flex-col"
+						>
+							<div class="text-6xl mb-4 group-hover:scale-110 transition-transform duration-300">📤</div>
+							<h2 class="text-3xl font-bold text-gray-900 mb-3">分享檔案</h2>
+							<p class="text-gray-600 mb-6 leading-relaxed flex-1">上傳檔案或文字，產生安全的取件碼。可設定有效期限，分享給任何人。</p>
+							<div class="bg-blue-500 text-white px-8 py-3 rounded-lg font-semibold group-hover:bg-blue-600 transition-colors duration-300">
+								開始分享
+							</div>
+						</div>
+					</a>
+
+					<a href="/retrieve/?lang=zh-Hant" class="group block">
+						<div
+							class="bg-white rounded-2xl shadow-lg hover:shadow-xl transition-all duration-300 p-8 text-center border-2 border-transparent hover:border-green-200 transform hover:scale-105 h-full flex flex-col"
+						>
+							<div class="text-6xl mb-4 group-hover:scale-110 transition-transform duration-300">📥</div>
+							<h2 class="text-3xl font-bold text-gray-900 mb-3">取回檔案</h2>
+							<p class="text-gray-600 mb-6 leading-relaxed flex-1">有取件碼嗎？在此輸入，即可開啟並下載分享的檔案與文字。</p>
+							<div
+								class="bg-green-500 text-white px-8 py-3 rounded-lg font-semibold group-hover:bg-green-600 transition-colors duration-300"
+							>
+								輸入取件碼
+							</div>
+						</div>
+					</a>
+				</div>
+
+				<div class="mt-12 text-center">
+					<p class="text-gray-500 text-sm">訪客取件不需登入；上傳需管理員登入。有期限的分享會在到期後清除。</p>
+				</div>
+			</div>
+		</main>
+	</body>
+</html>

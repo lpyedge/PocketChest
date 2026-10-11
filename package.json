@@ -1,5 +1,6 @@
 {
 	"name": "pocketchest",
+	"description": "Private, self-hosted file and text sharing on one Cloudflare Worker and one R2 bucket",
 	"version": "1.0.0",
 	"private": true,
 	"type": "module",

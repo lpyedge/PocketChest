@@ -9,7 +9,7 @@ Owner 密碼以 `HMAC-SHA256-KEYED-V1` 儲存：一個隨機 Salt，加上由 Wo
 因此：
 
 - `node scripts/reset-owner-password.mjs` **只會說明這件事並以錯誤結束**；它不讀、也不寫 R2。
-- 這是刻意的，不是缺漏：我們不用假的成功回報，也不新增公開的「忘記密碼」入口或永久後門。`ADMIN_BOOTSTRAP_PASSWORD` 只用於首次初始化，不能用來恢復。
+- 這是刻意的，不是缺漏：我們不用假的成功回報，也不新增公開的「忘記密碼」入口或永久後門。首次初始化時 Worker 會自動產生 Owner 密碼（私人 R2 物件 `auth/initial-owner-password.txt`），它也不能用來恢復。
 - 不需要、也不應該備份或貼出 `JWT_SECRET` 來換取離線重設功能。
 
 ## 日常做法：登入後改密碼
@@ -23,7 +23,7 @@ Owner 密碼以 `HMAC-SHA256-KEYED-V1` 儲存：一個隨機 Salt，加上由 Wo
 目前沒有安全的離線重設路徑。可行的做法，由部署者自行評估：
 
 1. 確認不是暫時問題：Passkey 是否在原本的網域上、驗證器的時間是否正確、是否被登入鎖定（等鎖定時間結束）。
-2. 若 Owner 紀錄損毀或確定無法恢復，而你**接受清空 Owner**：部署者可用自己的 Cloudflare 憑證刪除 `auth/owner.json` 與 `auth/bootstrap-marker`，並確認 `ADMIN_BOOTSTRAP_PASSWORD`（至少 16 個字元）仍設定著；網站下一次開啟時就會用它重新建立 Owner。這會讓所有 Owner Session 與所有已綁定的驗證器、Passkey 失效，但不會動 `codes/`、`sessions/` 與檔案資料。這是破壞性操作，請先備份 `auth/owner.json`，並在維護窗口進行。
+2. 若 Owner 紀錄損毀或確定無法恢復，而你**接受清空 Owner**：部署者可用自己的 Cloudflare 憑證刪除 `auth/owner.json` 與 `auth/bootstrap-marker`，並確認 `SETUP_ARMED` 仍為 `yes`；網站下一次開啟時會重新建立 Owner：若 `auth/initial-owner-password.txt` 仍在，就用它的密碼，否則產生新的一組並保存在同一個物件中。這會讓所有 Owner Session 與所有已綁定的驗證器、Passkey 失效，但不會動 `codes/`、`sessions/` 與檔案資料。這是破壞性操作，請先備份 `auth/owner.json`，並在維護窗口進行。
 3. 若是 `JWT_SECRET` 被更換或遺失：密碼與驗證器都無法再驗證，處理方式同第 2 點；已簽發的上傳／下載令牌也會失效。
 
 ## 首次設定被中斷（有 marker、沒有 Owner）
@@ -36,7 +36,7 @@ node scripts/recover-bootstrap.mjs --bucket pocket-chest
 ```
 
 - 只在「marker 存在且 Owner 不存在」時才會動作；Owner 已存在則拒絕，marker 保持不變。
-- 工具**不建立 Owner、不需要密碼**。移除後，首次設定仍須提供部署設定的 `ADMIN_BOOTSTRAP_PASSWORD`。
+- 工具**不建立 Owner、不需要密碼**。移除後，首次設定會由 Worker 自動完成（需要 `SETUP_ARMED`，由部署程式設定）。
 - 沒有任何匿名 HTTP 重新初始化入口。`wrangler r2 object delete` 不是條件刪除，所以請在維護窗口進行，暫停對外的登入流程。
 - 不要手動刪除 `auth/bootstrap-marker` 以外的情況下重開設定；Owner 已存在時絕對不要刪除 marker。
 

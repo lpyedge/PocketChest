@@ -45,11 +45,11 @@ test('shows only the passkey button when only the passkey is switched on', async
 	await expect(page.getByLabel('Authenticator code')).toHaveCount(0);
 });
 
-test('never offers to create an owner: a missing setup password is explained, and there is no upload form', async ({ page }) => {
+test('never offers to create an owner: a not-yet-armed first setup is explained, and there is no upload form', async ({ page }) => {
 	await withMethods(page, { setup: 'password-missing', password: false, totp: false, passkey: false });
 	await page.goto('/upload/');
 
-	await expect(page.getByText('no valid setup password')).toBeVisible();
+	await expect(page.getByText('not ready for first setup yet')).toBeVisible();
 	await expect(page.getByLabel('Administrator password')).toHaveCount(0);
 	await expect(page.getByLabel('Password', { exact: true })).toHaveCount(0);
 	await expect(page.getByRole('button', { name: 'Share Files & Text' })).toHaveCount(0);

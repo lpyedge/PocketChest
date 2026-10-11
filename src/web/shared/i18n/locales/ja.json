@@ -231,7 +231,7 @@
 	"code.EXPIRY_NOT_LATER": "この共有はすでにこれ以上の期間が設定されています。より長い期間を選んでください。",
 	"code.SHARE_EXPIRED": "この共有はすでに期限切れです。",
 	"auth.setupInitializing": "初回セットアップを完了しています。数秒後にもう一度お試しください。",
-	"auth.setupPasswordMissing": "このインストールにはオーナーも有効なセットアップ用パスワードもないため、誰もサインインできません。デプロイした人が ADMIN_BOOTSTRAP_PASSWORD（16 文字以上）を設定して、再度デプロイしてください。",
+	"auth.setupPasswordMissing": "このインストールは初回セットアップがまだ有効になっていないため、誰もサインインできません。デプロイした人がデプロイをもう一度実行してください（DEPLOYMENT.md を参照）。",
 	"auth.setupRecoveryRequired": "初回セットアップが途中で中断されました。デプロイした人が復旧する必要があります（docs/RECOVERY.md）。",
 	"auth.setupFailed": "今回は初回セットアップを完了できませんでした。何も変更されていません。もう一度お試しください。",
 	"auth.setupRetry": "もう一度試す",

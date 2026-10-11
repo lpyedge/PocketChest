@@ -231,7 +231,7 @@
 	"code.EXPIRY_NOT_LATER": "The share already lasts at least this long. Choose a later option.",
 	"code.SHARE_EXPIRED": "This share has already expired.",
 	"auth.setupInitializing": "Finishing the first setup. Try again in a few seconds.",
-	"auth.setupPasswordMissing": "This installation has no owner and no valid setup password, so nobody can sign in. The person who deployed it needs to set ADMIN_BOOTSTRAP_PASSWORD (at least 16 characters) and deploy again.",
+	"auth.setupPasswordMissing": "This installation is not ready for first setup yet, so nobody can sign in. The person who deployed it needs to run the deploy again (see DEPLOYMENT.md).",
 	"auth.setupRecoveryRequired": "First setup was interrupted. The person who deployed this installation needs to recover it (docs/RECOVERY.md).",
 	"auth.setupFailed": "First setup could not be completed this time. Nothing was changed; please try again.",
 	"auth.setupRetry": "Try again",

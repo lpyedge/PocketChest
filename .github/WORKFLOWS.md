@@ -11,6 +11,10 @@ Runs on pushes to `master`, `dev` and `claude/**`, and on pull requests to `mast
 
 No secrets are required. Tests use the JWT secret defined in `vitest.config.mts`, and the dry run never contacts Cloudflare.
 
+## Update from upstream (`upstream-update.yml`)
+
+For copies and forks only (it does nothing in `lpyedge/PocketChest` itself). Started by hand or weekly; merges the official `master` into a new branch and opens a pull request. No Cloudflare access, no deploy, no auto merge; token permissions are `contents: write` and `pull-requests: write`. See [OPERATIONS.md](../docs/OPERATIONS.md#update-from-upstream).
+
 ## Running the same checks locally
 
 ```bash

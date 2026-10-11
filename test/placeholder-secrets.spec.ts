@@ -18,26 +18,21 @@ describe('values copied from .dev.vars.example are refused', () => {
 		e.ADMIN_BOOTSTRAP_PASSWORD = saved.password;
 	});
 
-	const bootstrap = (password: string) =>
-		testFetch('http://example.com/api/auth/bootstrap', {
-			method: 'POST',
-			headers: { 'Content-Type': 'application/json', Origin: 'http://example.com' },
-			body: JSON.stringify({ password }),
-		});
+	const methods = () => testFetch('http://example.com/api/auth/methods');
 
 	for (const placeholder of [
 		'REPLACE_WITH_UNIQUE_PASSWORD_16_CHARS_MINIMUM',
 		'replace_with_something_long_enough',
 		'change-me-change-me-change-me',
 	]) {
-		it(`will not create the owner with the setup password "${placeholder}", even when it is typed correctly`, async () => {
+		it(`will not create the owner from the setup password "${placeholder}"`, async () => {
 			e.BOOTSTRAP_ENABLED = 'true';
 			e.ADMIN_BOOTSTRAP_PASSWORD = placeholder;
 
-			const response = await bootstrap(placeholder);
+			const response = await methods();
 
-			expect(response.status).toBe(500);
-			expect(((await response.json()) as any).code).toBe('BOOTSTRAP_MISCONFIGURED');
+			expect(response.status).toBe(200);
+			expect(((await response.json()) as any).setup).toBe('password-missing');
 			expect(await env.R2_STORAGE.head('auth/owner.json')).toBeNull();
 			expect(await env.R2_STORAGE.head('auth/bootstrap-marker')).toBeNull();
 		});

@@ -4,7 +4,7 @@ import { loginWithPassword } from '../src/worker/auth/login';
 import { FAILURE_LIMIT, releaseAttempt, reserveAttempt, throttleKey } from '../src/worker/auth/throttle';
 import { configureTotp } from './utils/security-helpers';
 import { createOwnerOnce } from '../src/worker/auth/owner';
-import { resetStorage, setupTestEnvironment, testFetch, TEST_ORIGIN, TEST_OWNER_PASSWORD } from './utils/test-setup';
+import { resetStorage, setupTestEnvironment, testFetch, TEST_ORIGIN, TEST_OWNER_PASSWORD, TEST_JWT_SECRET } from './utils/test-setup';
 
 const bucket = () => env.R2_STORAGE;
 const SEED = new Uint8Array(20).map((_, index) => 70 + index);
@@ -31,7 +31,7 @@ describe('R11 the guess budget is reserved before a guess is checked', () => {
 	beforeEach(async () => {
 		await resetStorage();
 		await setupTestEnvironment();
-		await createOwnerOnce(bucket(), TEST_OWNER_PASSWORD);
+		await createOwnerOnce(bucket(), TEST_OWNER_PASSWORD, TEST_JWT_SECRET);
 	});
 
 	it('C14: 100 parallel wrong passwords from 100 addresses get at most five checks, and the rest are refused', async () => {

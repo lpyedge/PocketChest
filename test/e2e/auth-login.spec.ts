@@ -6,12 +6,12 @@ test.beforeEach(async ({ page }) => {
 });
 
 // Describes which sign-in methods the page is told are available; the server is not involved
-async function withMethods(page: Page, methods: { setupRequired: boolean; password: boolean; totp: boolean; passkey: boolean }) {
+async function withMethods(page: Page, methods: { setup?: string; password: boolean; totp: boolean; passkey: boolean }) {
 	await page.route('**/api/auth/session', (route) => route.fulfill({ json: { authenticated: false } }));
 	await page.route('**/api/auth/methods', (route) =>
 		route.fulfill({
 			json: {
-				setupRequired: methods.setupRequired,
+				setup: methods.setup ?? 'ready',
 				methods: { password: { enabled: methods.password }, totp: { enabled: methods.totp }, passkey: { enabled: methods.passkey } },
 			},
 		}),
@@ -19,7 +19,7 @@ async function withMethods(page: Page, methods: { setupRequired: boolean; passwo
 }
 
 test('shows only the password form when only the password is switched on', async ({ page }) => {
-	await withMethods(page, { setupRequired: false, password: true, totp: false, passkey: false });
+	await withMethods(page, { password: true, totp: false, passkey: false });
 	await page.goto('/upload/');
 
 	await expect(page.getByRole('button', { name: 'Sign in with password' })).toBeVisible();
@@ -28,7 +28,7 @@ test('shows only the password form when only the password is switched on', async
 });
 
 test('shows only the authenticator form when only the authenticator is switched on', async ({ page }) => {
-	await withMethods(page, { setupRequired: false, password: false, totp: true, passkey: false });
+	await withMethods(page, { password: false, totp: true, passkey: false });
 	await page.goto('/upload/');
 
 	await expect(page.getByLabel('Authenticator code')).toBeVisible();
@@ -37,7 +37,7 @@ test('shows only the authenticator form when only the authenticator is switched 
 });
 
 test('shows only the passkey button when only the passkey is switched on', async ({ page }) => {
-	await withMethods(page, { setupRequired: false, password: false, totp: false, passkey: true });
+	await withMethods(page, { password: false, totp: false, passkey: true });
 	await page.goto('/upload/');
 
 	await expect(page.getByRole('button', { name: 'Sign in with passkey' })).toBeVisible();
@@ -45,17 +45,32 @@ test('shows only the passkey button when only the passkey is switched on', async
 	await expect(page.getByLabel('Authenticator code')).toHaveCount(0);
 });
 
-test('offers the setup form on a fresh deployment, and no upload form', async ({ page }) => {
-	await withMethods(page, { setupRequired: true, password: false, totp: false, passkey: false });
+test('never offers to create an owner: a missing setup password is explained, and there is no upload form', async ({ page }) => {
+	await withMethods(page, { setup: 'password-missing', password: false, totp: false, passkey: false });
 	await page.goto('/upload/');
 
-	await expect(page.getByText('First-time setup')).toBeVisible();
-	await expect(page.getByLabel('Administrator password')).toBeVisible();
+	await expect(page.getByText('no valid setup password')).toBeVisible();
+	await expect(page.getByLabel('Administrator password')).toHaveCount(0);
+	await expect(page.getByLabel('Password', { exact: true })).toHaveCount(0);
 	await expect(page.getByRole('button', { name: 'Share Files & Text' })).toHaveCount(0);
 });
 
+test('an interrupted first setup is reported as needing recovery', async ({ page }) => {
+	await withMethods(page, { setup: 'recovery-required', password: false, totp: false, passkey: false });
+	await page.goto('/upload/');
+	await expect(page.getByText('First setup was interrupted')).toBeVisible();
+	await expect(page.getByLabel('Password', { exact: true })).toHaveCount(0);
+});
+
+test('a fresh installation shows the ordinary sign-in at once, with no second setup step', async ({ page, request }) => {
+	await request.get('/api/auth/methods');
+	await page.goto('/upload/');
+	await expect(page.getByRole('button', { name: 'Sign in with password' })).toBeVisible();
+	await expect(page.getByText('First-time setup')).toHaveCount(0);
+});
+
 test('fails closed when nothing is switched on, and never shows an upload form', async ({ page }) => {
-	await withMethods(page, { setupRequired: false, password: false, totp: false, passkey: false });
+	await withMethods(page, { password: false, totp: false, passkey: false });
 	await page.goto('/upload/');
 
 	await expect(page.getByText('No sign-in method is available on this page')).toBeVisible();
@@ -64,7 +79,7 @@ test('fails closed when nothing is switched on, and never shows an upload form',
 });
 
 test('shows how long to wait after a lockout, instead of a blank page', async ({ page }) => {
-	await withMethods(page, { setupRequired: false, password: true, totp: false, passkey: false });
+	await withMethods(page, { password: true, totp: false, passkey: false });
 	await page.route('**/api/auth/login/password', (route) =>
 		route.fulfill({
 			status: 429,
@@ -82,7 +97,7 @@ test('shows how long to wait after a lockout, instead of a blank page', async ({
 
 test('signs in with the real owner password and reaches the upload form', async ({ page, request }) => {
 	// Claims the owner on a fresh bucket; later runs get 409 because the owner already exists
-	await request.post('/api/auth/bootstrap', { headers: { Origin: ORIGIN }, data: { password: OWNER_PASSWORD } });
+	await request.get('/api/auth/methods');
 	await page.goto('/upload/');
 
 	await page.getByLabel('Password', { exact: true }).fill('not-the-password-at-all');
@@ -93,4 +108,21 @@ test('signs in with the real owner password and reaches the upload form', async 
 	await page.getByRole('button', { name: 'Sign in with password' }).click();
 	await expect(page.getByRole('button', { name: 'Security settings' })).toBeVisible();
 	await expect(page.getByText('Upload files or text to get a shareable code')).toBeVisible();
+});
+
+test('a failed sign-in check is reported as such, not as a wrong password or a sign-out, and one retry recovers', async ({ page }) => {
+	let failures = 1;
+	await page.route('**/api/auth/session', (route) => {
+		if (failures-- > 0) return route.abort('failed');
+		return route.fulfill({ json: { authenticated: false } });
+	});
+	await page.goto('/upload/');
+
+	await expect(page.getByText('You are not signed out')).toBeVisible();
+	await expect(page.getByText('Wrong password')).toHaveCount(0);
+	await expect(page.getByLabel('Password', { exact: true })).toHaveCount(0);
+
+	await page.getByRole('button', { name: 'Try again' }).click();
+	await expect(page.getByRole('button', { name: 'Sign in with password' })).toBeVisible();
+	await expect(page.getByText('You are not signed out')).toHaveCount(0);
 });

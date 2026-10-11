@@ -14,6 +14,7 @@ import {
 	sessionKey,
 	SessionError,
 	transitionSession,
+	updateSession,
 } from './session';
 import { describeFailure, generateRetrievalCode } from './utils';
 import { ApiError } from './errors';
@@ -75,6 +76,11 @@ export async function isSessionOpen(bucket: R2Bucket, sessionId: string): Promis
 		}
 		throw error;
 	}
+}
+
+// Marker for a revoked share whose content has not been removed yet; the cleanup job finishes the removal
+function revokedKey(sessionId: string): string {
+	return `revoked/${sessionId}`;
 }
 
 async function closeSession(bucket: R2Bucket, sessionId: string, createdAt: number): Promise<void> {
@@ -270,7 +276,11 @@ export async function getChest(bucket: R2Bucket, code: string, now: number): Pro
 		return null;
 	}
 
-	// The manifest alone is not enough: the session must agree that this code was issued for it
+	return verifyChest(bucket, manifest, code, now);
+}
+
+// The manifest alone is not enough: the session must agree that this code was issued for it
+async function verifyChest(bucket: R2Bucket, manifest: ChestManifest, code: string, now: number): Promise<ChestManifest | null> {
 	let session: Awaited<ReturnType<typeof getSessionRecord>>;
 	try {
 		session = await getSessionRecord(bucket, manifest.sessionId);
@@ -292,6 +302,59 @@ export async function getChest(bucket: R2Bucket, code: string, now: number): Pro
 		return null;
 	}
 	return manifest;
+}
+
+export interface ShareSummary {
+	sessionId: string;
+	retrievalCode: string;
+	createdAt: number;
+	expiresAt: number | null;
+	fileCount: number;
+	totalSize: number;
+}
+
+export const SHARES_PAGE_DEFAULT = 20;
+export const SHARES_PAGE_MAX = 50;
+
+/**
+ * One page of the Owner's live shares. Only chests that getChest would serve are listed: unfinished, expired,
+ * mismatched and corrupt records are skipped (never repaired here), so a page may hold fewer than `limit` entries
+ * even when more follow; keep following `cursor` until it is null.
+ */
+export async function listShares(
+	bucket: R2Bucket,
+	now: number,
+	limit: number,
+	cursor?: string,
+): Promise<{ shares: ShareSummary[]; cursor: string | null }> {
+	let page: R2Objects;
+	try {
+		page = await bucket.list({ prefix: 'codes/', limit, cursor });
+	} catch (error) {
+		throw storageUnavailable(error);
+	}
+	const shares: ShareSummary[] = [];
+	for (const object of page.objects) {
+		const code = object.key.slice('codes/'.length);
+		let manifest: ChestManifest | null;
+		try {
+			manifest = await readManifest(bucket, code);
+		} catch (error) {
+			if (error instanceof SyntaxError) continue;
+			throw storageUnavailable(error);
+		}
+		const chest = manifest ? await verifyChest(bucket, manifest, code, now) : null;
+		if (!chest) continue;
+		shares.push({
+			sessionId: chest.sessionId,
+			retrievalCode: code,
+			createdAt: chest.createdAt,
+			expiresAt: chest.expiresAt,
+			fileCount: chest.files.length,
+			totalSize: chest.files.reduce((sum, file) => sum + file.size, 0),
+		});
+	}
+	return { shares, cursor: page.truncated ? page.cursor : null };
 }
 
 function storageUnavailable(error: unknown): ApiError {
@@ -335,12 +398,13 @@ export interface CleanupResult {
 	orphanCodeClaims: number;
 	orphanClaims: number;
 	orphanObjects: number;
+	revokedPurged: number;
 	sessionsRemoved: number;
 	throttlesReset: number;
 	challengesRemoved: number;
 	deletedObjects: number;
 	// true when more due work exists than this run processed; the next run continues it
-	backlog: { expired: boolean; abandoned: boolean; finalizing: boolean; sessions: boolean; challenges: boolean };
+	backlog: { expired: boolean; abandoned: boolean; finalizing: boolean; revoked: boolean; sessions: boolean; challenges: boolean };
 	errors: string[];
 }
 
@@ -414,11 +478,12 @@ export async function cleanupExpired(bucket: R2Bucket, now: number): Promise<Cle
 		orphanCodeClaims: 0,
 		orphanClaims: 0,
 		orphanObjects: 0,
+		revokedPurged: 0,
 		sessionsRemoved: 0,
 		throttlesReset: 0,
 		challengesRemoved: 0,
 		deletedObjects: 0,
-		backlog: { expired: false, abandoned: false, finalizing: false, sessions: false, challenges: false },
+		backlog: { expired: false, abandoned: false, finalizing: false, revoked: false, sessions: false, challenges: false },
 		errors: [],
 	};
 
@@ -529,6 +594,29 @@ export async function cleanupExpired(bucket: R2Bucket, now: number): Promise<Cle
 		}
 	}
 
+	// 3b. Revoked shares: finish removing what an interrupted revocation left behind
+	try {
+		const page = await bucket.list({ prefix: 'revoked/', limit: CLEANUP_BATCH_LIMIT });
+		result.backlog.revoked = page.truncated;
+		for (const marker of page.objects) {
+			const sessionId = marker.key.slice('revoked/'.length);
+			try {
+				const current = await getSessionRecord(bucket, sessionId);
+				if (current?.record.status === 'REVOKED') {
+					result.deletedObjects += await purgeRevoked(bucket, current.record);
+					result.revokedPurged++;
+				} else if (current === null || now - Math.floor(marker.uploaded.getTime() / 1000) > FINALIZE_STALE_SECONDS) {
+					// Nothing to purge: the record is gone, or the revocation never took hold (a marker is written just before it)
+					await deleteKeys(bucket, [marker.key]);
+				}
+			} catch (error) {
+				result.errors.push(`Failed to purge revoked share of session ${sessionId}: ${describeFailure(error)}`);
+			}
+		}
+	} catch (error) {
+		result.errors.push(`Failed to scan revoked shares: ${describeFailure(error)}`);
+	}
+
 	// 4. Owner sign-in sessions that have ended (revoked, idle, expired, or from an older owner version)
 	try {
 		const sessionScan: ScanState = { more: false };
@@ -569,6 +657,141 @@ export async function cleanupExpired(bucket: R2Bucket, now: number): Promise<Cle
 	}
 
 	return result;
+}
+
+/**
+ * Withdraws a completed share. The session record decides: COMPLETED -> REVOKED is a compare-and-swap, and from then
+ * on getChest refuses the code, whatever else is still stored. Removing the content comes second and may fail; the
+ * `revoked/` marker (written first) lets the cleanup job finish it, and a REVOKED session can never become
+ * COMPLETED again, so no repair path can bring the share back. Repeating the call on a revoked share is allowed.
+ * Throws SessionError NOT_FOUND / INVALID_TRANSITION when there is no completed share to revoke.
+ * Returns whether the content was removed right away.
+ */
+export async function revokeShare(bucket: R2Bucket, sessionId: string, now: number): Promise<boolean> {
+	const found = await getSessionRecord(bucket, sessionId);
+	if (!found) throw new SessionError('NOT_FOUND', 'Session not found');
+	if (found.record.status !== 'COMPLETED' && found.record.status !== 'REVOKED') {
+		throw new SessionError('INVALID_TRANSITION', `Session is ${found.record.status}, not a completed share`);
+	}
+	await bucket.put(revokedKey(sessionId), '');
+	let record = found.record;
+	if (record.status === 'COMPLETED') {
+		try {
+			record = await transitionSession(bucket, sessionId, 'REVOKED', {}, now);
+		} catch (error) {
+			// A concurrent revoke got there first: carry on with the same outcome
+			const latest = await getSessionRecord(bucket, sessionId);
+			if (!(error instanceof SessionError && error.code === 'INVALID_TRANSITION' && latest?.record.status === 'REVOKED')) throw error;
+			record = latest.record;
+		}
+	}
+	try {
+		await purgeRevoked(bucket, record);
+		return true;
+	} catch (error) {
+		console.error(`Revoked share of session ${sessionId} not fully removed yet; cleanup will retry: ${describeFailure(error)}`);
+		return false;
+	}
+}
+
+// Makes the manifest copy and the expiry index agree with the session's expiry. The manifest is rewritten only while
+// it is still there and unchanged since it was read, so a share that was revoked and removed in the meantime is not
+// recreated.
+async function syncShareCopies(bucket: R2Bucket, sessionId: string, code: string, expiresAt: number | null): Promise<void> {
+	for (let attempt = 0; attempt < 5; attempt++) {
+		const object = await bucket.get(codeKey(code));
+		if (!object) return;
+		const manifest = (await object.json()) as ChestManifest;
+		if (manifest.sessionId !== sessionId) return;
+		if (manifest.expiresAt === expiresAt) break;
+		const stored = await bucket.put(codeKey(code), JSON.stringify({ ...manifest, expiresAt }), {
+			httpMetadata: { contentType: 'application/json' },
+			onlyIf: { etagMatches: object.etag },
+		});
+		if (stored !== null) break;
+	}
+	if (expiresAt !== null) await bucket.put(expiryKey(expiresAt, code), '');
+}
+
+/**
+ * Moves the expiry of a live share later (or to permanent). The session record decides: the new index entry is
+ * written first (it is not due yet, so it harms nothing), then the session expiry is changed by compare-and-swap,
+ * then the manifest copy, then the old index entry goes. A failure after the swap leaves manifest or indexes behind
+ * the session; the chest is refused until they agree again, and calling this again (or the cleanup job, once the old
+ * entry is due) brings them in line. A revoked or removed share is never touched, and an expiry is never shortened.
+ * Returns the new expiry (null = permanent).
+ */
+export async function extendShare(bucket: R2Bucket, sessionId: string, validityDays: number, now: number): Promise<number | null> {
+	const found = await getSessionRecord(bucket, sessionId);
+	if (!found || found.record.status !== 'COMPLETED' || found.record.retrievalCode === null) {
+		throw new SessionError('NOT_FOUND', 'No live share for this session');
+	}
+	const code = found.record.retrievalCode;
+	const target = validityDays === -1 ? null : now + validityDays * 24 * 60 * 60;
+	// Throws unless the share is unexpired and `target` is really later than its current expiry
+	const checkLater = (current: number | null) => {
+		if (current !== null && current <= now) throw new ApiError(409, 'SHARE_EXPIRED', 'This share has expired');
+		if (current === null || (target !== null && target <= current)) {
+			throw new ApiError(409, 'EXPIRY_NOT_LATER', 'The share already lasts at least this long');
+		}
+	};
+	try {
+		checkLater(found.record.expiresAt);
+	} catch (error) {
+		// Nothing to change, but an earlier attempt may have stopped halfway: bring manifest and index in line first
+		if (error instanceof ApiError && error.code === 'EXPIRY_NOT_LATER') {
+			await syncShareCopies(bucket, sessionId, code, found.record.expiresAt);
+			// Asking again for exactly what the share already has is a repeat, not a refusal
+			if (found.record.expiresAt === target) return target;
+		}
+		throw error;
+	}
+
+	if (target !== null) await bucket.put(expiryKey(target, code), '');
+	const before: { expiresAt: number | null } = { expiresAt: null };
+	try {
+		await updateSession(
+			bucket,
+			sessionId,
+			(current) => {
+				if (current.status !== 'COMPLETED') throw new SessionError('INVALID_TRANSITION', 'Share is no longer live');
+				checkLater(current.expiresAt);
+				before.expiresAt = current.expiresAt;
+				return { ...current, expiresAt: target, validityDays };
+			},
+			now,
+		);
+	} catch (error) {
+		// The entry written above is only stray when the session does not use this expiry
+		if (target !== null) {
+			const latest = await getSessionRecord(bucket, sessionId).catch(() => null);
+			if (latest && latest.record.expiresAt !== target) await bucket.delete(expiryKey(target, code)).catch(() => undefined);
+		}
+		throw error;
+	}
+
+	await syncShareCopies(bucket, sessionId, code, target);
+	if (before.expiresAt !== null && before.expiresAt !== target) await bucket.delete(expiryKey(before.expiresAt, code));
+	return target;
+}
+
+// Removes a revoked share's code claim, expiry entries and content, then its record and marker. Repeatable.
+async function purgeRevoked(bucket: R2Bucket, record: SessionRecord): Promise<number> {
+	const code = record.retrievalCode;
+	if (code) {
+		// Only a claim that still names this session: the code could have been reissued to another share
+		const manifest = await readManifest(bucket, code).catch((error) => {
+			if (error instanceof SyntaxError) return null;
+			throw error;
+		});
+		if (manifest?.sessionId === record.sessionId) {
+			const expiries = new Set([manifest.expiresAt, record.expiresAt]);
+			await deleteKeys(bucket, [codeKey(code), ...[...expiries].filter((t) => t !== null).map((t) => expiryKey(t, code))]);
+		}
+	}
+	const removed = await removeSession(bucket, record.sessionId, record.multipartUploads);
+	await deleteKeys(bucket, [revokedKey(record.sessionId)]);
+	return removed;
 }
 
 /**

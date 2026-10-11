@@ -12,7 +12,7 @@
 import { LIMITS } from './limits';
 import type { ChestFile } from './types';
 
-export type SessionStatus = 'OPEN' | 'FINALIZING' | 'COMPLETED' | 'ABANDONED';
+export type SessionStatus = 'OPEN' | 'FINALIZING' | 'COMPLETED' | 'REVOKED' | 'ABANDONED';
 
 export interface SessionLease {
 	id: string;
@@ -83,11 +83,12 @@ export class SessionError extends Error {
 const TRANSITIONS: Record<SessionStatus, readonly SessionStatus[]> = {
 	OPEN: ['FINALIZING', 'ABANDONED'],
 	FINALIZING: ['COMPLETED', 'OPEN'], // OPEN again when finalizing is rolled back
-	COMPLETED: [],
+	COMPLETED: ['REVOKED'], // the Owner withdrew the share; terminal, never served again
+	REVOKED: [],
 	ABANDONED: [],
 };
 
-const STATUSES: readonly SessionStatus[] = ['OPEN', 'FINALIZING', 'COMPLETED', 'ABANDONED'];
+const STATUSES: readonly SessionStatus[] = ['OPEN', 'FINALIZING', 'COMPLETED', 'REVOKED', 'ABANDONED'];
 const MAX_ATTEMPTS = 5;
 
 export type SessionPatch = Partial<
@@ -169,8 +170,8 @@ export function parseSessionRecord(value: unknown): SessionRecord {
 		return corrupt();
 	}
 
-	// A completed session must carry the result it was completed with
-	if (r.status === 'COMPLETED' && (r.retrievalCode === null || r.fileIds === null)) {
+	// A completed (or later revoked) session must carry the result it was completed with
+	if ((r.status === 'COMPLETED' || r.status === 'REVOKED') && (r.retrievalCode === null || r.fileIds === null)) {
 		return corrupt();
 	}
 

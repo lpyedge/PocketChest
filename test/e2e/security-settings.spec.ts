@@ -22,8 +22,8 @@ async function addVirtualAuthenticator(page: Page) {
 	});
 }
 
-test('adds a passkey, switches it on, signs in with it, and removes it again', async ({ page, request }) => {
-	await request.post('/api/auth/bootstrap', { headers: { Origin: ORIGIN }, data: { password: OWNER_PASSWORD } });
+test('adds a passkey that works straight away, signs in with it, and removes it again', async ({ page, request }) => {
+	await request.get('/api/auth/methods');
 	await addVirtualAuthenticator(page);
 	// Accepts the confirmation prompt before removing a passkey
 	page.on('dialog', (dialog) => dialog.accept());
@@ -41,13 +41,10 @@ test('adds a passkey, switches it on, signs in with it, and removes it again', a
 	await dialog.getByLabel('Password', { exact: true }).fill(OWNER_PASSWORD);
 	await dialog.getByRole('button', { name: 'Confirm with password' }).click();
 	await expect(passkeys.getByText('This device')).toBeVisible();
-	// A new passkey is not used for sign-in until the method is switched on
-	await expect(passkeys.getByText('Off (set up)')).toBeVisible();
-
-	// Switching it on needs a re-entry with the passkey itself
-	await passkeys.getByRole('button', { name: 'Turn on' }).click();
-	await dialog.getByRole('button', { name: 'Confirm with passkey' }).click();
+	// The first passkey is on at once, with a short confirmation, and the page is still signed in
 	await expect(passkeys.getByText('On', { exact: true })).toBeVisible();
+	await expect(dialog.getByText('Passkey added. You can now sign in with it.')).toBeVisible();
+	await expect(passkeys.getByRole('button', { name: 'Turn off' })).toBeVisible();
 
 	// Sign out, then sign in again with the passkey alone
 	await dialog.getByRole('button', { name: 'Sign out' }).click();
@@ -62,7 +59,7 @@ test('adds a passkey, switches it on, signs in with it, and removes it again', a
 });
 
 test('shows a scannable QR code and the manual key for the authenticator, and cancelling changes nothing', async ({ page, request }) => {
-	await request.post('/api/auth/bootstrap', { headers: { Origin: ORIGIN }, data: { password: OWNER_PASSWORD } });
+	await request.get('/api/auth/methods');
 
 	let secret = '';
 	page.on('response', async (response) => {
@@ -118,7 +115,7 @@ function totpFor(base32: string, atSeconds: number): string {
 }
 
 test('a wrong authenticator code keeps the QR usable, and the right code then completes setup', async ({ page, request }) => {
-	await request.post('/api/auth/bootstrap', { headers: { Origin: ORIGIN }, data: { password: OWNER_PASSWORD } });
+	await request.get('/api/auth/methods');
 	let secret = '';
 	page.on('response', async (response) => {
 		if (response.url().endsWith('/api/admin/security/totp/prepare') && response.ok()) {
@@ -133,7 +130,11 @@ test('a wrong authenticator code keeps the QR usable, and the right code then co
 	const dialog = page.getByRole('dialog', { name: 'Security settings' });
 	const authenticator = dialog.locator('section', { hasText: 'Authenticator app' });
 
-	await authenticator.getByRole('button', { name: /Set up authenticator|Replace authenticator/ }).click();
+	// The shared development server may already hold an authenticator the owner switched off (an earlier run)
+	const start = authenticator.getByRole('button', { name: /Set up authenticator|Replace authenticator/ });
+	await expect(start).toBeVisible();
+	const replacing = (await start.innerText()).includes('Replace');
+	await start.click();
 	await dialog.getByLabel('Password', { exact: true }).fill(OWNER_PASSWORD);
 	await dialog.getByRole('button', { name: 'Confirm with password' }).click();
 	const qr = authenticator.getByRole('img', { name: 'QR code for your authenticator app' });
@@ -152,10 +153,29 @@ test('a wrong authenticator code keeps the QR usable, and the right code then co
 	await input.fill(totpFor(secret, Date.now() / 1000));
 	await authenticator.getByRole('button', { name: 'Confirm code' }).click();
 	await expect(qr).toBeHidden();
-	await expect(authenticator.getByText(/Off \(set up\)|On/).first()).toBeVisible();
+	await expect(dialog.getByText(/Authenticator set up|Authenticator replaced/)).toBeVisible();
+	await expect(authenticator.getByText('not a code you type after your password')).toBeVisible();
+	if (replacing) {
+		// Replacing an authenticator the owner switched off keeps it off
+		await expect(authenticator.getByText('Off (set up)')).toBeVisible();
+	} else {
+		// A first authenticator is on as soon as its code is confirmed: no separate "turn on" step
+		await expect(authenticator.getByText('On', { exact: true })).toBeVisible();
+		// Leave the shared development state as it was: switch it off again (the re-entry just made still counts)
+		await authenticator.getByRole('button', { name: 'Turn off' }).click();
+		await expect(authenticator.getByText('Off (set up)')).toBeVisible();
+	}
+});
 
-	// C25a: switching the method on asks for a code again. The one just used cannot be used twice, and the panel says so
-	await authenticator.getByRole('button', { name: 'Turn on' }).click();
-	await expect(dialog.getByText(/wait for the next code/i)).toBeVisible();
-	await dialog.getByRole('button', { name: 'Cancel', exact: true }).click();
+test('says the three methods are independent, and offers no switch for a method that is not set up', async ({ page, request }) => {
+	await request.get('/api/auth/methods');
+	await page.goto('/upload/');
+	await page.getByLabel('Password', { exact: true }).fill(OWNER_PASSWORD);
+	await page.getByRole('button', { name: 'Sign in with password' }).click();
+	await page.getByRole('button', { name: 'Security settings' }).click();
+	const dialog = page.getByRole('dialog', { name: 'Security settings' });
+
+	await expect(dialog.getByText('three separate ways to sign in')).toBeVisible();
+	await expect(dialog.getByRole('button', { name: 'Set up first' })).toHaveCount(0);
+	await expect(dialog.getByRole('button', { name: 'Add passkey' })).toBeVisible();
 });

@@ -1,5 +1,5 @@
 import { env } from 'cloudflare:test';
-import { describe, it, expect, beforeAll, beforeEach } from 'vitest';
+import { describe, it, expect, beforeAll, beforeEach, vi } from 'vitest';
 import { ownerSignIn, resetStorage, setupTestEnvironment, testFetch, TEST_ORIGIN, TEST_OWNER_PASSWORD } from './utils/test-setup';
 import { BOOTSTRAP_MARKER_KEY } from '../src/worker/auth/bootstrap';
 import { OWNER_KEY, loadOwner } from '../src/worker/auth/owner';
@@ -47,27 +47,38 @@ describe('GET /api/auth/methods', () => {
 		await setupTestEnvironment();
 	});
 
-	it('offers setup only on an empty bucket with bootstrap enabled', async () => {
+	it('creates the owner by itself on an empty installation, and offers the ordinary sign-in', async () => {
 		const response = await testFetch(`${TEST_ORIGIN}/api/auth/methods`);
 		expect(response.status).toBe(200);
 		const data = (await response.json()) as any;
-		expect(data.setupRequired).toBe(true);
-		expect(data.methods.password.enabled).toBe(false);
+		expect(data.setup).toBe('ready');
+		expect(data.methods.password.enabled).toBe(true);
+		expect(data).not.toHaveProperty('setupRequired');
+		expect(await loadOwner(bucket())).not.toBeNull();
 	});
 
 	it('reports each method on its own once the owner exists', async () => {
 		await ownerSignIn();
 		const data = (await (await testFetch(`${TEST_ORIGIN}/api/auth/methods`)).json()) as any;
 
-		expect(data.setupRequired).toBe(false);
+		expect(data.setup).toBe('ready');
 		expect(data.methods).toEqual({ password: { enabled: true }, totp: { enabled: false }, passkey: { enabled: false } });
 	});
 
-	it('does not offer setup again after the bootstrap marker was claimed', async () => {
+	it('does not create an owner after the bootstrap marker was claimed: a fresh claim is still in progress, an old one needs recovery', async () => {
 		await bucket().put(BOOTSTRAP_MARKER_KEY, 'claimed');
-		const data = (await (await testFetch(`${TEST_ORIGIN}/api/auth/methods`)).json()) as any;
+		const fresh = (await (await testFetch(`${TEST_ORIGIN}/api/auth/methods`)).json()) as any;
+		expect(fresh.setup).toBe('initializing');
+		expect(await loadOwner(bucket())).toBeNull();
 
-		expect(data.setupRequired).toBe(false);
+		vi.useFakeTimers({ toFake: ['Date'], now: Date.now() + 10 * 60 * 1000 });
+		try {
+			const stale = (await (await testFetch(`${TEST_ORIGIN}/api/auth/methods`)).json()) as any;
+			expect(stale.setup).toBe('recovery-required');
+		} finally {
+			vi.useRealTimers();
+		}
+		expect(await loadOwner(bucket())).toBeNull();
 	});
 
 	it('never returns the password hash or any other secret material', async () => {

@@ -13,9 +13,9 @@ export default defineConfig({
 				// Default test environment variables - can be overridden in individual tests
 				bindings: {
 					JWT_SECRET: 'test-jwt-secret-for-vitest-only',
+					INSTANCE_ID: 'test-instance',
 					BOOTSTRAP_ENABLED: 'true',
 					ADMIN_BOOTSTRAP_PASSWORD: 'test-bootstrap-password-0123456789',
-					AUTH_ENCRYPTION_KEY: 'MDEyMzQ1Njc4OWFiY2RlZjAxMjM0NTY3ODlhYmNkZWY=',
 				},
 			},
 		}),

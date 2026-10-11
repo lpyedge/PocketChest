@@ -10,12 +10,12 @@
 
 **One-click deployment** · [Full deployment guide](DEPLOYMENT.md) · [Manual deployment](DEPLOYMENT.md#2-manual-deployment)
 
-The button clones this repository into your GitHub account, builds it with Workers Builds and creates the R2 bucket. You enter three secrets, create the owner once, then close setup. The guide walks through each step, including what to check afterwards: a successful button deployment is not a production acceptance test.
+The button clones this repository into your GitHub account, builds it with Workers Builds and creates the R2 bucket. The only thing you choose is your **Owner password**, once; the signing secret is generated for you and the site never asks you to "set up" an account. Upgrading asks for nothing. The guide covers the button, `npm run deploy` and a manual GitHub Actions deploy, and what to check afterwards. **Not yet verified on a real Cloudflare account:** the one-click chain (the button prefilling `npm run deploy`, the secrets form, Workers Builds) has only been tested locally with simulated Cloudflare answers; a successful button deployment is not a production acceptance test.
 
 ## ✨ Features
 
-- Password, authenticator app (TOTP) or passkey: each can sign in on its own; at least one stays on.
-- Owner-only uploads. Recipients use a retrieval code or a direct `#CODE` link, without signing in.
+- Password, authenticator app (TOTP) or passkey: three independent ways to sign in, any one is enough (an authenticator code is **not** a second step after the password). At least one stays on. An authenticator or passkey is optional and set up after signing in; the first one works as soon as it is confirmed.
+- Owner-only uploads. Recipients use a retrieval code or a direct `#CODE` link, without signing in. **Share records** lists active shares, and lets the owner extend or revoke them.
 - Text and large files (multipart), shares of 1, 3, 7 or 14 days or permanent, hourly cleanup.
 - Traditional Chinese, Japanese and English, including a static home page in each language.
 - One Worker, Workers Static Assets and R2. No D1, KV or separate web service.
@@ -42,8 +42,8 @@ Captured from the current build by `npm run screenshots` (see [docs/SCREENSHOTS.
 ## 🛡️ Security and current limits
 
 - An upload session lasts 24 hours from its start; resuming after that is not supported.
-- Password hashing is CPU-heavy. Do not assume the Workers Free plan can run it; test your plan.
-- Cloudflare-side checks (R2 concurrency, Cron, rate limits, passkeys on your domain, large files) are still yours to run before relying on it.
+- The password is stored as a salted HMAC under a key the Worker derives from its own secret (cheap enough for the Workers Free plan). Use a long password you use nowhere else; sign-in is also rate-limited and locks after repeated failures. The password cannot be reset offline: see [recovery](docs/RECOVERY.md).
+- Everything here was tested locally (unit, Worker-runtime, end-to-end in a browser). Cloudflare-side checks (R2 concurrency, Cron, rate limits, passkeys on your domain, large files, the one-click chain) are still yours to run before relying on it: see [docs/REMOTE_ACCEPTANCE.md](docs/REMOTE_ACCEPTANCE.md).
 - CSP is report-only and downloads do not support `Range` resume. Details: [docs/OPERATIONS.md](docs/OPERATIONS.md#known-limits).
 
 ## 🛠️ Development
@@ -58,7 +58,7 @@ The same checks run in CI:
 
 ```bash
 npm run typecheck && npm run lint && npm run format:check
-npm run test:unit && npm run test:worker && npm run test:contracts
+npm run test:unit && npm run test:worker && npm run test:contracts && npm run test:scripts
 npm run test:e2e           # Playwright, desktop and 375px
 npm run build && npx wrangler deploy --dry-run
 ```

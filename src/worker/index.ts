@@ -1,5 +1,12 @@
-import { assertSameOrigin, clearedSessionCookie, csrfTokenFor, issueOwnerSession, requireOwner } from './auth/sessions';
-import { bootstrapOwner } from './auth/bootstrap';
+import {
+	assertSameOrigin,
+	clearedSessionCookie,
+	csrfTokenFor,
+	issueOwnerSession,
+	ownerSessionStands,
+	requireOwner,
+	sha256Hex,
+} from './auth/sessions';
 import type { AuthenticationResponseJSON, RegistrationResponseJSON } from '@simplewebauthn/server';
 import {
 	activateWithPassword,
@@ -14,7 +21,7 @@ import { activateVerify, assertionOptions, loginVerify, registrationOptions, reg
 import { changePassword, confirmTotp, prepareTotp, removePasskey, Rotated, securityStatus, setMethodEnabled } from './auth/security';
 import type { Method } from './auth/owner';
 import { ApiError } from './errors';
-import { enforceRateLimit } from './ratelimit';
+import { enforceRateLimit, resolveRateLimitScope } from './ratelimit';
 import { configurationProblem } from './config';
 import {
 	abandonSession,
@@ -73,6 +80,11 @@ import {
 	fileKey,
 	fileUploadOptions,
 	getChest,
+	revokeShare,
+	extendShare,
+	listShares,
+	SHARES_PAGE_DEFAULT,
+	SHARES_PAGE_MAX,
 	isSessionOpen,
 	openSession,
 	abortActiveMultipart,
@@ -136,11 +148,16 @@ export default {
 			console.error(`Misconfigured deployment: ${problem}`);
 			return withApiHeaders(
 				errorResponse(
-					new ApiError(500, 'SERVER_MISCONFIGURED', 'This deployment is not configured: set the secrets listed in DEPLOYMENT.md'),
+					new ApiError(
+						500,
+						'SERVER_MISCONFIGURED',
+						'This deployment is not configured: deploy it with `npm run deploy` (see DEPLOYMENT.md)',
+					),
 				),
 			);
 		}
 
+		await resolveRateLimitScope(env);
 		return withApiHeaders(await routeApi(request, env, path));
 	},
 
@@ -183,10 +200,6 @@ async function routeApi(request: Request, env: Env, path: string): Promise<Respo
 	const method = request.method;
 
 	try {
-		if (path === '/api/auth/bootstrap' && method === 'POST') {
-			return await handleBootstrap(request, env);
-		}
-
 		if (path === '/api/auth/session' && method === 'GET') {
 			return await handleOwnerSessionStatus(request, env);
 		}
@@ -205,6 +218,18 @@ async function routeApi(request: Request, env: Env, path: string): Promise<Respo
 
 		if (path === '/api/auth/reauth/password' && method === 'POST') {
 			return await handlePasswordReauth(request, env);
+		}
+
+		if (path === '/api/admin/shares' && method === 'GET') {
+			return await handleListShares(request, env);
+		}
+
+		if (path.match(/^\/api\/admin\/shares\/[^\/]+$/) && method === 'PATCH') {
+			return await handleExtendShare(request, env, segments[4]);
+		}
+
+		if (path.match(/^\/api\/admin\/shares\/[^\/]+$/) && method === 'DELETE') {
+			return await handleRevokeShare(request, env, segments[4]);
 		}
 
 		if (path === '/api/admin/security' && method === 'GET') {
@@ -336,18 +361,6 @@ async function routeApi(request: Request, env: Env, path: string): Promise<Respo
 	}
 }
 
-// POST /api/auth/bootstrap - Initial owner setup (one time)
-async function handleBootstrap(request: Request, env: Env): Promise<Response> {
-	assertSameOrigin(request);
-	await enforceRateLimit(env.AUTH_LIMITER, request, 'bootstrap');
-	const { password } = await readJson<{ password?: unknown }>(request);
-	if (typeof password !== 'string' || password.length === 0 || password.length > 1024) {
-		throw new ApiError(400, 'INVALID_REQUEST', 'Password is required');
-	}
-	await bootstrapOwner(env, password);
-	return json({ initialized: true }, 201, { 'Cache-Control': 'no-store' });
-}
-
 // GET /api/auth/session - Whether the caller is signed in as the owner, and the CSRF token for this session
 async function handleOwnerSessionStatus(request: Request, env: Env): Promise<Response> {
 	try {
@@ -392,9 +405,25 @@ async function readJson<T>(request: Request): Promise<T> {
 	return value as T;
 }
 
+// An upload token is only as good as the Owner session that started it: once that session has ended (sign-out,
+// expiry, a password or method change) the token may not start or finish anything. Tokens without the claim
+// (issued before it existed) are refused too. Costs two R2 reads, so it runs on the calls that store or publish
+// something, not on every multipart part: a part written after sign-out can never be published, because the
+// calls that would publish it fail here.
+async function assertIssuerStands(env: Env, ownerSessionHash: string | undefined): Promise<void> {
+	if (!ownerSessionHash || !(await ownerSessionStands(env.R2_STORAGE, ownerSessionHash, getCurrentTimestamp()))) {
+		throw new ApiError(401, 'AUTH_INVALID', 'Sign in required');
+	}
+}
+
 // Verifies the upload token for a session and that the session is still open
 // Checks the upload token and that it belongs to this session, whatever state the session is in
-async function authorizeUploadToken(request: Request, env: Env, sessionId: string): Promise<UploadJWTPayload> {
+async function authorizeUploadToken(
+	request: Request,
+	env: Env,
+	sessionId: string,
+	options: { issuerMustStand: boolean },
+): Promise<UploadJWTPayload> {
 	const token = bearerToken(request);
 	let payload: UploadJWTPayload;
 	try {
@@ -406,6 +435,7 @@ async function authorizeUploadToken(request: Request, env: Env, sessionId: strin
 	if (payload.sessionId !== sessionId || !isValidUUID(sessionId)) {
 		throw new ApiError(400, 'INVALID_SESSION', 'Invalid session');
 	}
+	if (options.issuerMustStand) await assertIssuerStands(env, payload.osh);
 	return payload;
 }
 
@@ -422,6 +452,8 @@ async function authorizeUpload(request: Request, env: Env, sessionId: string): P
 		throw new ApiError(400, 'INVALID_SESSION', 'Invalid session');
 	}
 
+	await assertIssuerStands(env, payload.osh);
+
 	if (!(await isSessionOpen(env.R2_STORAGE, sessionId))) {
 		throw new ApiError(404, 'SESSION_NOT_FOUND', 'Session not found or already completed');
 	}
@@ -429,7 +461,13 @@ async function authorizeUpload(request: Request, env: Env, sessionId: string): P
 	return payload;
 }
 
-async function authorizeMultipart(request: Request, env: Env, sessionId: string, fileId: string): Promise<MultipartJWTPayload> {
+async function authorizeMultipart(
+	request: Request,
+	env: Env,
+	sessionId: string,
+	fileId: string,
+	options: { issuerMustStand: boolean },
+): Promise<MultipartJWTPayload> {
 	const token = bearerToken(request);
 	let payload: MultipartJWTPayload;
 	try {
@@ -446,6 +484,7 @@ async function authorizeMultipart(request: Request, env: Env, sessionId: string,
 		throw new ApiError(400, 'INVALID_REQUEST', 'Invalid session or file ID format');
 	}
 
+	if (options.issuerMustStand) await assertIssuerStands(env, payload.osh);
 	return payload;
 }
 
@@ -552,6 +591,60 @@ function rotatedResponse(result: Rotated): Response {
 	});
 }
 
+// GET /api/admin/shares?limit=&cursor= - Owner's live shares, one bounded page at a time
+async function handleListShares(request: Request, env: Env): Promise<Response> {
+	await requireOwner(request, env.R2_STORAGE, env.JWT_SECRET, { mutating: false });
+	const { searchParams } = new URL(request.url);
+	const raw = searchParams.get('limit');
+	const limit = raw === null ? SHARES_PAGE_DEFAULT : Number(raw);
+	if (!Number.isInteger(limit) || limit < 1 || limit > SHARES_PAGE_MAX) {
+		throw new ApiError(400, 'INVALID_REQUEST', `limit must be a whole number from 1 to ${SHARES_PAGE_MAX}`);
+	}
+	const cursor = searchParams.get('cursor') || undefined;
+	if (cursor !== undefined && cursor.length > 2048) {
+		throw new ApiError(400, 'INVALID_REQUEST', 'Invalid cursor');
+	}
+	return json(await listShares(env.R2_STORAGE, getCurrentTimestamp(), limit, cursor), 200, { 'Cache-Control': 'no-store' });
+}
+
+// PATCH /api/admin/shares/:sessionId {validityDays} - Owner moves a live share's expiry later, or to permanent (-1)
+async function handleExtendShare(request: Request, env: Env, sessionId: string): Promise<Response> {
+	await requireOwner(request, env.R2_STORAGE, env.JWT_SECRET, { mutating: true });
+	if (!isValidUUID(sessionId)) throw new ApiError(404, 'SHARE_NOT_FOUND', 'Share not found');
+	const { validityDays } = await readJson<{ validityDays?: unknown }>(request);
+	if (!isValidValidityDays(validityDays)) {
+		throw new ApiError(400, 'INVALID_REQUEST', 'validityDays must be one of 1, 3, 7, 14 or -1 (permanent)');
+	}
+	try {
+		const expiresAt = await extendShare(env.R2_STORAGE, sessionId, validityDays, getCurrentTimestamp());
+		return json({ expiresAt }, 200, { 'Cache-Control': 'no-store' });
+	} catch (error) {
+		if (error instanceof SessionError && (error.code === 'NOT_FOUND' || error.code === 'INVALID_TRANSITION')) {
+			throw new ApiError(404, 'SHARE_NOT_FOUND', 'Share not found');
+		}
+		if (error instanceof SessionError) throw sessionErrorToApi(error);
+		throw error;
+	}
+}
+
+// DELETE /api/admin/shares/:sessionId - Owner withdraws a share; the code stops working at once
+async function handleRevokeShare(request: Request, env: Env, sessionId: string): Promise<Response> {
+	await requireOwner(request, env.R2_STORAGE, env.JWT_SECRET, { mutating: true });
+	if (!isValidUUID(sessionId)) throw new ApiError(404, 'SHARE_NOT_FOUND', 'Share not found');
+	try {
+		const removed = await revokeShare(env.R2_STORAGE, sessionId, getCurrentTimestamp());
+		return json({ revoked: true, contentRemoved: removed }, 200, { 'Cache-Control': 'no-store' });
+	} catch (error) {
+		if (error instanceof SessionError) {
+			if (error.code === 'NOT_FOUND' || error.code === 'INVALID_TRANSITION') {
+				throw new ApiError(404, 'SHARE_NOT_FOUND', 'Share not found');
+			}
+			throw sessionErrorToApi(error);
+		}
+		throw error;
+	}
+}
+
 // GET /api/admin/security - Which methods are set up and on; never the secrets themselves
 async function handleSecurityStatus(request: Request, env: Env): Promise<Response> {
 	await requireOwner(request, env.R2_STORAGE, env.JWT_SECRET, { mutating: false });
@@ -627,7 +720,18 @@ async function handlePasskeyRegisterVerify(request: Request, env: Env): Promise<
 	const session = await requireOwner(request, env.R2_STORAGE, env.JWT_SECRET, { mutating: true });
 	await enforceRateLimit(env.AUTH_LIMITER, request, 'passkey-register-verify');
 	const body = await readPasskeyBody<{ label?: unknown; response: RegistrationResponseJSON }>(request);
-	const result = await registrationVerify(env.R2_STORAGE, request, session, body, getCurrentTimestamp(), env.PASSKEY_RP_ID);
+	const result = await registrationVerify(env.R2_STORAGE, request, session, body, getCurrentTimestamp(), env.PASSKEY_RP_ID, env.JWT_SECRET);
+	if (result.rotated) {
+		// The first passkey switched the method on, which replaces the session: the page gets the new cookie and token
+		return json(
+			{ registered: true, credentialId: result.credentialId, security: result.rotated.security, csrfToken: result.rotated.csrfToken },
+			200,
+			{
+				'Cache-Control': 'no-store',
+				'Set-Cookie': result.rotated.cookie,
+			},
+		);
+	}
 	return json({ registered: true, credentialId: result.credentialId }, 200, { 'Cache-Control': 'no-store' });
 }
 
@@ -669,12 +773,12 @@ async function handlePasskeyReauthVerify(request: Request, env: Env): Promise<Re
 
 // POST /api/upload-sessions - Owner starts an upload session and receives its upload token
 async function handleCreateUploadSession(request: Request, env: Env): Promise<Response> {
-	await requireOwner(request, env.R2_STORAGE, env.JWT_SECRET, { mutating: true });
+	const owner = await requireOwner(request, env.R2_STORAGE, env.JWT_SECRET, { mutating: true });
 	await enforceRateLimit(env.UPLOAD_LIMITER, request, 'create-session');
 
 	const sessionId = generateUUID();
 	const createdAt = getCurrentTimestamp();
-	const uploadToken = await createUploadJWT(sessionId, env.JWT_SECRET, createdAt);
+	const uploadToken = await createUploadJWT(sessionId, env.JWT_SECRET, createdAt, await sha256Hex(owner.sid));
 	await openSession(env.R2_STORAGE, sessionId, createdAt);
 
 	const response: CreateChestResponse = {
@@ -915,7 +1019,7 @@ function checkFilename(filename: string): void {
 // POST /api/upload-sessions/:sessionId/complete - Complete upload and generate retrieval code
 // POST /api/upload-sessions/:sessionId/cancel - Abandon an upload session; its unfinished multipart uploads are aborted
 async function handleCancelUpload(request: Request, env: Env, sessionId: string): Promise<Response> {
-	const token = await authorizeUploadToken(request, env, sessionId);
+	const token = await authorizeUploadToken(request, env, sessionId, { issuerMustStand: false });
 	// Read the uploads before abandoning: abandoning marks them closed, and they still have to be aborted in R2
 	const before = await getSessionRecord(env.R2_STORAGE, sessionId);
 	if (!before) {
@@ -932,7 +1036,7 @@ function completionFingerprint(fileIds: string[], validityDays: number): string 
 }
 
 async function handleCompleteUpload(request: Request, env: Env, sessionId: string): Promise<Response> {
-	const payload = await authorizeUploadToken(request, env, sessionId);
+	const payload = await authorizeUploadToken(request, env, sessionId, { issuerMustStand: true });
 	const { fileIds, validityDays } = await readJson<CompleteUploadRequest>(request);
 
 	if (
@@ -954,7 +1058,7 @@ async function handleCompleteUpload(request: Request, env: Env, sessionId: strin
 	// Other requests may move the session while we look at it, so re-read and try a few times
 	for (let attempt = 0; attempt < 3; attempt++) {
 		const current = await getSessionRecord(bucket, sessionId);
-		if (!current || current.record.status === 'ABANDONED') {
+		if (!current || current.record.status === 'ABANDONED' || current.record.status === 'REVOKED') {
 			throw new ApiError(404, 'SESSION_NOT_FOUND', 'Session not found or already completed');
 		}
 		const record = current.record;
@@ -1241,6 +1345,7 @@ async function handleCreateMultipartUpload(request: Request, env: Env, sessionId
 			fileSize,
 			env.JWT_SECRET,
 			session.exp,
+			session.osh,
 		),
 	};
 	return json(response);
@@ -1300,7 +1405,7 @@ async function withActiveMultipart<T>(
 
 // PUT /api/upload-sessions/:sessionId/multipart/:fileId/parts/:partNumber - Upload part
 async function handleUploadPart(request: Request, env: Env, sessionId: string, fileId: string, partNumber: number): Promise<Response> {
-	const payload = await authorizeMultipart(request, env, sessionId, fileId);
+	const payload = await authorizeMultipart(request, env, sessionId, fileId, { issuerMustStand: false });
 	await enforceRateLimit(env.PART_LIMITER, request, `part:${fileId}`);
 	await enforceRateLimit(env.PART_TOTAL_LIMITER, request, 'part-all');
 
@@ -1355,7 +1460,7 @@ function validateParts(parts: unknown): { partNumber: number; etag: string }[] {
 
 // POST /api/upload-sessions/:sessionId/multipart/:fileId/complete - Complete multipart upload
 async function handleCompleteMultipartUpload(request: Request, env: Env, sessionId: string, fileId: string): Promise<Response> {
-	const payload = await authorizeMultipart(request, env, sessionId, fileId);
+	const payload = await authorizeMultipart(request, env, sessionId, fileId, { issuerMustStand: true });
 	const { parts } = await readJson<CompleteMultipartUploadRequest>(request);
 	const sortedParts = validateParts(parts);
 
@@ -1395,7 +1500,7 @@ async function handleCompleteMultipartUpload(request: Request, env: Env, session
 
 // POST /api/upload-sessions/:sessionId/multipart/:fileId/abort - Abort an unfinished multipart upload
 async function handleAbortMultipartUpload(request: Request, env: Env, sessionId: string, fileId: string): Promise<Response> {
-	const payload = await authorizeMultipart(request, env, sessionId, fileId);
+	const payload = await authorizeMultipart(request, env, sessionId, fileId, { issuerMustStand: false });
 
 	// Aborting twice is harmless: the first abort already closed the upload
 	const outcome = await withActiveMultipart(

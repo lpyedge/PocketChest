@@ -1,9 +1,8 @@
 import { describe, it, expect } from 'vitest';
-import { passwordProblem as workerProblem, MIN_PASSWORD_LENGTH as WORKER_MIN } from '../src/worker/auth/password-policy';
-import * as core from '../scripts/recovery-core.mjs';
+import { passwordProblem, MIN_PASSWORD_LENGTH } from '../src/worker/auth/password-policy';
 
-// The Worker (TypeScript) and the offline CLI (recovery-core.mjs) each carry the same policy. Both must
-// answer identically, or an Owner could set a password through one path that the other path rejects.
+// Owner-chosen passwords (change and reset in the Worker) follow this rule. The initial owner password is generated
+// by the Worker and is not checked against it.
 const FIXTURES: Array<[string, string | null]> = [
 	['', 'TOO_SHORT'],
 	['1234567', 'TOO_SHORT'],
@@ -21,18 +20,12 @@ const FIXTURES: Array<[string, string | null]> = [
 	['a-new-passphrase-that-is-long-enough', null],
 ];
 
-describe('shared password policy', () => {
-	it('uses eight characters as the minimum in both the Worker and the CLI', () => {
-		expect(WORKER_MIN).toBe(8);
-		expect(core.MIN_PASSWORD_LENGTH).toBe(8);
+describe('owner password policy', () => {
+	it('uses eight characters as the minimum', () => {
+		expect(MIN_PASSWORD_LENGTH).toBe(8);
 	});
 
-	it.each(FIXTURES)('answers the same way for %j', (password, expected) => {
-		expect(workerProblem(password)).toBe(expected);
-		expect(core.passwordProblem(password)).toBe(expected);
-	});
-
-	it('keeps the initial-setup minimum at sixteen until the setup task replaces it', () => {
-		expect(core.MIN_BOOTSTRAP_PASSWORD_LENGTH).toBe(16);
+	it.each(FIXTURES)('classifies %j', (password, expected) => {
+		expect(passwordProblem(password)).toBe(expected);
 	});
 });

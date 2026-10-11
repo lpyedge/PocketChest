@@ -1,0 +1,87 @@
+name: Deploy (manual)
+
+# The GitHub Actions way to install or upgrade PocketChest on Cloudflare. It runs only when you start it by hand, and it
+# runs the same installer as `npm run deploy` (scripts/deploy.mjs):
+#   - First install: sets your Owner password once (from the ADMIN_BOOTSTRAP_PASSWORD repository secret) and generates the
+#     signing secret itself. Nothing else to generate or paste.
+#   - Upgrade: needs no password and changes no secret, Owner or bucket data.
+# Use only ONE deployer for an installation: this workflow, or Workers Builds / `npm run deploy`, not both.
+#
+# One-time setup in this repository (Settings > Secrets and variables > Actions):
+#   Secrets:   CLOUDFLARE_API_TOKEN (Workers Scripts: Edit, Workers R2 Storage: Edit, for your account only),
+#              CLOUDFLARE_ACCOUNT_ID, and for the FIRST install only ADMIN_BOOTSTRAP_PASSWORD (16+ characters)
+#   Optional: an Environment named "production" with required reviewers, to approve each run.
+
+on:
+  workflow_dispatch:
+    inputs:
+      ref:
+        description: 'Branch, tag or commit to deploy (default: the default branch)'
+        required: false
+        default: ''
+
+permissions:
+  contents: read
+
+concurrency:
+  group: deploy-manual
+  cancel-in-progress: false
+
+jobs:
+  test:
+    name: Tests before deploying
+    runs-on: ubuntu-latest
+    outputs:
+      sha: ${{ steps.pin.outputs.sha }}
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          ref: ${{ inputs.ref || github.event.repository.default_branch }}
+
+      # The exact commit that is tested is the exact commit that is deployed
+      - name: Pin the commit
+        id: pin
+        run: echo "sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
+
+      - uses: actions/setup-node@v5
+        with:
+          node-version-file: '.nvmrc'
+          cache: 'npm'
+
+      - run: npm ci
+      - run: npm run typecheck
+      - run: npm run lint
+      - run: npm run test:unit
+      - run: npm run test:worker
+      - run: npm run test:contracts
+      - run: npm run test:scripts
+      - run: npm run build
+      - name: Verify the Worker bundle (no upload)
+        run: npx wrangler deploy --dry-run --outdir .wrangler/dry-run
+
+  deploy:
+    name: Install or upgrade
+    needs: test
+    runs-on: ubuntu-latest
+    environment: production
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          # The commit the tests ran on, not whatever the branch has moved to since
+          ref: ${{ needs.test.outputs.sha }}
+
+      - uses: actions/setup-node@v5
+        with:
+          node-version-file: '.nvmrc'
+          cache: 'npm'
+
+      - run: npm ci
+
+      # Checks the Worker and bucket named in wrangler.jsonc first, and refuses (changing nothing) when the answer is
+      # unclear or contradicts an existing installation. ADMIN_BOOTSTRAP_PASSWORD is only used by a first install.
+      - name: Install or upgrade
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          ADMIN_BOOTSTRAP_PASSWORD: ${{ secrets.ADMIN_BOOTSTRAP_PASSWORD }}
+        run: npm run deploy

@@ -42,7 +42,7 @@ PocketChest/
 ## Security design in brief
 
 - **Owner-only uploads**: an upload session needs a signed-in owner session and a CSRF token.
-- **Three independent sign-in methods**: password (PBKDF2-SHA256, 600,000 iterations), TOTP (seed sealed with AES-256-GCM) and passkeys (WebAuthn, public keys only). At least one stays on. A method that is off cannot sign in or re-enter a session.
+- **Three independent sign-in methods**: password (salted HMAC-SHA256 under a key derived from the Worker root secret), TOTP (an independent sign-in method; the seed is made only when the owner sets it up, sealed with AES-256-GCM under another derived key) and passkeys (WebAuthn, public keys only). At least one stays on. A method that is off cannot sign in or re-enter a session.
 - **Lockouts and rate limits**: a per-method owner lockout plus per-client rate limiting bindings.
 - **Retrieval codes in the URL fragment**: `/retrieve/#CODE` is never sent to the server.
 - **Short-lived download grants**: each file download is authorized with a 60-second cookie limited to that file.

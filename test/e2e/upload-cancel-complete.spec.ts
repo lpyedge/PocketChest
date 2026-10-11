@@ -6,7 +6,7 @@ test.use({ locale: 'en-US' });
 
 async function openUploadPage(page: Page, request: import('@playwright/test').APIRequestContext) {
 	await useClientAddress(page, randomClientIp());
-	await request.post('/api/auth/bootstrap', { headers: { Origin: ORIGIN }, data: { password: OWNER_PASSWORD } });
+	await request.get('/api/auth/methods');
 	await page.goto('/upload/?lang=en');
 	await page.getByLabel('Password', { exact: true }).fill(OWNER_PASSWORD);
 	await page.getByRole('button', { name: 'Sign in with password' }).click();

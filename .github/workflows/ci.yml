@@ -57,6 +57,9 @@ jobs:
       - name: Route contract tests (docs/API.md)
         run: npm run test:contracts
 
+      - name: Script tests (upgrade branch, real git fixtures)
+        run: npm run test:scripts
+
       - name: Install Playwright Chromium
         run: npx playwright install --with-deps chromium
 

@@ -147,10 +147,16 @@ export async function verifyDownloadJWT(token: string, secret: string): Promise<
 // so a part is never accepted for a session whose final Complete can no longer succeed.
 export const UPLOAD_SESSION_SECONDS = 24 * 60 * 60;
 
-export async function createUploadJWT(sessionId: string, secret: string, now: number = getCurrentTimestamp()): Promise<string> {
+export async function createUploadJWT(
+	sessionId: string,
+	secret: string,
+	now: number = getCurrentTimestamp(),
+	ownerSessionHash?: string,
+): Promise<string> {
 	const payload: UploadJWTPayload = {
 		sessionId,
 		type: 'upload',
+		...(ownerSessionHash ? { osh: ownerSessionHash } : {}),
 		iat: now,
 		exp: now + UPLOAD_SESSION_SECONDS,
 	};
@@ -200,6 +206,7 @@ export async function createMultipartJWT(
 	fileSize: number,
 	secret: string,
 	sessionDeadline: number,
+	ownerSessionHash?: string,
 ): Promise<string> {
 	const now = Math.floor(Date.now() / 1000);
 
@@ -214,6 +221,7 @@ export async function createMultipartJWT(
 		mimeType,
 		fileSize,
 		type: 'multipart',
+		...(ownerSessionHash ? { osh: ownerSessionHash } : {}),
 		iat: now,
 		exp: expiry,
 	};

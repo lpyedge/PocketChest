@@ -96,3 +96,45 @@ describe('docs: every relative link, anchor and image resolves', () => {
 		}
 	});
 });
+
+describe('docs: install and sign-in explained the same way in every language', () => {
+	const user = [...READMES, ...GUIDES];
+
+	it('asks the reader to generate nothing by hand: no openssl, no encryption key, no setup switch', () => {
+		for (const name of user) {
+			const text = files.get(name) ?? '';
+			expect(text, name).not.toMatch(/openssl/);
+			expect(text, name).not.toMatch(/AUTH_ENCRYPTION_KEY|BOOTSTRAP_ENABLED/);
+			expect(text, name).not.toMatch(/PBKDF2/);
+		}
+	});
+
+	it('says the three sign-in methods are independent and that an authenticator code is not a second factor', () => {
+		const statements: Record<string, RegExp> = {
+			'README.md': /not\*\* a second step/,
+			'README.zh-Hant.md': /不是\*\*密碼之後的第二步/,
+			'README.ja.md': /第二段階では\*\*ありません/,
+			'DEPLOYMENT.md': /not\*\* a second factor/,
+			'DEPLOYMENT.zh-Hant.md': /不是\*\*密碼之外的第二因素/,
+			'DEPLOYMENT.ja.md': /第二要素では\*\*ありません/,
+		};
+		for (const [name, pattern] of Object.entries(statements)) expect(files.get(name), name).toMatch(pattern);
+	});
+
+	it('does not claim the one-click chain was verified on Cloudflare', () => {
+		for (const name of READMES) expect(files.get(name), name).toMatch(/Cloudflare/);
+		expect(files.get('README.md')).toContain('Not yet verified on a real Cloudflare account');
+		expect(files.get('README.zh-Hant.md')).toContain('尚未在真實 Cloudflare 帳號上驗證');
+		expect(files.get('README.ja.md')).toContain('まだ検証していません');
+		expect(files.get('docs/REMOTE_ACCEPTANCE.md')).toContain('尚未驗證');
+	});
+
+	it('names the same install command everywhere', () => {
+		for (const name of GUIDES) {
+			const text = files.get(name) ?? '';
+			expect(text, name).toContain('npm run deploy');
+			expect(text, name).toContain('ADMIN_BOOTSTRAP_PASSWORD');
+			expect(text, name).toContain('deploy-manual.yml');
+		}
+	});
+});

@@ -81,6 +81,9 @@ export interface RetrieveChestResponse {
 export interface UploadJWTPayload {
 	sessionId: string;
 	type: 'upload';
+	// sha256 of the Owner session that started this upload (never the cookie itself). Absent on tokens issued
+	// before this claim existed; those are refused where the Owner's session is checked.
+	osh?: string;
 	iat: number;
 	exp: number;
 }
@@ -110,6 +113,8 @@ export interface MultipartJWTPayload {
 	mimeType: string;
 	fileSize: number;
 	type: 'multipart';
+	// Same claim as on the upload token
+	osh?: string;
 	iat: number;
 	exp: number;
 }
@@ -130,11 +135,12 @@ export interface Env {
 	// Initial setup (see auth/bootstrap.ts). BOOTSTRAP_ENABLED is a plain var; the password is a secret.
 	BOOTSTRAP_ENABLED?: string;
 	ADMIN_BOOTSTRAP_PASSWORD?: string;
-	// 32-byte AES-GCM key (base64) that encrypts the TOTP seed
-	AUTH_ENCRYPTION_KEY?: string;
 	ASSETS: Fetcher;
 	R2_STORAGE: R2Bucket;
 	JWT_SECRET: string;
+	// Optional: an explicit id that keeps this installation's rate limit counters apart from others in the same
+	// Cloudflare account. Normally unset: an id is created once in the bucket.
+	INSTANCE_ID?: string;
 	// Optional: the one hostname passkeys are bound to (for example pocket.example.com)
 	PASSKEY_RP_ID?: string;
 }

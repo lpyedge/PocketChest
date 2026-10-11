@@ -37,7 +37,7 @@ export default defineConfig({
 		// Serve the real Worker and its static assets, exactly as deployed
 		// The bootstrap secret doubles as the owner password, so the E2E suite can sign in as the owner
 		command:
-			'npm run build && npx wrangler dev --port 8788 --var BOOTSTRAP_ENABLED:true --var ADMIN_BOOTSTRAP_PASSWORD:e2e-bootstrap-password-0123456789 --var JWT_SECRET:e2e-jwt-secret-for-playwright-only --var AUTH_ENCRYPTION_KEY:MDEyMzQ1Njc4OWFiY2RlZjAxMjM0NTY3ODlhYmNkZWY=',
+			'npm run build && npx wrangler dev --port 8788 --var BOOTSTRAP_ENABLED:true --var ADMIN_BOOTSTRAP_PASSWORD:e2e-bootstrap-password-0123456789 --var JWT_SECRET:e2e-jwt-secret-for-playwright-only',
 		url: 'http://localhost:8788/',
 		reuseExistingServer: !process.env.CI,
 		timeout: 120_000,

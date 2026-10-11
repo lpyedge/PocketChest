@@ -21,8 +21,10 @@
 
 | 編號 | 項目 | 方法 | 結果 |
 |------|------|------|------|
-| R1 | 由零部署成功（空 Bucket、設定 Secrets、部署） | 依 DEPLOYMENT.md | BLOCKED |
-| R2 | 首次 Bootstrap，之後 Bootstrap 永久關閉 | HTTP，記錄狀態碼 | BLOCKED |
+| R1 | 由零部署成功：空 Bucket，只輸入一次 Owner 密碼，`npm run deploy` 自行產生簽章 Secret | 依 DEPLOYMENT.md（`npm run deploy`、GitHub Actions、Deploy Button 各一次） | BLOCKED |
+| R2 | 第一次開啟 `/upload/` 就是一般登入（自動建立 Owner、沒有第二個設定步驟）；Owner 之後永遠不會被初始密碼覆寫 | HTTP 與瀏覽器，記錄狀態碼 | BLOCKED |
+| R1b | 升級：再次部署不問密碼，Secrets、Owner、Bucket 資料與設定完全不變；Worker／Bucket 不符時拒絕 | 在 R1 的隔離環境再部署一次 | BLOCKED |
+| R1c | **一鍵流程**：Deploy Button 是否預填 `npm run deploy` 作為部署指令、Workers Builds 能否在建置中取得 Cloudflare 憑證並執行安裝程式 | 隔離帳號，記錄實際行為 | BLOCKED（尚未驗證） |
 | R3 | 密碼、TOTP、Passkey 各自可登入；關閉其他方式不影響 | 真實瀏覽器與認證器 | BLOCKED |
 | R4 | Passkey 以真實裝置或瀏覽器認證器登入成功 | 人工操作，記錄裝置與瀏覽器 | BLOCKED |
 | R5 | R2 條件寫入在並發下只成功一次（Bootstrap、Owner 修改） | 並發請求，比對結果 | BLOCKED |
@@ -32,7 +34,9 @@
 | R9 | RateLimiter 超限回 429 與 Retry-After | 低速率請求，不得壓測 | BLOCKED |
 | R10 | Multipart 放棄後不留未完成上傳 | 分段上傳後中止，比對 R2 | BLOCKED |
 | R11 | 記錄 Worker CPU、記憶體與 R2 操作數 | Dashboard 與 `wrangler tail` 抽樣 | BLOCKED |
-| R12 | 離線恢復演練（隔離 Bucket） | docs/RECOVERY.md | BLOCKED |
+| R12 | 首次設定中斷後的恢復演練（隔離 Bucket；離線無法重設密碼，不在清單內） | docs/RECOVERY.md | BLOCKED |
+
+> 本版**不做**密碼 CPU 基準或壓力測試：密碼以便宜的 HMAC 儲存，防猜測靠登入鎖定與只存在 Worker 的金鑰。R11 只記錄一般用量。
 
 ## 不可出貨條件
 

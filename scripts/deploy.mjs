@@ -1,18 +1,17 @@
 #!/usr/bin/env node
 // One command for installing and upgrading PocketChest on Cloudflare:  npm run deploy
 //
-//   First install   asks for the Owner password once (hidden), or reads ADMIN_BOOTSTRAP_PASSWORD; makes the root
-//                   secret itself. Nothing else to type, generate or back up.
+//   First install   asks for nothing: makes the root secret itself. The site makes the Owner password on first setup
+//                   and keeps it privately in the bucket (see DEPLOYMENT.md).
 //   Upgrade         asks for nothing. Secrets, the Owner and the bucket are never touched.
 //
 // It checks what Cloudflare says about the Worker and bucket named in wrangler.jsonc first, and refuses (changing
 // nothing) when the answer is unclear. See DEPLOYMENT.md.
 import { randomBytes } from 'node:crypto';
 import { readFileSync } from 'node:fs';
-import { DeployRefusal, install, MIN_PASSWORD_LENGTH } from './deploy-core.mjs';
+import { DeployRefusal, INITIAL_PASSWORD_OBJECT, install, OWNER_KEY, readinessVerdict, retrievalSteps } from './deploy-core.mjs';
 import { parseJsonc } from './deploy-preflight-core.mjs';
 import { secretFiles, wranglerRunner } from './deploy-wrangler.mjs';
-import { readPassword } from './recovery-io.mjs';
 
 async function main() {
 	const config = parseJsonc(readFileSync('wrangler.jsonc', 'utf8'));
@@ -26,18 +25,46 @@ async function main() {
 		files: secretFiles,
 		workerName: config.name,
 		bucketName: bucket.bucket_name,
-		env: process.env,
 		generateRoot: () => randomBytes(48).toString('base64'),
 		log: (line) => console.log(line),
-		// Only asked when it is needed, and only in a terminal; a build or CI run supplies ADMIN_BOOTSTRAP_PASSWORD instead
-		promptPassword: async () =>
-			process.stdin.isTTY ? await readPassword(false, `Owner password (at least ${MIN_PASSWORD_LENGTH} characters, input hidden): `) : null,
 	});
 
+	// Success means the installation answers and is ready, not only that wrangler exited 0
+	if (!result.url) {
+		throw new DeployRefusal(
+			'no-address',
+			`The deploy did not print the Worker address, so readiness could not be checked. Open your Worker in the Cloudflare dashboard and check /api/auth/methods there.`,
+		);
+	}
+	const methods = await fetchMethods(result.url);
+	const problems = readinessVerdict({
+		methods,
+		ownerExists: await wranglerRunner.objectExists(bucket.bucket_name, OWNER_KEY),
+		credentialExists: await wranglerRunner.objectExists(bucket.bucket_name, INITIAL_PASSWORD_OBJECT),
+		firstSetup: result.mode !== 'upgrade',
+	});
+	if (problems.length > 0) {
+		console.error('Not ready yet:');
+		for (const problem of problems) console.error(`  - ${problem}`);
+		throw new DeployRefusal('not-ready', 'The installation is not ready. Run npm run deploy again once the problem above is fixed.');
+	}
+
 	if (result.mode === 'upgrade') {
-		console.log('Done. Your sign-in, Owner password and shares are unchanged.');
+		console.log('Ready. Your sign-in, Owner password and shares are unchanged.');
 	} else {
-		console.log('Done. Open /upload/ and sign in with the Owner password you set. The site asks for it only to sign in.');
+		console.log('Ready. Finish setup with the steps below.');
+		for (const line of retrievalSteps({ url: result.url, bucketName: bucket.bucket_name })) console.log(`  ${line}`);
+	}
+}
+
+// The sign-in status of the installed Worker, or null. A slow or failing answer is "could not read", never "ready".
+async function fetchMethods(url) {
+	try {
+		const response = await fetch(`${url}/api/auth/methods`, { signal: AbortSignal.timeout(30_000) });
+		if (!response.ok) return null;
+		return await response.json();
+	} catch {
+		return null;
 	}
 }
 

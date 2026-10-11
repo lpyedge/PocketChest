@@ -8,7 +8,8 @@ import { join } from 'node:path';
 import { wranglerGet } from './recovery-io.mjs';
 
 const WORKER_MISSING = /10007|could not find|does not exist|not found/i;
-const BUCKET_MISSING = /10006|does not exist|not found|no such bucket/i;
+// Only an explicit "bucket does not exist" answer counts as absent. Any other error (permissions, service not enabled) is unclear
+const BUCKET_MISSING = /10006|bucket[^\n]*does not exist|no such bucket/i;
 
 const run = (args) =>
 	execFileSync('npx', ['wrangler', ...args], { encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'], env: { ...process.env, CI: '1' } });
@@ -42,13 +43,46 @@ export const wranglerRunner = {
 	async objectExists(bucket, key) {
 		return wranglerGet(bucket, key) !== null;
 	},
+	async createBucket(bucket) {
+		run(['r2', 'bucket', 'create', bucket]);
+	},
+	async bucketPrivacy(bucket) {
+		const publicDevUrl = parseDevUrl(run(['r2', 'bucket', 'dev-url', 'get', bucket]));
+		const customDomains = parseCustomDomains(run(['r2', 'bucket', 'domain', 'list', bucket]));
+		return { publicDevUrl, customDomains };
+	},
 	async deploy({ secretsFile, keepVars }) {
 		const args = ['deploy'];
 		if (secretsFile) args.push('--secrets-file', secretsFile);
 		if (keepVars) args.push('--keep-vars');
-		execFileSync('npx', ['wrangler', ...args], { stdio: 'inherit' });
+		const output = execFileSync('npx', ['wrangler', ...args], { encoding: 'utf8', stdio: ['ignore', 'pipe', 'inherit'] });
+		process.stdout.write(output);
+		return { url: parseWorkerUrl(output) };
 	},
 };
+
+// Public access to a bucket: "disabled" (private) or "enabled". Anything else is unclear, so it throws.
+export function parseDevUrl(output) {
+	const disabled = /\bdisabled\b/i.test(output);
+	const enabled = /\benabled\b/i.test(output);
+	if (disabled && !enabled) return false;
+	if (enabled && !disabled) return true;
+	throw new Error('Unexpected answer from "wrangler r2 bucket dev-url get"');
+}
+
+// Custom domains on a bucket: 0 when the answer says there are none, the number of hostnames otherwise. Unclear throws.
+export function parseCustomDomains(output) {
+	if (/no (custom )?domains?/i.test(output)) return 0;
+	const hosts = output.match(/\b[a-z0-9-]+(\.[a-z0-9-]+)+\b/gi) ?? [];
+	if (hosts.length > 0) return new Set(hosts.map((host) => host.toLowerCase())).size;
+	throw new Error('Unexpected answer from "wrangler r2 bucket domain list"');
+}
+
+// The address wrangler printed for the Worker (workers.dev), or null when it printed none
+export function parseWorkerUrl(output) {
+	const match = output.match(/https:\/\/[a-z0-9.-]+\.workers\.dev\b/i);
+	return match ? match[0].replace(/\.$/, '') : null;
+}
 
 // A private temporary file for the one-time secrets, always removed afterwards
 export const secretFiles = {

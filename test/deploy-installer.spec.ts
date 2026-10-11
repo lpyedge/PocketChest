@@ -1,7 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { decide, DeployRefusal, install, inspectTarget, passwordProblem, JWT_SECRET, SETUP_PASSWORD } from '../scripts/deploy-core.mjs';
-
-const GOOD = 'a-long-enough-owner-password-2026';
+import { ARMED_SECRET, decide, DeployRefusal, install, inspectTarget, JWT_SECRET, SETUP_PASSWORD } from '../scripts/deploy-core.mjs';
 
 interface World {
 	secrets: string[] | null; // null: the Worker does not exist yet
@@ -10,11 +8,27 @@ interface World {
 	marker: boolean;
 }
 
+interface Privacy {
+	publicDevUrl: boolean;
+	customDomains: number;
+}
+
 // A pretend Cloudflare: answers from `world`, records every change, and can be told to fail
-function harness(world: World, options: { failOn?: string; deployFails?: boolean; changeBeforeDeploy?: Partial<World> } = {}) {
+function harness(
+	world: World,
+	options: {
+		failOn?: string;
+		deployFails?: boolean;
+		changeBeforeDeploy?: Partial<World>;
+		createFails?: boolean;
+		bucketStaysMissing?: boolean;
+		privacy?: Privacy;
+	} = {},
+) {
 	const calls: string[] = [];
 	const deploys: { secretsFile: string | null; keepVars: boolean; written: Record<string, string> | null }[] = [];
 	const store = new Map<string, Record<string, string>>();
+	const created: string[] = [];
 	let reads = 0;
 	const runner = {
 		async secretNames() {
@@ -32,6 +46,17 @@ function harness(world: World, options: { failOn?: string; deployFails?: boolean
 			calls.push(`objectExists:${key}`);
 			if (options.failOn === 'objectExists') throw new Error('timeout');
 			return key.endsWith('owner.json') ? world.owner : world.marker;
+		},
+		async createBucket(bucket: string) {
+			calls.push('createBucket');
+			if (options.createFails) throw new Error('R2 is not enabled on this account');
+			created.push(bucket);
+			if (!options.bucketStaysMissing) world.bucket = true;
+		},
+		async bucketPrivacy(): Promise<Privacy> {
+			calls.push('bucketPrivacy');
+			if (options.failOn === 'bucketPrivacy') throw new Error('API error 403');
+			return options.privacy ?? { publicDevUrl: false, customDomains: 0 };
 		},
 		async deploy({ secretsFile, keepVars }: { secretsFile: string | null; keepVars: boolean }) {
 			calls.push('deploy');
@@ -52,25 +77,23 @@ function harness(world: World, options: { failOn?: string; deployFails?: boolean
 		},
 	};
 	const logs: string[] = [];
-	return { runner, files, calls, deploys, removed, logs, log: (line: string) => logs.push(line) };
+	return { runner, files, calls, deploys, removed, logs, created, log: (line: string) => logs.push(line) };
 }
 
-const fresh = (): World => ({ secrets: null, bucket: true, owner: false, marker: false });
-const installed = (): World => ({ secrets: [JWT_SECRET, SETUP_PASSWORD], bucket: true, owner: true, marker: true });
-
-function run(h: ReturnType<typeof harness>, env: Record<string, string> = {}, promptPassword?: () => Promise<string | null>) {
+function run(h: ReturnType<typeof harness>) {
 	let roots = 0;
 	return install({
 		runner: h.runner,
 		files: h.files,
 		workerName: 'pocket-chest',
 		bucketName: 'pocket-chest',
-		env,
-		promptPassword,
 		generateRoot: () => `generated-root-${++roots}-${'x'.repeat(40)}`,
 		log: h.log,
 	});
 }
+
+const fresh = (): World => ({ secrets: null, bucket: true, owner: false, marker: false });
+const installed = (): World => ({ secrets: [JWT_SECRET, SETUP_PASSWORD], bucket: true, owner: true, marker: true });
 
 const refusal = async (promise: Promise<unknown>) => {
 	try {
@@ -83,137 +106,156 @@ const refusal = async (promise: Promise<unknown>) => {
 };
 
 describe('first install', () => {
-	it('with an Owner password: uploads one generated root and the password with the code, exactly once', async () => {
+	it('asks for nothing and uploads only the generated root and the arming flag, exactly once', async () => {
 		const h = harness(fresh());
-		const result = await run(h, { [SETUP_PASSWORD]: GOOD });
-		expect(result.mode).toBe('fresh');
-		expect(result.uploaded.sort()).toEqual([JWT_SECRET, SETUP_PASSWORD].sort());
+		const result = await run(h);
+		expect(result).toMatchObject({ mode: 'fresh', uploaded: [JWT_SECRET, ARMED_SECRET] });
 		expect(h.deploys).toHaveLength(1);
-		expect(h.deploys[0].written).toEqual({ [JWT_SECRET]: expect.stringMatching(/^generated-root-1-/), [SETUP_PASSWORD]: GOOD });
-		// Nothing about authenticators is generated or asked for at deployment
-		expect(Object.keys(h.deploys[0].written!)).toEqual([JWT_SECRET, SETUP_PASSWORD]);
+		expect(Object.keys(h.deploys[0].written ?? {}).sort()).toEqual([ARMED_SECRET, JWT_SECRET].sort());
+		expect(h.deploys[0].keepVars).toBe(false);
+	});
+
+	it('never uploads the Owner password, even when the environment of an old setup still has it', async () => {
+		const h = harness(fresh());
+		await run(h);
+		expect(h.deploys[0].written).not.toHaveProperty(SETUP_PASSWORD);
 	});
 
 	it('removes the temporary secrets file, also when the deploy fails', async () => {
-		const ok = harness(fresh());
-		await run(ok, { [SETUP_PASSWORD]: GOOD });
-		expect(ok.removed).toHaveLength(1);
-
-		const failing = harness(fresh(), { deployFails: true });
-		await expect(run(failing, { [SETUP_PASSWORD]: GOOD })).rejects.toThrow('deploy failed');
-		expect(failing.removed).toHaveLength(1);
+		const h = harness(fresh(), { deployFails: true });
+		await expect(run(h)).rejects.toThrow('deploy failed');
+		expect(h.removed).toHaveLength(1);
 	});
 
-	it('asks for the password once, in a terminal, when it was not supplied', async () => {
-		const h = harness(fresh());
-		let asked = 0;
-		await run(h, {}, async () => (++asked, GOOD));
-		expect(asked).toBe(1);
-		expect(h.deploys[0].written?.[SETUP_PASSWORD]).toBe(GOOD);
+	it('creates the bucket when it is positively absent, checks it, and only then checks privacy', async () => {
+		const h = harness({ secrets: null, bucket: false, owner: false, marker: false });
+		expect(await run(h)).toMatchObject({ mode: 'fresh', uploaded: [JWT_SECRET, ARMED_SECRET] });
+		expect(h.created).toEqual(['pocket-chest']);
+		expect(h.calls.indexOf('createBucket')).toBeLessThan(h.calls.indexOf('bucketPrivacy'));
+		expect(h.calls.indexOf('bucketPrivacy')).toBeLessThan(h.calls.indexOf('write'));
 	});
 
-	it.each([
-		['missing', undefined],
-		['empty', ''],
-		['too short', 'tiny-pw-0123'],
-		['an example value', 'REPLACE_WITH_UNIQUE_PASSWORD_16_CHARS_MINIMUM'],
-	])('refuses before changing anything when the password is %s', async (_label, password) => {
-		const h = harness(fresh());
-		const env: Record<string, string> = password === undefined ? {} : { [SETUP_PASSWORD]: password };
-		const error = await refusal(run(h, env, async () => null));
-		expect(['password-required', 'password-invalid']).toContain(error.code);
+	it('refuses when R2 cannot create the bucket, and arms nothing', async () => {
+		const h = harness({ secrets: null, bucket: false, owner: false, marker: false }, { createFails: true });
+		expect((await refusal(run(h))).code).toBe('bucket-create-failed');
 		expect(h.deploys).toHaveLength(0);
 		expect(h.calls).not.toContain('write');
-		if (password) expect(error.message).not.toContain(password);
 	});
 
-	it('works when the Worker does not exist yet, and when the bucket is empty and new', async () => {
-		const h = harness({ secrets: null, bucket: false, owner: false, marker: false });
-		expect((await run(h, { [SETUP_PASSWORD]: GOOD })).mode).toBe('fresh');
-		expect(h.calls).not.toContain('objectExists:auth/owner.json');
+	it('refuses when the bucket does not show up after creation', async () => {
+		const h = harness({ secrets: null, bucket: false, owner: false, marker: false }, { bucketStaysMissing: true });
+		expect((await refusal(run(h))).code).toBe('bucket-create-failed');
+		expect(h.deploys).toHaveLength(0);
 	});
 
-	it('only sends the root when the platform already holds the password as a secret (Deploy Button form)', async () => {
-		const h = harness({ ...fresh(), secrets: [SETUP_PASSWORD] });
-		const result = await run(h);
-		expect(result.uploaded).toEqual([JWT_SECRET]);
-		expect(h.deploys[0].written).toEqual({ [JWT_SECRET]: expect.any(String) });
+	it('works when the Worker does not exist yet', async () => {
+		const h = harness({ secrets: null, bucket: true, owner: false, marker: false });
+		expect(await run(h)).toMatchObject({ mode: 'fresh', uploaded: [JWT_SECRET, ARMED_SECRET] });
+		expect(h.created).toEqual([]);
 	});
 
 	it('never puts a secret value into the log or the result', async () => {
 		const h = harness(fresh());
-		const result = await run(h, { [SETUP_PASSWORD]: GOOD });
-		const text = JSON.stringify([result, h.logs]);
-		expect(text).not.toContain(GOOD);
-		expect(text).not.toContain('generated-root');
+		const result = await run(h);
+		expect(JSON.stringify([result, h.logs])).not.toMatch(/generated-root-\d+-x/);
+	});
+});
+
+describe('bucket privacy gate: nothing is armed unless the bucket is proven private', () => {
+	it.each([
+		['r2.dev access is on', { publicDevUrl: true, customDomains: 0 }],
+		['a custom domain is attached', { publicDevUrl: false, customDomains: 1 }],
+	])('refuses when %s, and uploads and deploys nothing', async (_label, privacy) => {
+		const h = harness(fresh(), { privacy });
+		expect((await refusal(run(h))).code).toBe('bucket-not-private');
+		expect(h.deploys).toHaveLength(0);
+		expect(h.calls).not.toContain('write');
+	});
+
+	it('refuses when the privacy answer is unavailable (403, network, unclear)', async () => {
+		const h = harness(fresh(), { failOn: 'bucketPrivacy' });
+		expect((await refusal(run(h))).code).toBe('inspect-failed');
+		expect(h.deploys).toHaveLength(0);
+	});
+
+	it('checks privacy on resume too, before the arming flag is uploaded', async () => {
+		const h = harness(
+			{ secrets: [JWT_SECRET], bucket: true, owner: false, marker: false },
+			{ privacy: { publicDevUrl: true, customDomains: 0 } },
+		);
+		expect((await refusal(run(h))).code).toBe('bucket-not-private');
+		expect(h.deploys).toHaveLength(0);
+	});
+
+	it('an upgrade is not blocked by the privacy answer and does not ask for it', async () => {
+		const h = harness(installed(), { failOn: 'bucketPrivacy' });
+		expect(await run(h)).toMatchObject({ mode: 'upgrade', uploaded: [] });
+		expect(h.calls).not.toContain('bucketPrivacy');
 	});
 });
 
 describe('upgrade', () => {
-	it('needs no password and uploads no secret: code only, other settings kept', async () => {
+	it('needs no input and uploads no secret: code only, other settings kept', async () => {
 		const h = harness(installed());
-		const result = await run(h);
-		expect(result).toEqual({ mode: 'upgrade', uploaded: [] });
+		expect(await run(h)).toMatchObject({ mode: 'upgrade', uploaded: [] });
 		expect(h.deploys).toEqual([{ secretsFile: null, keepVars: true, written: null }]);
-		expect(h.calls).not.toContain('write');
 	});
 
-	it('ignores a password in the environment: the Owner is never touched', async () => {
-		const h = harness(installed());
-		await run(h, { [SETUP_PASSWORD]: GOOD });
-		expect(h.deploys[0].secretsFile).toBeNull();
-	});
-
-	it('does not need the setup password secret to still exist', async () => {
-		const h = harness({ ...installed(), secrets: [JWT_SECRET] });
-		expect((await run(h)).mode).toBe('upgrade');
+	it('does not need the old setup password secret to still exist', async () => {
+		const h = harness({ secrets: [JWT_SECRET], bucket: true, owner: true, marker: true });
+		expect(await run(h)).toMatchObject({ mode: 'upgrade', uploaded: [] });
 	});
 });
 
 describe('refusals that change nothing', () => {
 	it('an Owner exists but the Worker has no root secret: never makes a replacement', async () => {
-		const h = harness({ secrets: [SETUP_PASSWORD], bucket: true, owner: true, marker: true });
-		expect((await refusal(run(h, { [SETUP_PASSWORD]: GOOD }))).code).toBe('root-missing');
+		const h = harness({ secrets: [], bucket: true, owner: true, marker: true });
+		expect((await refusal(run(h))).code).toBe('root-missing');
 		expect(h.deploys).toHaveLength(0);
 	});
 
 	it('the Worker does not exist but the bucket already has an Owner', async () => {
 		const h = harness({ secrets: null, bucket: true, owner: true, marker: true });
-		expect((await refusal(run(h, { [SETUP_PASSWORD]: GOOD }))).code).toBe('root-missing');
+		expect((await refusal(run(h))).code).toBe('root-missing');
 		expect(h.deploys).toHaveLength(0);
 	});
 
 	it('a setup marker with no Owner needs recovery, not a new install', async () => {
 		const h = harness({ secrets: [JWT_SECRET], bucket: true, owner: false, marker: true });
-		expect((await refusal(run(h, { [SETUP_PASSWORD]: GOOD }))).code).toBe('recovery-required');
+		expect((await refusal(run(h))).code).toBe('recovery-required');
 		expect(h.deploys).toHaveLength(0);
+	});
+
+	it('a Worker that exists without its bucket is refused, never recreated as a fresh install', async () => {
+		const h = harness({ secrets: [], bucket: false, owner: false, marker: false });
+		expect((await refusal(run(h))).code).toBe('bucket-missing');
+		expect(h.calls).not.toContain('createBucket');
 	});
 
 	it.each(['secretNames', 'bucketExists', 'objectExists'])('an error from %s is a refusal, not "nothing there"', async (failOn) => {
 		const h = harness(installed(), { failOn });
-		expect((await refusal(run(h, { [SETUP_PASSWORD]: GOOD }))).code).toBe('inspect-failed');
+		expect((await refusal(run(h))).code).toBe('inspect-failed');
 		expect(h.deploys).toHaveLength(0);
 		expect(h.calls).not.toContain('write');
 	});
 
 	it('another install appearing while this one starts stops it before anything is uploaded', async () => {
 		const h = harness(fresh(), { changeBeforeDeploy: { secrets: [JWT_SECRET] } });
-		expect((await refusal(run(h, { [SETUP_PASSWORD]: GOOD }))).code).toBe('changed');
+		expect((await refusal(run(h))).code).toBe('changed');
 		expect(h.deploys).toHaveLength(0);
 		expect(h.calls).not.toContain('write');
 	});
 });
 
 describe('resuming an install that stopped early', () => {
-	it('keeps the existing root and sets only the password', async () => {
+	it('keeps the existing root and uploads only the arming flag', async () => {
 		const h = harness({ secrets: [JWT_SECRET], bucket: true, owner: false, marker: false });
-		const result = await run(h, { [SETUP_PASSWORD]: GOOD });
-		expect(result).toEqual({ mode: 'resume', uploaded: [SETUP_PASSWORD] });
-		expect(h.deploys[0].written).toEqual({ [SETUP_PASSWORD]: GOOD });
+		expect(await run(h)).toMatchObject({ mode: 'resume', uploaded: [ARMED_SECRET] });
+		expect(Object.keys(h.deploys[0].written ?? {})).toEqual([ARMED_SECRET]);
 	});
 });
 
-describe('decision table and password check', () => {
+describe('decision table', () => {
 	it('decides from facts alone', () => {
 		const base = {
 			workerExists: true,
@@ -228,19 +270,12 @@ describe('decision table and password check', () => {
 		expect(decide({ ...base, hasRoot: true, ownerExists: true })).toBe('upgrade');
 		expect(() => decide({ ...base, ownerExists: true })).toThrow(DeployRefusal);
 		expect(() => decide({ ...base, markerExists: true })).toThrow(DeployRefusal);
+		expect(() => decide({ ...base, bucketExists: false, workerExists: true })).toThrow(DeployRefusal);
 	});
 
 	it('inspectTarget reports facts without writing', async () => {
 		const h = harness(installed());
 		expect(await inspectTarget(h.runner, { workerName: 'w', bucketName: 'b' })).toMatchObject({ hasRoot: true, ownerExists: true });
 		expect(h.calls).not.toContain('deploy');
-	});
-
-	it('passwordProblem names the problem, never the value', () => {
-		expect(passwordProblem(GOOD)).toBeNull();
-		for (const bad of [undefined, '', 'tiny-pw-0123', 'change-me-change-me-change-me']) {
-			expect(passwordProblem(bad as string)).toEqual(expect.any(String));
-			if (typeof bad === 'string' && bad) expect(passwordProblem(bad)).not.toContain(bad);
-		}
 	});
 });

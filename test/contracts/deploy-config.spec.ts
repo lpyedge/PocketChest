@@ -61,6 +61,13 @@ describe('deploy button configuration', () => {
 		expect(scripts.deploy).not.toMatch(/wrangler deploy/);
 	});
 
+	it('the installer-only script does not build, so a build command followed by it builds once', () => {
+		const scripts = JSON.parse(packageJson).scripts;
+		expect(scripts['deploy:installer']).toBe('node scripts/deploy.mjs');
+		expect(scripts['deploy:installer']).not.toMatch(/build/);
+		expect(scripts.deploy).toMatch(/^npm run build && /);
+	});
+
 	it('no script or doc asks a person to generate a key by hand', () => {
 		expect(JSON.stringify(JSON.parse(packageJson).scripts)).not.toMatch(/openssl/);
 	});
@@ -134,7 +141,8 @@ describe('manual deploy workflow', () => {
 		const [beforeDeployJob] = workflow.split(/\n {2}deploy:\n/);
 		expect(beforeDeployJob).not.toMatch(/secrets\./);
 		const used = [...workflow.matchAll(/\$\{\{\s*secrets\.([A-Z_]+)\s*\}\}/g)].map((match) => match[1]).sort();
-		expect(used).toEqual(['ADMIN_BOOTSTRAP_PASSWORD', 'CLOUDFLARE_ACCOUNT_ID', 'CLOUDFLARE_API_TOKEN']);
+		expect(used).toEqual(['CLOUDFLARE_ACCOUNT_ID', 'CLOUDFLARE_API_TOKEN']);
+		expect(workflow).not.toMatch(/ADMIN_BOOTSTRAP_PASSWORD/);
 		expect(workflow).not.toMatch(/JWT_SECRET|AUTH_ENCRYPTION_KEY|openssl|inputs\.[a-z_]*password/i);
 	});
 

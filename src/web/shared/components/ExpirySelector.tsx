@@ -19,7 +19,7 @@ export function ExpirySelector({ value, onChange }: ExpirySelectorProps) {
 	return (
 		<div className="space-y-2">
 			<label className="block text-sm font-medium text-gray-900">{t('expiry.label')}</label>
-			<div className="grid grid-cols-2 sm:grid-cols-5 gap-2" role="group" aria-label={t('expiry.label')}>
+			<div className="grid grid-cols-3 sm:grid-cols-5 gap-2" role="group" aria-label={t('expiry.label')}>
 				{expiryOptions.map((option) => (
 					<button
 						key={option.value}

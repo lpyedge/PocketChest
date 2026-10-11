@@ -1,6 +1,7 @@
 import { FileUploadProgress } from '@/lib/types';
 import { useI18n } from '@/i18n/I18nProvider';
 import { formatBytes } from '@/lib/format';
+import { CheckCircleIcon, FileIcon } from '@/components/Icons';
 
 interface UploadProgressProps {
 	files: File[];
@@ -38,24 +39,13 @@ export function UploadProgress({
 	const totalItems = files.length + textItems.length;
 	const formatFileSize = (bytes: number): string => formatBytes(bytes, locale, { zero: t('size.zero'), bytes: t('size.bytes') });
 
-	const getStatusIcon = (status: FileUploadProgress['status']): string => {
-		switch (status) {
-			case 'waiting':
-				return '⏳';
-			case 'starting':
-				return '🔄';
-			case 'uploading':
-				return '📤';
-			case 'finalizing':
-				return '⚙️';
-			case 'completed':
-				return '✅';
-			case 'error':
-				return '❌';
-			default:
-				return '📄';
-		}
-	};
+	// A finished item shows a check; every other state keeps the file icon, tinted by the state
+	const statusIcon = (status: FileUploadProgress['status'] | undefined, done: boolean) =>
+		status === 'completed' || (!status && done) ? (
+			<CheckCircleIcon width={18} height={18} className="shrink-0 text-green-600" />
+		) : (
+			<FileIcon width={18} height={18} className={`shrink-0 ${status ? getStatusColor(status) : 'text-gray-400'}`} />
+		);
 
 	const getStatusColor = (status: FileUploadProgress['status']): string => {
 		switch (status) {
@@ -83,9 +73,9 @@ export function UploadProgress({
 	};
 
 	return (
-		<div className="bg-white rounded-lg shadow-md p-6 mb-6">
+		<div className="mb-4 rounded-2xl bg-white p-5 shadow-sm ring-1 ring-gray-200">
 			<div className="flex items-center justify-between mb-4">
-				<h3 className="text-lg font-semibold text-gray-900">
+				<h3 className="text-base font-semibold text-gray-900">
 					{uploadStatus === 'uploading' && (isFinalizing ? t('progress.finishing') : t('progress.uploading'))}
 					{uploadStatus === 'cancelling' && t('progress.cancelling')}
 					{uploadStatus === 'success' && t('progress.complete')}
@@ -130,9 +120,7 @@ export function UploadProgress({
 						<div key={index} className="p-3 bg-gray-50 rounded-lg border">
 							<div className="flex items-center justify-between mb-2">
 								<div className="flex items-center gap-2">
-									<span className="text-lg">
-										{fileProgressData ? getStatusIcon(fileProgressData.status) : uploadStatus === 'success' ? '✅' : '📄'}
-									</span>
+									<span className="flex">{statusIcon(fileProgressData?.status, uploadStatus === 'success')}</span>
 									<span className="text-sm font-medium truncate max-w-xs">{file.name}</span>
 									<span className="text-xs text-gray-500">({formatFileSize(file.size)})</span>
 								</div>
@@ -185,9 +173,7 @@ export function UploadProgress({
 						<div key={index} className="p-3 bg-gray-50 rounded-lg border">
 							<div className="flex items-center justify-between mb-2">
 								<div className="flex items-center gap-2">
-									<span className="text-lg">
-										{fileProgressData ? getStatusIcon(fileProgressData.status) : uploadStatus === 'success' ? '✅' : '📝'}
-									</span>
+									<span className="flex">{statusIcon(fileProgressData?.status, uploadStatus === 'success')}</span>
 									<span className="text-sm font-medium truncate">
 										{item.filename?.endsWith('.txt') ? item.filename.slice(0, -4) : item.filename || t('text.defaultName')}
 									</span>
@@ -241,10 +227,6 @@ export function UploadProgress({
 			{/* Error State */}
 			{uploadStatus === 'error' && (
 				<div className="mt-4 p-4 bg-red-50 border border-red-200 rounded-lg">
-					<div className="flex items-center gap-2 mb-2">
-						<span className="text-red-600">❌</span>
-						<span className="font-medium text-red-900">{t('progress.failed')}</span>
-					</div>
 					<p className="text-red-700 text-sm mb-3">{error || t('progress.errorDefault')}</p>
 					<div className="flex gap-2">
 						<button onClick={onRetry} className="px-4 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700 text-sm font-medium">

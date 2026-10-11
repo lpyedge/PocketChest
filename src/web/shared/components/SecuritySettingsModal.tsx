@@ -239,7 +239,7 @@ export function SecuritySettingsModal({ csrfToken, onRotated, onClose, onSignedO
 	}
 
 	return (
-		<Dialog title={t('security.title')} onClose={onClose}>
+		<Dialog title={t('security.title')} icon={<ShieldIcon width={18} height={18} />} onClose={onClose}>
 			{message && (
 				<p role="alert" className="mb-4 text-sm text-red-700">
 					{message}
@@ -253,7 +253,7 @@ export function SecuritySettingsModal({ csrfToken, onRotated, onClose, onSignedO
 			<p className="mb-4 text-xs text-gray-600">{t('security.independentNote')}</p>
 
 			{pending && (
-				<section className="mb-6 p-4 border border-amber-300 bg-amber-50 rounded-lg space-y-3">
+				<section className="mb-4 p-4 border border-amber-300 bg-amber-50 rounded-xl space-y-3">
 					<p className="text-sm text-gray-800">
 						{pending.required ? t('security.confirmTitleWith', { method: t(`method.${pending.required}`) }) : t('security.confirmTitle')}
 					</p>
@@ -273,9 +273,13 @@ export function SecuritySettingsModal({ csrfToken, onRotated, onClose, onSignedO
 										aria-label={t('auth.password')}
 										value={reauthPassword}
 										onChange={(event) => setReauthPassword(event.target.value)}
-										className="flex-1 border border-gray-300 rounded px-3 py-2"
+										className="flex-1 border border-gray-300 rounded-lg px-3 py-2 text-sm"
 									/>
-									<button type="submit" disabled={busy} className="px-4 py-2 bg-blue-500 text-white rounded disabled:opacity-50">
+									<button
+										type="submit"
+										disabled={busy}
+										className="rounded-lg bg-blue-600 px-3 py-2 text-sm font-medium text-white hover:bg-blue-700 disabled:opacity-50"
+									>
 										{t('security.confirmPassword')}
 									</button>
 								</form>
@@ -297,9 +301,13 @@ export function SecuritySettingsModal({ csrfToken, onRotated, onClose, onSignedO
 											maxLength={6}
 											value={reauthCode}
 											onChange={(event) => setReauthCode(event.target.value)}
-											className="flex-1 border border-gray-300 rounded px-3 py-2"
+											className="flex-1 border border-gray-300 rounded-lg px-3 py-2 text-sm"
 										/>
-										<button type="submit" disabled={busy} className="px-4 py-2 bg-blue-500 text-white rounded disabled:opacity-50">
+										<button
+											type="submit"
+											disabled={busy}
+											className="rounded-lg bg-blue-600 px-3 py-2 text-sm font-medium text-white hover:bg-blue-700 disabled:opacity-50"
+										>
 											{t('security.confirmAuthenticator')}
 										</button>
 									</form>
@@ -313,7 +321,7 @@ export function SecuritySettingsModal({ csrfToken, onRotated, onClose, onSignedO
 								type="button"
 								disabled={busy}
 								onClick={() => reenter('passkey', pending.run, pending.activate)}
-								className="px-4 py-2 bg-gray-800 text-white rounded-lg text-sm disabled:opacity-50"
+								className="rounded-lg border border-gray-300 bg-white px-3 py-1.5 text-sm font-medium text-gray-800 hover:bg-gray-50 disabled:opacity-50"
 							>
 								{t('security.confirmPasskey')}
 							</button>
@@ -333,7 +341,7 @@ export function SecuritySettingsModal({ csrfToken, onRotated, onClose, onSignedO
 				hint={lockReason('password')}
 			>
 				<form
-					className="mt-4 space-y-2"
+					className="space-y-2"
 					onSubmit={(event) => {
 						event.preventDefault();
 						const next = newPassword;
@@ -350,7 +358,7 @@ export function SecuritySettingsModal({ csrfToken, onRotated, onClose, onSignedO
 						autoComplete="new-password"
 						value={newPassword}
 						onChange={(event) => setNewPassword(event.target.value)}
-						className="w-full border border-gray-300 rounded px-3 py-2"
+						className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm"
 					/>
 					<input
 						type="password"
@@ -359,9 +367,13 @@ export function SecuritySettingsModal({ csrfToken, onRotated, onClose, onSignedO
 						autoComplete="new-password"
 						value={confirmPassword}
 						onChange={(event) => setConfirmPassword(event.target.value)}
-						className="w-full border border-gray-300 rounded px-3 py-2"
+						className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm"
 					/>
-					<button type="submit" disabled={busy} className="px-4 py-2 bg-gray-800 text-white rounded-lg text-sm disabled:opacity-50">
+					<button
+						type="submit"
+						disabled={busy}
+						className="rounded-lg border border-gray-300 bg-white px-3 py-1.5 text-sm font-medium text-gray-800 hover:bg-gray-50 disabled:opacity-50"
+					>
 						{t('security.changePassword')}
 					</button>
 					<p className="text-xs text-gray-500">{t('security.changeNote')}</p>
@@ -386,12 +398,12 @@ export function SecuritySettingsModal({ csrfToken, onRotated, onClose, onSignedO
 								setTotpSetup({ challenge: prepared.challenge, otpauthUri: prepared.otpauthUri });
 							})
 						}
-						className="mt-3 px-4 py-2 bg-gray-800 text-white rounded-lg text-sm disabled:opacity-50"
+						className="rounded-lg border border-gray-300 bg-white px-3 py-1.5 text-sm font-medium text-gray-800 hover:bg-gray-50 disabled:opacity-50"
 					>
 						{status.methods.totp.configured ? t('security.replaceAuthenticator') : t('security.setUpAuthenticator')}
 					</button>
 				) : (
-					<div className="mt-3 space-y-2">
+					<div className="space-y-2">
 						<p className="text-sm text-gray-700">{t('security.scanQr')}</p>
 						<QrCode value={totpSetup.otpauthUri} label={t('security.qrLabel')} />
 						<ManualKey otpauthUri={totpSetup.otpauthUri} />
@@ -409,9 +421,13 @@ export function SecuritySettingsModal({ csrfToken, onRotated, onClose, onSignedO
 								maxLength={6}
 								value={totpCode}
 								onChange={(event) => setTotpCode(event.target.value)}
-								className="flex-1 border border-gray-300 rounded px-3 py-2"
+								className="flex-1 border border-gray-300 rounded-lg px-3 py-2 text-sm"
 							/>
-							<button type="submit" disabled={busy} className="px-4 py-2 bg-blue-500 text-white rounded disabled:opacity-50">
+							<button
+								type="submit"
+								disabled={busy}
+								className="rounded-lg bg-blue-600 px-3 py-2 text-sm font-medium text-white hover:bg-blue-700 disabled:opacity-50"
+							>
 								{t('security.confirmCode')}
 							</button>
 						</form>
@@ -429,7 +445,7 @@ export function SecuritySettingsModal({ csrfToken, onRotated, onClose, onSignedO
 				control={methodToggle('passkey', t('security.passkeysSection'))}
 				hint={lockReason('passkey')}
 			>
-				<ul className="mt-3 space-y-2">
+				<ul className="mb-3 space-y-2 empty:hidden">
 					{status.methods.passkey.credentials.map((credential) => (
 						<li key={credential.id} className="flex items-center justify-between gap-2 text-sm">
 							<span>
@@ -457,7 +473,7 @@ export function SecuritySettingsModal({ csrfToken, onRotated, onClose, onSignedO
 					type="button"
 					disabled={busy}
 					onClick={registerPasskey}
-					className="mt-3 px-4 py-2 bg-gray-800 text-white rounded-lg text-sm disabled:opacity-50"
+					className="rounded-lg border border-gray-300 bg-white px-3 py-1.5 text-sm font-medium text-gray-800 hover:bg-gray-50 disabled:opacity-50"
 				>
 					{t('security.addPasskey')}
 				</button>
@@ -509,7 +525,7 @@ function Section({
 				{control}
 			</div>
 			{hint && <p className="mt-2 text-xs text-gray-500">{hint}</p>}
-			<div className="mt-3 border-t border-gray-100 pt-3">{children}</div>
+			<div className="mt-2 border-t border-gray-100 pt-3">{children}</div>
 		</section>
 	);
 }

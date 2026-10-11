@@ -4,10 +4,10 @@
 //
 //   npm run build && npm run screenshots
 //
-// Output: assets/screenshots/{home,login,upload,share-result,retrieve,security-settings}-<lang>.png (desktop)
+// Output: assets/screenshots/{home,login,upload,share-result,share-records,retrieve,security-settings}-<lang>.png (desktop)
 //         and {upload,retrieve}-<lang>-mobile.png (375px). Review every image before committing it.
 import { execFileSync, spawn } from 'node:child_process';
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { randomBytes } from 'node:crypto';
@@ -19,38 +19,25 @@ const OUT = 'assets/screenshots';
 const PASSWORD = randomBytes(18).toString('base64url'); // the owner password for this run only
 const STATE = mkdtempSync(join(tmpdir(), 'pocketchest-shots-'));
 
+// The labels the page shows come from its own translation files, so a wording change cannot leave this script behind
+const messages = (lang) => JSON.parse(readFileSync(`src/web/shared/i18n/locales/${lang}.json`, 'utf8'));
 const LANGS = [
-	{
-		lang: 'zh-Hant',
-		locale: 'zh-TW',
-		home: '/',
-		password: '密碼',
-		signIn: '以密碼登入',
-		addText: '加入文字',
-		submit: '上傳並產生取件碼',
-		security: '安全設定',
-	},
-	{
-		lang: 'ja',
-		locale: 'ja-JP',
-		home: '/ja/',
-		password: 'パスワード',
-		signIn: 'パスワードでサインイン',
-		addText: 'テキストを追加',
-		submit: 'アップロードしてコードを作成',
-		security: 'セキュリティ設定',
-	},
-	{
-		lang: 'en',
-		locale: 'en-US',
-		home: '/en/',
-		password: 'Password',
-		signIn: 'Sign in with password',
-		addText: 'Add Text',
-		submit: 'Upload & Generate Code',
-		security: 'Security settings',
-	},
-];
+	{ lang: 'zh-Hant', locale: 'zh-TW', home: '/' },
+	{ lang: 'ja', locale: 'ja-JP', home: '/ja/' },
+	{ lang: 'en', locale: 'en-US', home: '/en/' },
+].map((entry) => {
+	const m = messages(entry.lang);
+	return {
+		...entry,
+		password: m['auth.password'],
+		signIn: m['auth.passwordSubmit'],
+		addText: m['text.toggle'],
+		submit: m['upload.submit'],
+		security: m['upload.security'],
+		shares: m['shares.open'],
+		shareMore: m['upload.shareMore'],
+	};
+});
 
 const SAMPLE_TEXT = {
 	'zh-Hant': '週五會議的連結與議程在這裡。',
@@ -123,8 +110,9 @@ try {
 	await waitForServer();
 	mkdirSync(OUT, { recursive: true });
 	const api = await playwrightRequest.newContext({ baseURL: BASE, extraHTTPHeaders: { 'CF-Connecting-IP': '198.51.100.10' } });
-	const claimed = await api.post('/api/auth/bootstrap', { headers: { Origin: BASE }, data: { password: PASSWORD } });
-	if (claimed.status() !== 201) throw new Error(`Owner setup failed with ${claimed.status()}`);
+	// The first status check claims the owner with the password that was seeded above
+	const status = await api.get('/api/auth/methods');
+	if (!status.ok()) throw new Error(`Owner setup failed with ${status.status()}`);
 
 	browser = await chromium.launch(process.env.PLAYWRIGHT_CHROMIUM_PATH ? { executablePath: process.env.PLAYWRIGHT_CHROMIUM_PATH } : {});
 
@@ -155,21 +143,24 @@ try {
 
 		await page.getByLabel(L.password, { exact: true }).fill(PASSWORD);
 		await page.getByRole('button', { name: L.signIn }).click();
+		await page.setInputFiles('input[type=file]', {
+			name: 'quarterly-report.pdf',
+			mimeType: 'application/pdf',
+			buffer: Buffer.from('%PDF-1.4 demo'),
+		});
+		await page.getByRole('switch', { name: L.addText }).click();
 		await page.locator('textarea').first().fill(SAMPLE_TEXT[L.lang]);
-		await page.getByRole('button', { name: L.addText }).click();
-		await shot(page, `upload-${L.lang}`, 1040);
+		await shot(page, `upload-${L.lang}`, 900);
 
 		await page.getByRole('button', { name: L.security }).click();
 		await page.getByRole('dialog').waitFor();
 		await shot(page, `security-settings-${L.lang}`, 1040);
-		// The dialog's first button is its close button (✕)
-		await page.locator('[role=dialog] button').first().click();
+		await page.keyboard.press('Escape');
 		await page.getByRole('dialog').waitFor({ state: 'detached' });
 
 		await page.getByRole('button', { name: L.submit }).click();
-		await page.locator('code').filter({ hasText: '/retrieve/#' }).first().waitFor();
-		await shot(page, `share-result-${L.lang}`, 1040);
-		await desktop.context.close();
+		await page.locator('textarea[readonly]').first().waitFor();
+		await shot(page, `share-result-${L.lang}`, 640);
 
 		const ownerHeaders = await (async () => {
 			const login = await api.post('/api/auth/login/password', { headers: { Origin: BASE }, data: { password: PASSWORD } });
@@ -178,6 +169,13 @@ try {
 			return { Origin: BASE, Cookie: cookie, 'X-PocketChest-CSRF': csrfToken };
 		})();
 		const code = await createDemoShare(api, ownerHeaders, L.lang);
+
+		// A second and third share, so the list shows more than one row
+		await createDemoShare(api, ownerHeaders, L.lang);
+		await page.getByRole('button', { name: L.shares }).click();
+		await page.getByTestId('share-row').nth(2).waitFor();
+		await shot(page, `share-records-${L.lang}`, 560);
+		await desktop.context.close();
 
 		const wide = await open({ width: 1180, height: 760 });
 		await wide.page.goto(`${BASE}/retrieve/?lang=${L.lang}#${code}`);
@@ -194,7 +192,7 @@ try {
 		await phone.page.goto(`${BASE}/upload/?lang=${L.lang}`);
 		await phone.page.getByLabel(L.password, { exact: true }).fill(PASSWORD);
 		await phone.page.getByRole('button', { name: L.signIn }).click();
-		await phone.page.locator('textarea').first().waitFor();
+		await phone.page.getByRole('switch', { name: L.addText }).waitFor();
 		await shot(phone.page, `upload-${L.lang}-mobile`);
 		await phone.context.close();
 		console.log(`captured ${L.lang}`);

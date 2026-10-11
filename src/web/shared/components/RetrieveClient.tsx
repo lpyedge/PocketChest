@@ -6,7 +6,7 @@ import { formatBytes } from '@/lib/format';
 import { homeUrlFor } from '@/lib/home';
 import { AppHeader } from '@/components/AppHeader';
 import { IconButton } from '@/components/IconButton';
-import { CheckIcon, CopyIcon, FileIcon, KeyIcon } from '@/components/Icons';
+import { AlertIcon, CheckIcon, CopyIcon, FileIcon, KeyIcon } from '@/components/Icons';
 import { AUTO_LOAD_TEXT_ITEMS, loadTexts, TextState } from '@/lib/text-loader';
 import { useI18n } from '@/i18n/I18nProvider';
 
@@ -111,7 +111,7 @@ export function RetrieveClient({ code, onBack }: RetrieveClientProps) {
 	if (isRetrieving) {
 		return shell(
 			<div className="py-16 text-center">
-				<div className="mb-3 animate-spin text-3xl">⏳</div>
+				<div className="mx-auto mb-3 h-8 w-8 animate-spin rounded-full border-4 border-gray-200 border-t-blue-600" />
 				<p className="text-sm text-gray-600">{t('retrieve.loading')}</p>
 			</div>,
 		);
@@ -120,7 +120,7 @@ export function RetrieveClient({ code, onBack }: RetrieveClientProps) {
 	if (error) {
 		return shell(
 			<div className="mx-auto max-w-md rounded-2xl bg-white p-6 text-center shadow-sm ring-1 ring-gray-200">
-				<div className="mb-3 text-4xl">❌</div>
+				<AlertIcon width={36} height={36} className="mx-auto mb-3 text-red-600" />
 				<h1 className="mb-2 text-lg font-semibold text-red-700">{t('retrieve.failedTitle')}</h1>
 				<p className="mb-4 text-sm text-gray-600">{error}</p>
 				<button

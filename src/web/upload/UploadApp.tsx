@@ -11,7 +11,7 @@ import { AuthMethodPicker } from '@/components/AuthMethodPicker';
 import { SecuritySettingsModal } from '@/components/SecuritySettingsModal';
 import { AppHeader } from '@/components/AppHeader';
 import { IconButton } from '@/components/IconButton';
-import { CheckCircleIcon, ListIcon, UserIcon } from '@/components/Icons';
+import { CheckCircleIcon, CloseIcon, ListIcon, UserIcon } from '@/components/Icons';
 import { ShareManagementModal } from '@/components/ShareManagementModal';
 import { useI18n } from '@/i18n/I18nProvider';
 import { ClientError, messageKeyFor } from '@/lib/errors';
@@ -303,7 +303,7 @@ export default function UploadApp() {
 						<div className="mb-4 flex items-center justify-between rounded-lg border border-red-200 bg-red-50 p-3" role="alert">
 							<p className="text-sm text-red-700">{startError}</p>
 							<button onClick={() => setStartError(null)} aria-label={t('common.close')} className="text-red-500 hover:text-red-700">
-								✕
+								<CloseIcon width={16} height={16} />
 							</button>
 						</div>
 					)}
@@ -312,7 +312,7 @@ export default function UploadApp() {
 						<div className="mb-4 flex items-center justify-between rounded-lg border border-red-200 bg-red-50 p-3">
 							<p className="text-sm text-red-700">{error}</p>
 							<button onClick={clearError} aria-label={t('common.close')} className="text-red-500 hover:text-red-700">
-								✕
+								<CloseIcon width={16} height={16} />
 							</button>
 						</div>
 					)}

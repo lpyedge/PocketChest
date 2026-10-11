@@ -56,14 +56,14 @@ export function AuthMethodPicker({ status, onSignedIn }: AuthMethodPickerProps) 
 		} as const;
 		return (
 			<div className="space-y-3">
-				<p role="alert" className="text-gray-700">
+				<p role="alert" className="text-sm text-gray-700">
 					{t(messages[status.setup])}
 				</p>
 				{(status.setup === 'initializing' || status.setup === 'failed') && (
 					<button
 						type="button"
 						onClick={() => window.location.reload()}
-						className="w-full py-2 border border-gray-300 rounded-lg text-gray-800 hover:bg-gray-50"
+						className="w-full py-2 border border-gray-300 rounded-lg text-sm text-gray-800 hover:bg-gray-50"
 					>
 						{t('auth.setupRetry')}
 					</button>
@@ -75,7 +75,7 @@ export function AuthMethodPicker({ status, onSignedIn }: AuthMethodPickerProps) 
 	const { password: passwordOn, totp: totpOn, passkey: passkeyOn } = status.methods;
 	if (!passwordOn.enabled && !totpOn.enabled && !passkeyOn.enabled) {
 		// Fail closed: with no usable method the page never falls back to open uploads
-		return <p className="text-gray-700">{t('auth.noMethod')}</p>;
+		return <p className="text-sm text-gray-700">{t('auth.noMethod')}</p>;
 	}
 
 	return (
@@ -97,14 +97,14 @@ export function AuthMethodPicker({ status, onSignedIn }: AuthMethodPickerProps) 
 							autoComplete="current-password"
 							value={password}
 							onChange={(event) => setPassword(event.target.value)}
-							className="mt-1 w-full border border-gray-300 rounded-lg px-3 py-2"
+							className="mt-1 w-full border border-gray-300 rounded-lg px-3 py-2 text-sm"
 							required
 						/>
 					</label>
 					<button
 						type="submit"
 						disabled={busy}
-						className="w-full py-3 bg-blue-500 text-white rounded-lg hover:bg-blue-600 font-semibold disabled:opacity-50"
+						className="w-full py-2.5 bg-blue-600 text-white rounded-lg hover:bg-blue-700 text-sm font-semibold disabled:opacity-50"
 					>
 						{t('auth.passwordSubmit')}
 					</button>
@@ -129,14 +129,14 @@ export function AuthMethodPicker({ status, onSignedIn }: AuthMethodPickerProps) 
 							maxLength={6}
 							value={code}
 							onChange={(event) => setCode(event.target.value)}
-							className="mt-1 w-full border border-gray-300 rounded-lg px-3 py-2"
+							className="mt-1 w-full border border-gray-300 rounded-lg px-3 py-2 text-sm"
 							required
 						/>
 					</label>
 					<button
 						type="submit"
 						disabled={busy}
-						className="w-full py-3 bg-blue-500 text-white rounded-lg hover:bg-blue-600 font-semibold disabled:opacity-50"
+						className="w-full py-2.5 bg-blue-600 text-white rounded-lg hover:bg-blue-700 text-sm font-semibold disabled:opacity-50"
 					>
 						{t('auth.codeSubmit')}
 					</button>
@@ -154,7 +154,7 @@ export function AuthMethodPicker({ status, onSignedIn }: AuthMethodPickerProps) 
 							return (await authApi.passkeyLoginVerify(options.challenge, response)).csrfToken;
 						})
 					}
-					className="w-full py-3 bg-gray-800 text-white rounded-lg hover:bg-gray-900 font-semibold disabled:opacity-50"
+					className="w-full py-2.5 bg-blue-600 text-white rounded-lg hover:bg-blue-700 text-sm font-semibold disabled:opacity-50"
 				>
 					{t('auth.passkeySubmit')}
 				</button>

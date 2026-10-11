@@ -23,9 +23,8 @@ export function Dialog({ title, icon, children, onClose, actions, wide = false }
 
 	useEffect(() => {
 		const previous = document.activeElement as HTMLElement | null;
-		// The first control that is not the close button, so typing can start at once
-		const items = dialogRef.current?.querySelectorAll<HTMLElement>(FOCUSABLE);
-		(items && (items[1] ?? items[0]))?.focus();
+		// Focus lands on the dialog itself: Tab then reaches its first control, and no tooltip opens on its own
+		dialogRef.current?.focus();
 		return () => previous?.focus?.();
 	}, []);
 
@@ -59,7 +58,11 @@ export function Dialog({ title, icon, children, onClose, actions, wide = false }
 			aria-modal="true"
 			aria-label={title}
 		>
-			<div ref={dialogRef} className={`mt-6 w-full rounded-2xl bg-white shadow-xl sm:mt-10 ${wide ? 'max-w-2xl' : 'max-w-lg'}`}>
+			<div
+				ref={dialogRef}
+				tabIndex={-1}
+				className={`mt-6 w-full rounded-2xl bg-white shadow-xl outline-none sm:mt-10 ${wide ? 'max-w-2xl' : 'max-w-lg'}`}
+			>
 				<div className="flex items-center justify-between gap-3 border-b border-gray-100 px-4 py-3 sm:px-5">
 					<h2 className="flex items-center gap-2 text-base font-semibold text-gray-900">
 						{icon && <span className="text-gray-500">{icon}</span>}

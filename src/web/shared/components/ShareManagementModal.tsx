@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useState } from 'react';
 import { Dialog } from '@/components/Dialog';
 import { IconButton } from '@/components/IconButton';
-import { CheckIcon, CopyIcon, KeyIcon, LinkIcon, RefreshIcon, TrashIcon, UploadCloudIcon } from '@/components/Icons';
+import { CheckIcon, CopyIcon, KeyIcon, LinkIcon, RefreshIcon, TrashIcon, ListIcon } from '@/components/Icons';
 import { sharesApi, ShareRecord } from '@/lib/shares-api';
 import { AuthRequestError } from '@/lib/auth-api';
 import { codeKeyFor } from '@/lib/errors';
@@ -118,15 +118,10 @@ export function ShareManagementModal({ csrfToken, onClose, onSignedOut }: ShareM
 		}
 	};
 
-	const expiryText = (share: ShareRecord) =>
-		share.expiresAt === null
-			? t('retrieve.expiresNever')
-			: t('retrieve.expires', { date: new Date(share.expiresAt * 1000).toLocaleString(locale) });
-
 	return (
 		<Dialog
 			title={t('shares.title')}
-			icon={<UploadCloudIcon width={18} height={18} />}
+			icon={<ListIcon width={18} height={18} />}
 			onClose={onClose}
 			wide
 			actions={
@@ -149,63 +144,85 @@ export function ShareManagementModal({ csrfToken, onClose, onSignedOut }: ShareM
 				<p className="py-6 text-center text-sm text-gray-500">{t('shares.empty')}</p>
 			)}
 
-			<ul className="space-y-3">
-				{shares?.map((share) => (
-					<li key={share.sessionId} data-testid="share-row" className="rounded-xl border border-gray-200 p-3">
-						<div className="flex items-center justify-between gap-2">
-							<code className="font-mono text-lg font-semibold tracking-widest text-gray-900">{share.retrievalCode}</code>
-							<div className="flex items-center">
-								<IconButton
-									label={copied === `${share.sessionId}:code` ? t('shares.copied') : t('shares.copyCode')}
-									onClick={() => copy(`${share.sessionId}:code`, share.retrievalCode)}
-								>
-									{copied === `${share.sessionId}:code` ? <CheckIcon className="text-green-600" /> : <KeyIcon />}
-								</IconButton>
-								<IconButton
-									label={copied === `${share.sessionId}:link` ? t('shares.copied') : t('shares.copyLink')}
-									onClick={() => copy(`${share.sessionId}:link`, getShareLink(share.retrievalCode))}
-								>
-									{copied === `${share.sessionId}:link` ? <CheckIcon className="text-green-600" /> : <LinkIcon />}
-								</IconButton>
-								<IconButton label={t('shares.revoke')} onClick={() => revoke(share)} disabled={busyId === share.sessionId} align="right">
-									<TrashIcon className="text-red-600" />
-								</IconButton>
+			<ul className="space-y-2">
+				{shares?.map((share) => {
+					const dateFormat: Intl.DateTimeFormatOptions = { dateStyle: 'medium', timeStyle: 'short' };
+					return (
+						<li key={share.sessionId} data-testid="share-row" className="rounded-xl border border-gray-200 px-3 py-2">
+							{/* Line 1: the code, what is in it, and the actions */}
+							<div className="flex items-center justify-between gap-2">
+								<div className="flex min-w-0 items-baseline gap-2">
+									<code className="font-mono text-base font-semibold tracking-wider text-gray-900">{share.retrievalCode}</code>
+									<span className="truncate text-xs text-gray-500">
+										{t('shares.summary', {
+											count: share.fileCount,
+											size: formatBytes(share.totalSize, locale, { zero: t('size.zero'), bytes: t('size.bytes') }),
+										})}
+									</span>
+								</div>
+								<div className="-mr-1 flex shrink-0 items-center">
+									<IconButton
+										label={copied === `${share.sessionId}:code` ? t('shares.copied') : t('shares.copyCode')}
+										onClick={() => copy(`${share.sessionId}:code`, share.retrievalCode)}
+										className="h-8 w-8"
+									>
+										{copied === `${share.sessionId}:code` ? <CheckIcon className="text-green-600" /> : <KeyIcon />}
+									</IconButton>
+									<IconButton
+										label={copied === `${share.sessionId}:link` ? t('shares.copied') : t('shares.copyLink')}
+										onClick={() => copy(`${share.sessionId}:link`, getShareLink(share.retrievalCode))}
+										className="h-8 w-8"
+									>
+										{copied === `${share.sessionId}:link` ? <CheckIcon className="text-green-600" /> : <LinkIcon />}
+									</IconButton>
+									<IconButton
+										label={t('shares.revoke')}
+										onClick={() => revoke(share)}
+										disabled={busyId === share.sessionId}
+										align="right"
+										className="h-8 w-8"
+									>
+										<TrashIcon className="text-red-600" />
+									</IconButton>
+								</div>
 							</div>
-						</div>
-						<p className="mt-1 break-words text-xs text-gray-500">
-							{t('shares.summary', {
-								count: share.fileCount,
-								size: formatBytes(share.totalSize, locale, { zero: t('size.zero'), bytes: t('size.bytes') }),
-							})}{' '}
-							· {t('shares.created', { date: new Date(share.createdAt * 1000).toLocaleString(locale) })}
-						</p>
-						<p className="break-words text-xs text-gray-500">{expiryText(share)}</p>
-						<div className="mt-3 flex flex-wrap items-center gap-2">
-							<select
-								aria-label={t('shares.extendTo')}
-								value={extendDays[share.sessionId] ?? 7}
-								onChange={(event) =>
-									setExtendDays((current) => ({ ...current, [share.sessionId]: Number(event.target.value) as ValidityDays }))
-								}
-								className="rounded-lg border border-gray-300 px-2 py-1 text-sm"
-							>
-								{EXTEND_OPTIONS.map((option) => (
-									<option key={option.value} value={option.value}>
-										{t(option.label)}
-									</option>
-								))}
-							</select>
-							<button
-								type="button"
-								onClick={() => extend(share)}
-								disabled={busyId === share.sessionId}
-								className="rounded-lg bg-blue-600 px-3 py-1 text-sm font-medium text-white hover:bg-blue-700 disabled:bg-gray-300"
-							>
-								{t('shares.extend')}
-							</button>
-						</div>
-					</li>
-				))}
+							{/* Line 2: when, and the way to extend it */}
+							<div className="mt-1 flex flex-wrap items-center justify-between gap-x-3 gap-y-1">
+								<p className="min-w-0 text-xs text-gray-500">
+									{t('shares.created', { date: new Date(share.createdAt * 1000).toLocaleString(locale, dateFormat) })}
+									<span className="mx-1.5 text-gray-300">·</span>
+									{share.expiresAt === null
+										? t('retrieve.expiresNever')
+										: t('retrieve.expires', { date: new Date(share.expiresAt * 1000).toLocaleString(locale, dateFormat) })}
+								</p>
+								<div className="flex items-center gap-1.5">
+									<select
+										aria-label={t('shares.extendTo')}
+										value={extendDays[share.sessionId] ?? 7}
+										onChange={(event) =>
+											setExtendDays((current) => ({ ...current, [share.sessionId]: Number(event.target.value) as ValidityDays }))
+										}
+										className="rounded-md border border-gray-300 bg-white px-1.5 py-0.5 text-xs"
+									>
+										{EXTEND_OPTIONS.map((option) => (
+											<option key={option.value} value={option.value}>
+												{t(option.label)}
+											</option>
+										))}
+									</select>
+									<button
+										type="button"
+										onClick={() => extend(share)}
+										disabled={busyId === share.sessionId}
+										className="rounded-md bg-blue-600 px-2.5 py-0.5 text-xs font-medium text-white hover:bg-blue-700 disabled:bg-gray-300"
+									>
+										{t('shares.extend')}
+									</button>
+								</div>
+							</div>
+						</li>
+					);
+				})}
 			</ul>
 
 			{cursor && (

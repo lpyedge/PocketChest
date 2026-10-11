@@ -33,9 +33,9 @@
 |:--:|:--:|
 | <img src="assets/screenshots/home-zh-Hant.png" alt="首頁" width="420"><br>首頁 | <img src="assets/screenshots/login-zh-Hant.png" alt="Owner 登入" width="420"><br>Owner 登入 |
 | <img src="assets/screenshots/upload-zh-Hant.png" alt="上傳" width="420"><br>上傳 | <img src="assets/screenshots/share-result-zh-Hant.png" alt="分享結果" width="420"><br>分享結果 |
-| <img src="assets/screenshots/retrieve-zh-Hant.png" alt="取件" width="420"><br>取件 | <img src="assets/screenshots/security-settings-zh-Hant.png" alt="安全設定" width="420"><br>安全設定 |
+| <img src="assets/screenshots/retrieve-zh-Hant.png" alt="取件" width="420"><br>取件 | <img src="assets/screenshots/share-records-zh-Hant.png" alt="分享記錄" width="420"><br>分享記錄 |
+| <img src="assets/screenshots/security-settings-zh-Hant.png" alt="安全設定" width="420"><br>安全設定 | <img src="assets/screenshots/upload-zh-Hant-mobile.png" alt="上傳 (mobile)" width="200"> <img src="assets/screenshots/retrieve-zh-Hant-mobile.png" alt="取件 (mobile)" width="200"> |
 
-<img src="assets/screenshots/upload-zh-Hant-mobile.png" alt="上傳 (mobile)" width="200"> <img src="assets/screenshots/retrieve-zh-Hant-mobile.png" alt="取件 (mobile)" width="200">
 
 截圖由 `npm run screenshots` 從目前的建置擷取（見 [docs/SCREENSHOTS.md](docs/SCREENSHOTS.md)）；畫面中的取件碼只是用完即丟的測試資料。
 

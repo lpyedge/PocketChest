@@ -6,7 +6,9 @@ import packageJson from '../../package.json?raw';
 // The Cloudflare Deploy Button turns every uncommented name in .dev.vars.example into a secret it asks for, and
 // reads package.json "cloudflare.bindings" for their descriptions. A name that wrangler.jsonc already sets as a plain
 // variable would be asked for as a secret as well, and then fight with the configured value.
-const SECRETS = ['ADMIN_BOOTSTRAP_PASSWORD', 'AUTH_ENCRYPTION_KEY', 'JWT_SECRET'];
+const SECRETS = ['AUTH_ENCRYPTION_KEY', 'JWT_SECRET'];
+// The owner is created without an input at deploy time (the Worker generates the initial password), so this name must not be asked for
+const RETIRED_SETUP_SECRET = 'ADMIN_BOOTSTRAP_PASSWORD';
 
 const namesIn = (text: string) =>
 	text
@@ -24,13 +26,18 @@ function wrangler(): { vars: Record<string, string> } {
 }
 
 describe('deploy button configuration', () => {
-	it('asks for exactly the three required secrets', () => {
+	it('asks for exactly the two required secrets', () => {
 		expect(namesIn(devVarsExample)).toEqual(SECRETS);
 	});
 
 	it('gives each of them a description in package.json, and no others', () => {
 		const bindings = Object.keys(JSON.parse(packageJson).cloudflare.bindings).sort();
 		expect(bindings).toEqual(SECRETS);
+	});
+
+	it('asks for no initial owner password in either the example or the package metadata', () => {
+		expect(namesIn(devVarsExample)).not.toContain(RETIRED_SETUP_SECRET);
+		expect(Object.keys(JSON.parse(packageJson).cloudflare.bindings)).not.toContain(RETIRED_SETUP_SECRET);
 	});
 
 	it('keeps plain variables out of the secrets form', () => {

@@ -7,7 +7,7 @@
 //   printf '%s' "$OWNER_PASSWORD" | node scripts/recover-bootstrap.mjs --bucket pocket-chest --password-stdin
 //
 // Use scripts/reset-owner-password.mjs when an owner already exists. See docs/RECOVERY.md.
-import { OWNER_KEY, MIN_PASSWORD_LENGTH, recoverBootstrap } from './recovery-core.mjs';
+import { OWNER_KEY, MIN_BOOTSTRAP_PASSWORD_LENGTH, recoverBootstrap } from './recovery-core.mjs';
 import { readPassword, wranglerGet, wranglerPut } from './recovery-io.mjs';
 
 const USAGE = `Usage: node scripts/recover-bootstrap.mjs --bucket <r2-bucket> [--password-stdin]
@@ -40,8 +40,8 @@ async function main() {
 	}
 
 	const password = await readPassword(args.passwordStdin, 'Owner password to set (input hidden): ');
-	if (password.length < MIN_PASSWORD_LENGTH) {
-		throw new Error(`The owner password must be at least ${MIN_PASSWORD_LENGTH} characters. Nothing was changed.`);
+	if (password.length < MIN_BOOTSTRAP_PASSWORD_LENGTH) {
+		throw new Error(`The owner password must be at least ${MIN_BOOTSTRAP_PASSWORD_LENGTH} characters. Nothing was changed.`);
 	}
 
 	const storage = {

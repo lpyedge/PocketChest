@@ -1,5 +1,5 @@
-# LOCAL DEVELOPMENT ONLY. All three values MUST be replaced before use.
+# LOCAL DEVELOPMENT ONLY. Both values MUST be replaced before use.
 # Deploy Button may display these as defaults: NEVER deploy these values.
+# The owner password is not asked for at deploy time: the Worker generates it on first setup (see DEPLOYMENT.md).
 JWT_SECRET=REPLACE_WITH_UNIQUE_RANDOM_SECRET
 AUTH_ENCRYPTION_KEY=REPLACE_WITH_BASE64_OF_32_RANDOM_BYTES
-ADMIN_BOOTSTRAP_PASSWORD=REPLACE_WITH_UNIQUE_PASSWORD_16_CHARS_MINIMUM

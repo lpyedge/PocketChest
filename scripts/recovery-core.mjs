@@ -5,7 +5,43 @@ export const OWNER_KEY = 'auth/owner.json';
 export const PASSWORD_ITERATIONS = 600000;
 const SALT_BYTES = 16;
 const KEY_BYTES = 32;
-export const MIN_PASSWORD_LENGTH = 16;
+// Later owner passwords (change, reset, recovery). Same rule as src/worker/auth/password-policy.ts; test/password-policy.spec.ts keeps them equal
+export const MIN_PASSWORD_LENGTH = 8;
+// The interrupted first-setup path still uses the old initial-setup minimum; it is removed with the initial-password change (T03)
+export const MIN_BOOTSTRAP_PASSWORD_LENGTH = 16;
+
+const PLACEHOLDER = /replace[-_]?with|change[-_]?me/i;
+const MIN_DISTINCT_CHARACTERS = 4;
+const COMMON = new Set([
+	'password',
+	'password1',
+	'password123',
+	'12345678',
+	'123456789',
+	'1234567890',
+	'qwertyui',
+	'qwerty123',
+	'letmein1',
+	'iloveyou',
+	'abcdefgh',
+	'abcd1234',
+	'admin123',
+]);
+
+// Returns 'TOO_SHORT' | 'WEAK' | null. Counts code points, as the Worker does
+export function passwordProblem(password) {
+	if ([...password].length < MIN_PASSWORD_LENGTH) return 'TOO_SHORT';
+	if (PLACEHOLDER.test(password) || new Set(password).size < MIN_DISTINCT_CHARACTERS || COMMON.has(password.toLowerCase())) {
+		return 'WEAK';
+	}
+	return null;
+}
+
+export function passwordProblemMessage(problem) {
+	return problem === 'TOO_SHORT'
+		? `The new password must be at least ${MIN_PASSWORD_LENGTH} characters`
+		: 'The new password is too easy to guess; choose a less common one';
+}
 
 const toBase64Url = (bytes) => {
 	let binary = '';
@@ -75,8 +111,9 @@ export function buildRecoveredOwner(owner, passwordHash) {
  * pause the sign-in entrances for the maintenance window; see docs/RECOVERY.md.
  */
 export async function recoverPassword(storage, password) {
-	if (typeof password !== 'string' || password.length < MIN_PASSWORD_LENGTH) {
-		throw new Error(`The new password must be at least ${MIN_PASSWORD_LENGTH} characters`);
+	const problem = typeof password === 'string' ? passwordProblem(password) : 'TOO_SHORT';
+	if (problem) {
+		throw new Error(passwordProblemMessage(problem));
 	}
 
 	const first = await storage.read();
@@ -139,8 +176,8 @@ export function buildFirstOwner(passwordHash, now = Math.floor(Date.now() / 1000
  * still absent just before writing, so the caller must pause the sign-in entrances for the maintenance window.
  */
 export async function recoverBootstrap(storage, password, now = Math.floor(Date.now() / 1000)) {
-	if (typeof password !== 'string' || password.length < MIN_PASSWORD_LENGTH) {
-		throw new Error(`The owner password must be at least ${MIN_PASSWORD_LENGTH} characters`);
+	if (typeof password !== 'string' || password.length < MIN_BOOTSTRAP_PASSWORD_LENGTH) {
+		throw new Error(`The owner password must be at least ${MIN_BOOTSTRAP_PASSWORD_LENGTH} characters`);
 	}
 	if (!(await storage.hasMarker())) {
 		throw new Error('Setup was not interrupted: no setup marker exists, so first setup is still open at /upload/. Nothing was changed');

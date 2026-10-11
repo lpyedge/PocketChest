@@ -7,7 +7,7 @@
 //
 // The new password is read from a hidden prompt or from stdin, never from argv (so it stays out of shell history).
 import { chmodSync, writeFileSync } from 'node:fs';
-import { recoverPassword, OWNER_KEY, MIN_PASSWORD_LENGTH } from './recovery-core.mjs';
+import { recoverPassword, OWNER_KEY, passwordProblem, passwordProblemMessage } from './recovery-core.mjs';
 import { readPassword, wranglerGet, wranglerPut } from './recovery-io.mjs';
 
 function parseArgs(argv) {
@@ -59,8 +59,9 @@ async function main() {
 	}
 
 	const password = await readPassword(args.passwordStdin, 'New owner password (input hidden): ');
-	if (password.length < MIN_PASSWORD_LENGTH) {
-		throw new Error(`The new password must be at least ${MIN_PASSWORD_LENGTH} characters. Nothing was changed.`);
+	const problem = passwordProblem(password);
+	if (problem) {
+		throw new Error(`${passwordProblemMessage(problem)}. Nothing was changed.`);
 	}
 
 	const result = await recoverPassword(wranglerStorage(args.bucket, args.backup), password);

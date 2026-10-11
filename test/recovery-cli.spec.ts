@@ -135,7 +135,9 @@ describe('offline password recovery', () => {
 		await resetStorage();
 		await expect(core.recoverPassword(mockStorage(), NEW_PASSWORD)).rejects.toThrow(/No owner record/);
 		await ownerSignIn();
-		await expect(core.recoverPassword(mockStorage(), 'too-short')).rejects.toThrow(/at least 16/);
+		await expect(core.recoverPassword(mockStorage(), 'short-1')).rejects.toThrow(/at least 8/);
+		await expect(core.recoverPassword(mockStorage(), 'Password')).rejects.toThrow(/too easy to guess/);
+		await expect(core.recoverPassword(mockStorage(), 'REPLACE_WITH_A_PASSWORD')).rejects.toThrow(/too easy to guess/);
 	});
 
 	it('gives every recovery a new salt', async () => {

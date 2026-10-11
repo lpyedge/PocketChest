@@ -19,11 +19,14 @@ const secrets = {
 
 // Keep the comments and the other settings of the example; only the REPLACE_WITH_ values change
 const lines = readFileSync('.dev.vars.example', 'utf8')
+	.trimEnd()
 	.split('\n')
 	.map((line) => {
 		const [name] = line.split('=');
 		return name in secrets ? `${name}=${secrets[name]}` : line;
 	});
-writeFileSync(target, lines.join('\n'), { mode: 0o600 });
+// The example no longer names the initial password (the Deploy Button would ask for it), so local development adds it here
+lines.push(`ADMIN_BOOTSTRAP_PASSWORD=${secrets.ADMIN_BOOTSTRAP_PASSWORD}`);
+writeFileSync(target, `${lines.join('\n')}\n`, { mode: 0o600 });
 console.log(`Wrote ${target} with new random secrets.`);
 console.log('Sign in at /upload/ with ADMIN_BOOTSTRAP_PASSWORD on first use; it is also the owner password until you change it.');

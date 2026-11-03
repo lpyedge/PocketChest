@@ -41,7 +41,7 @@ export interface TextItem {
 	filename?: string;
 }
 
-export type ValidityDays = 1 | 3 | 7 | 14 | -1;
+export type ValidityDays = 1 | 3 | 7 | 14 | 30 | 90 | -1;
 
 // Multipart upload types
 export interface CreateMultipartUploadResponse {

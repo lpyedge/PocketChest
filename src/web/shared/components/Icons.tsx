@@ -175,3 +175,18 @@ export const AlertIcon = (p: IconProps) => (
 		<path d="M12 16h.01" />
 	</Icon>
 );
+
+export const PlusIcon = (p: IconProps) => (
+	<Icon {...p}>
+		<path d="M12 5v14" />
+		<path d="M5 12h14" />
+	</Icon>
+);
+
+export const DownloadIcon = (p: IconProps) => (
+	<Icon {...p}>
+		<path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
+		<path d="m7 10 5 5 5-5" />
+		<path d="M12 15V3" />
+	</Icon>
+);

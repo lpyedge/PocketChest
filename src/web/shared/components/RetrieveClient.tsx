@@ -6,7 +6,7 @@ import { formatBytes } from '@/lib/format';
 import { homeUrlFor } from '@/lib/home';
 import { AppHeader } from '@/components/AppHeader';
 import { IconButton } from '@/components/IconButton';
-import { AlertIcon, CheckIcon, CopyIcon, FileIcon, KeyIcon } from '@/components/Icons';
+import { AlertIcon, CheckIcon, CopyIcon, DownloadIcon, FileIcon, KeyIcon } from '@/components/Icons';
 import { AUTO_LOAD_TEXT_ITEMS, loadTexts, TextState } from '@/lib/text-loader';
 import { useI18n } from '@/i18n/I18nProvider';
 
@@ -92,10 +92,22 @@ export function RetrieveClient({ code, onBack }: RetrieveClientProps) {
 	const formatFileSize = (bytes: number): string => formatBytes(bytes, locale, { zero: t('size.zero'), bytes: t('size.bytes') });
 
 	const copyTextToClipboard = (content: string, fileId: string) => {
-		navigator.clipboard.writeText(content);
+		navigator.clipboard.writeText(content).catch(() => undefined);
 		setCopiedFileId(fileId);
 		setTimeout(() => setCopiedFileId(null), 2000);
 	};
+
+	const remainingMs = expiryDate === null ? null : Date.parse(expiryDate) - Date.now();
+	const headerExpiryClass =
+		remainingMs === null || Number.isNaN(remainingMs)
+			? remainingMs === null
+				? 'text-emerald-700'
+				: 'text-gray-500'
+			: remainingMs < 24 * 3600 * 1000
+				? 'text-red-700'
+				: remainingMs < 3 * 24 * 3600 * 1000
+					? 'text-amber-700'
+					: 'text-gray-500';
 
 	const shell = (body: ReactNode) => (
 		<div className="min-h-screen bg-gray-50">
@@ -137,9 +149,14 @@ export function RetrieveClient({ code, onBack }: RetrieveClientProps) {
 		<>
 			<div className="mb-5">
 				<h1 className="text-xl font-semibold text-gray-900">{t('retrieve.pageTitle')}</h1>
-				<p className="mt-1 text-sm text-gray-600">
-					{t('retrieve.codeLabel')} <code className="font-mono font-semibold tracking-wider text-blue-700">{code}</code>
-				</p>
+				<div className="mt-1 flex items-center justify-between gap-3">
+					<p className="min-w-0 truncate text-sm text-gray-600">
+						{t('retrieve.codeLabel')} <code className="font-mono font-semibold tracking-wider text-blue-700">{code}</code>
+					</p>
+					{files.length > 0 && (
+						<p className={`shrink-0 text-xs font-semibold ${headerExpiryClass}`}>{describeExpiry(expiryDate, locale, t)}</p>
+					)}
+				</div>
 			</div>
 
 			{files.length > 0 && (
@@ -147,12 +164,9 @@ export function RetrieveClient({ code, onBack }: RetrieveClientProps) {
 					{/* Files first: they are what most shares are about */}
 					{files.some((f) => !f.isText) && (
 						<section className="rounded-2xl bg-white p-5 shadow-sm ring-1 ring-gray-200">
-							<div className="mb-3">
-								<h2 className="text-base font-semibold text-gray-900">
-									{t('retrieve.filesSection', { count: files.filter((f) => !f.isText).length })}
-								</h2>
-								<p className="text-xs text-gray-500">{describeExpiry(expiryDate, locale, t)}</p>
-							</div>
+							<h2 className="mb-3 text-base font-semibold text-gray-900">
+								{t('retrieve.filesSection', { count: files.filter((f) => !f.isText).length })}
+							</h2>
 
 							<ul className="divide-y divide-gray-100">
 								{files
@@ -188,35 +202,65 @@ export function RetrieveClient({ code, onBack }: RetrieveClientProps) {
 										// Remove .txt extension for display
 										const displayName = file.filename.endsWith('.txt') ? file.filename.slice(0, -4) : file.filename;
 										const text = texts[file.fileId] ?? { status: 'idle' as const };
+										const copied = copiedFileId === file.fileId;
+										const copyNow = () => {
+											if (text.status === 'loaded') copyTextToClipboard(text.content, file.fileId);
+										};
 										return (
 											<div key={file.fileId} className="rounded-xl border border-gray-200 p-3">
-												<div className="mb-2 flex items-baseline justify-between gap-3">
-													<h3 className="truncate text-sm font-medium text-gray-900">{displayName}</h3>
+												<div className="mb-1.5 flex items-center gap-2">
+													<h3 className="min-w-0 shrink truncate text-sm font-medium text-gray-900">{displayName}</h3>
 													<span className="shrink-0 text-xs text-gray-500">{formatFileSize(file.size)}</span>
+													<span className="flex-1" aria-hidden="true" />
+													{text.status === 'loaded' && (
+														<span className="-mr-1 flex shrink-0 items-center">
+															<IconButton
+																label={copied ? t('retrieve.copied') : t('retrieve.copy')}
+																onClick={() => text.status === 'loaded' && copyTextToClipboard(text.content, file.fileId)}
+																className="[--iconbtn-size:1.75rem]"
+															>
+																{copied ? <CheckIcon className="text-green-600" /> : <CopyIcon />}
+															</IconButton>
+															<IconButton
+																label={t('retrieve.downloadTxt')}
+																onClick={() => handleDownload(file)}
+																className="[--iconbtn-size:1.75rem]"
+															>
+																<DownloadIcon />
+															</IconButton>
+														</span>
+													)}
 												</div>
 
 												{text.status === 'loaded' && (
-													<div>
-														<pre className="mb-3 max-h-60 overflow-y-auto whitespace-pre-wrap rounded-lg bg-gray-50 p-3 font-mono text-sm">
+													<div
+														role="button"
+														tabIndex={0}
+														onClick={copyNow}
+														onKeyDown={(event) => {
+															if (event.key === 'Enter' || event.key === ' ') {
+																event.preventDefault();
+																copyNow();
+															}
+														}}
+														aria-label={copied ? t('retrieve.copied') : t('retrieve.copy')}
+														title={copied ? t('retrieve.copied') : t('retrieve.copy')}
+														className="relative cursor-pointer rounded-lg bg-gray-50 p-3 focus-visible:outline-2 focus-visible:outline-blue-500"
+													>
+														<pre className="max-h-60 overflow-y-auto whitespace-pre-wrap font-mono text-sm text-gray-900">
 															{text.content}
 														</pre>
-														<div className="flex gap-2">
-															<button
-																onClick={() => copyTextToClipboard(text.content, file.fileId)}
-																className={`flex flex-1 items-center justify-center gap-1.5 rounded-lg px-3 py-1.5 text-sm font-medium text-white ${
-																	copiedFileId === file.fileId ? 'bg-green-600' : 'bg-blue-600 hover:bg-blue-700'
-																}`}
+														{copied && (
+															<span
+																aria-hidden="true"
+																className="absolute inset-0 flex items-center justify-center rounded-lg bg-gray-900/60"
 															>
-																{copiedFileId === file.fileId ? <CheckIcon width={16} height={16} /> : <CopyIcon width={16} height={16} />}
-																{copiedFileId === file.fileId ? t('retrieve.copied') : t('retrieve.copy')}
-															</button>
-															<button
-																onClick={() => handleDownload(file)}
-																className="flex-1 rounded-lg border border-gray-300 px-3 py-1.5 text-sm font-medium text-gray-700 hover:bg-gray-50"
-															>
-																{t('retrieve.downloadTxt')}
-															</button>
-														</div>
+																<span className="flex items-center gap-1.5 text-sm font-medium text-white">
+																	<CheckIcon width={16} height={16} />
+																	{t('retrieve.copied')}
+																</span>
+															</span>
+														)}
 													</div>
 												)}
 												{text.status === 'loading' && <p className="text-sm text-gray-500">{t('retrieve.loadingText')}</p>}

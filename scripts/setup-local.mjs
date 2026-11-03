@@ -2,11 +2,17 @@
 // Creates .dev.vars for local development with fresh random secrets (never the example placeholders).
 //   npm run setup:local            create .dev.vars; refuses to overwrite an existing one
 //   npm run setup:local -- --force replace it
+//   node scripts/setup-local.mjs --if-missing
+//                                 create it only when absent (exit 0 either way); for automatic pre-steps
 import { existsSync, writeFileSync } from 'node:fs';
 import { randomBytes } from 'node:crypto';
 
 const target = '.dev.vars';
 if (existsSync(target) && !process.argv.includes('--force')) {
+	if (process.argv.includes('--if-missing')) {
+		console.log(`${target} already exists; leaving it alone.`);
+		process.exit(0);
+	}
 	console.error(`${target} already exists; leaving it alone. Use --force to replace it.`);
 	process.exit(1);
 }
@@ -26,5 +32,6 @@ writeFileSync(
 	{ mode: 0o600 },
 );
 console.log(`Wrote ${target} with new random secrets.`);
-console.log('Start the site, open /upload/ once, then read the owner password from the local bucket:');
-console.log('  npx wrangler r2 object get pocket-chest/auth/initial-owner-password.txt --local');
+console.log('Start the site with `npm run preview`: it prints the owner password and saves it to .temp/auth/initial-owner-password.txt.');
+console.log('To read it by hand later (prints to the terminal, creates no files):');
+console.log('Read it back any time with `npm run password:local`.');

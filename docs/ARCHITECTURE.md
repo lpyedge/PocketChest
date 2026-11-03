@@ -34,7 +34,6 @@ PocketChest/
 ├── test/                      # Vitest: web/ (unit), contracts/, the rest (Worker runtime); e2e/ (Playwright)
 ├── scripts/                   # check-legacy, test-report, setup-local, capture-screenshots, recovery tools
 ├── docs/                      # API, operations, recovery, screenshots, test and review records
-├── assets/screenshots/        # Images used by the READMEs
 ├── .github/workflows/ci.yml   # The CI gate, in order
 └── wrangler.jsonc             # Worker, assets, R2, rate limits and cron
 ```
@@ -46,5 +45,5 @@ PocketChest/
 - **Lockouts and rate limits**: a per-method owner lockout plus per-client rate limiting bindings.
 - **Retrieval codes in the URL fragment**: `/retrieve/#CODE` is never sent to the server.
 - **Short-lived download grants**: each file download is authorized with a 60-second cookie limited to that file.
-- **Expiry**: shares last 1, 3, 7 or 14 days, or are permanent. Expiry is enforced on every request and by an hourly cleanup.
+- **Expiry**: shares last 1, 3, 7, 14 or 30 days, 3 months (90 days), or are permanent. Expiry is enforced on every request and by an hourly cleanup.
 - **Recovery**: an offline command only; see [RECOVERY.md](RECOVERY.md).

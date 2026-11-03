@@ -71,7 +71,7 @@ With Workers Builds from GitHub, set **Build** to `npm run build` and **Deploy**
 
 - Sign in with the Owner password. The first one is in the bucket object named in section 1; change it at once in **Security settings** (at least 8 characters).
 - Password, authenticator app and passkey are three **independent** ways to sign in: any one of them signs in on its own. An authenticator code is **not** a second factor on top of the password. Keep at least two set up, so one lost device does not lock you out. If every method is lost, see [recovery](docs/RECOVERY.md) (the password cannot be reset offline).
-- Upload sessions end 24 hours after they start. Shares last 1, 3, 7 or 14 days, or are permanent; an hourly cleanup removes the expired ones. **Share records** (next to Security settings) lists your active shares, and lets you extend or revoke them.
+- Upload sessions end 24 hours after they start. Shares last 1, 3, 7, 14 or 30 days, 3 months (90 days), or are permanent; an hourly cleanup removes the expired ones. **Share records** (next to Security settings) lists your active shares, and lets you extend or revoke them.
 
 ## 6. Check the installation
 

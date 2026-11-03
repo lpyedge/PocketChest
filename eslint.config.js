@@ -55,6 +55,7 @@ export default [
 	{
 		ignores: [
 			'node_modules/',
+			'.temp/',
 			'dist/',
 			'coverage/',
 			'.wrangler/',

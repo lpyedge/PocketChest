@@ -1,6 +1,6 @@
 # 測試報告（本機與 CI 同序）
 
-本報告記錄 G5 收尾時的本機執行結果。機器可讀版本由 `scripts/test-report.mjs` 寫出到 `test-results/report.json`（CI 會以 artifact 上傳）。每筆案例只會是 **PASS**、**FAIL** 或 **SKIP**；SKIP 必須附原因，且任何 FAIL 會使流程失敗。目前沒有任何 SKIP。
+本報告記錄 G5 收尾時的本機執行結果。機器可讀版本由 `scripts/test-report.mjs` 寫出到 `.temp/test-results/report.json`（CI 會以 artifact 上傳）。每筆案例只會是 **PASS**、**FAIL** 或 **SKIP**；SKIP 必須附原因，且任何 FAIL 會使流程失敗。目前沒有任何 SKIP。
 
 ## 環境
 

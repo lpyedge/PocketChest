@@ -20,7 +20,7 @@ import { TextItem, ValidityDays } from '@/lib/types';
 export default function UploadApp() {
 	const { t } = useI18n();
 	const [files, setFiles] = useState<File[]>([]);
-	const [text, setText] = useState('');
+	const [texts, setTexts] = useState<string[]>([]);
 	const [validityDays, setValidityDays] = useState<ValidityDays>(7);
 	const [uploadResult, setUploadResult] = useState<string | null>(null);
 	const [sessionData, setSessionData] = useState<{ sessionId: string; uploadToken: string } | null>(null);
@@ -83,13 +83,19 @@ export default function UploadApp() {
 		return started;
 	};
 
-	// Text is one item: everything typed in the box, stored as a .txt file
-	const buildTextItems = (): TextItem[] => (text.trim() ? [{ content: text, filename: `${t('text.defaultName')}.txt` }] : []);
+	// Text is any number of notes: each non-empty box becomes one .txt file in the share
+	const buildTextItems = (): TextItem[] => {
+		const filled = texts.filter((content) => content.trim());
+		return filled.map((content, position) => ({
+			content,
+			filename: `${t('text.defaultName')}${filled.length > 1 ? ` ${position + 1}` : ''}.txt`,
+		}));
+	};
 
 	const finishShare = (code: string) => {
 		setUploadResult(code);
 		setFiles([]);
-		setText('');
+		setTexts([]);
 	};
 
 	const runUpload = async (retry: boolean) => {
@@ -330,9 +336,9 @@ export default function UploadApp() {
 						onCancel={handleCancel}
 					/>
 
-					<section className="space-y-6 rounded-2xl bg-white p-6 shadow-sm ring-1 ring-gray-200">
+					<section className="space-y-6 rounded-2xl bg-white p-4 shadow-sm ring-1 ring-gray-200 sm:p-6">
 						<FileUpload files={files} onFilesChange={setFiles} />
-						<TextInput value={text} onChange={setText} />
+						<TextInput values={texts} onChange={setTexts} />
 						<ExpirySelector value={validityDays} onChange={setValidityDays} />
 
 						<button

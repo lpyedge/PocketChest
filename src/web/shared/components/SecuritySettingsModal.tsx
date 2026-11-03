@@ -1,4 +1,4 @@
-import { useEffect, useState, type ReactNode } from 'react';
+import { useEffect, useRef, useState, type ReactNode } from 'react';
 import { startRegistration, startAuthentication } from '@simplewebauthn/browser';
 import { authApi, AuthRequestError, Rotation, SecurityStatus } from '@/lib/auth-api';
 import { describeAuthError } from '@/components/AuthMethodPicker';
@@ -79,6 +79,18 @@ export function SecuritySettingsModal({ csrfToken, onRotated, onClose, onSignedO
 	const [reauthPassword, setReauthPassword] = useState('');
 	const [reauthCode, setReauthCode] = useState('');
 	const [csrf, setCsrf] = useState(csrfToken);
+	// The modal body scrolls on its own: when feedback or a next step appears somewhere else, bring it into view
+	// instead of leaving the owner to discover it by scrolling
+	const attentionRef = useRef<HTMLDivElement>(null);
+	const totpRef = useRef<HTMLDivElement>(null);
+
+	useEffect(() => {
+		if (message || notice || pending) attentionRef.current?.scrollIntoView?.({ block: 'nearest' });
+	}, [message, notice, pending]);
+
+	useEffect(() => {
+		if (totpSetup) totpRef.current?.scrollIntoView?.({ block: 'nearest' });
+	}, [totpSetup]);
 
 	const refresh = async () => {
 		try {
@@ -240,67 +252,40 @@ export function SecuritySettingsModal({ csrfToken, onRotated, onClose, onSignedO
 
 	return (
 		<Dialog title={t('security.title')} icon={<ShieldIcon width={18} height={18} />} onClose={onClose}>
-			{message && (
-				<p role="alert" className="mb-4 text-sm text-red-700">
-					{message}
-				</p>
-			)}
-			{notice && !message && (
-				<p role="status" className="mb-4 text-sm text-green-700">
-					{notice}
-				</p>
-			)}
-			<p className="mb-4 text-xs text-gray-600">{t('security.independentNote')}</p>
-
-			{pending && (
-				<section className="mb-4 p-4 border border-amber-300 bg-amber-50 rounded-xl space-y-3">
-					<p className="text-sm text-gray-800">
-						{pending.required ? t('security.confirmTitleWith', { method: t(`method.${pending.required}`) }) : t('security.confirmTitle')}
+			<div ref={attentionRef} className="scroll-mt-2">
+				{message && (
+					<p role="alert" className="mb-4 text-sm text-red-700">
+						{message}
 					</p>
-					{offeredMethods(pending.required, pending.activate).map((method) => {
-						if (method === 'password') {
-							return (
-								<form
-									key={method}
-									className="flex gap-2"
-									onSubmit={(event) => {
-										event.preventDefault();
-										reenter('password', pending.run, pending.activate);
-									}}
-								>
-									<input
-										type="password"
-										aria-label={t('auth.password')}
-										value={reauthPassword}
-										onChange={(event) => setReauthPassword(event.target.value)}
-										className="flex-1 border border-gray-300 rounded-lg px-3 py-2 text-sm"
-									/>
-									<button
-										type="submit"
-										disabled={busy}
-										className="rounded-lg bg-blue-600 px-3 py-2 text-sm font-medium text-white hover:bg-blue-700 disabled:opacity-50"
-									>
-										{t('security.confirmPassword')}
-									</button>
-								</form>
-							);
-						}
-						if (method === 'totp') {
-							return (
-								<div key={method} className="space-y-1">
+				)}
+				{notice && !message && (
+					<p role="status" className="mb-4 text-sm text-green-700">
+						{notice}
+					</p>
+				)}
+				<p className="mb-4 text-xs text-gray-600">{t('security.independentNote')}</p>
+
+				{pending && (
+					<section className="mb-4 space-y-3 rounded-xl border border-amber-300 bg-amber-50 p-4">
+						<p className="text-sm text-gray-800">
+							{pending.required ? t('security.confirmTitleWith', { method: t(`method.${pending.required}`) }) : t('security.confirmTitle')}
+						</p>
+						{offeredMethods(pending.required, pending.activate).map((method) => {
+							if (method === 'password') {
+								return (
 									<form
+										key={method}
 										className="flex gap-2"
 										onSubmit={(event) => {
 											event.preventDefault();
-											reenter('totp', pending.run, pending.activate);
+											reenter('password', pending.run, pending.activate);
 										}}
 									>
 										<input
-											inputMode="numeric"
-											aria-label={t('auth.code')}
-											maxLength={6}
-											value={reauthCode}
-											onChange={(event) => setReauthCode(event.target.value)}
+											type="password"
+											aria-label={t('auth.password')}
+											value={reauthPassword}
+											onChange={(event) => setReauthPassword(event.target.value)}
 											className="flex-1 border border-gray-300 rounded-lg px-3 py-2 text-sm"
 										/>
 										<button
@@ -308,30 +293,59 @@ export function SecuritySettingsModal({ csrfToken, onRotated, onClose, onSignedO
 											disabled={busy}
 											className="rounded-lg bg-blue-600 px-3 py-2 text-sm font-medium text-white hover:bg-blue-700 disabled:opacity-50"
 										>
-											{t('security.confirmAuthenticator')}
+											{t('security.confirmPassword')}
 										</button>
 									</form>
-									<p className="text-xs text-gray-600">{t('security.totpWait')}</p>
-								</div>
+								);
+							}
+							if (method === 'totp') {
+								return (
+									<div key={method} className="space-y-1">
+										<form
+											className="flex gap-2"
+											onSubmit={(event) => {
+												event.preventDefault();
+												reenter('totp', pending.run, pending.activate);
+											}}
+										>
+											<input
+												inputMode="numeric"
+												aria-label={t('auth.code')}
+												maxLength={6}
+												value={reauthCode}
+												onChange={(event) => setReauthCode(event.target.value)}
+												className="flex-1 border border-gray-300 rounded-lg px-3 py-2 text-sm"
+											/>
+											<button
+												type="submit"
+												disabled={busy}
+												className="rounded-lg bg-blue-600 px-3 py-2 text-sm font-medium text-white hover:bg-blue-700 disabled:opacity-50"
+											>
+												{t('security.confirmAuthenticator')}
+											</button>
+										</form>
+										<p className="text-xs text-gray-600">{t('security.totpWait')}</p>
+									</div>
+								);
+							}
+							return (
+								<button
+									key={method}
+									type="button"
+									disabled={busy}
+									onClick={() => reenter('passkey', pending.run, pending.activate)}
+									className="rounded-lg border border-gray-300 bg-white px-3 py-1.5 text-sm font-medium text-gray-800 hover:bg-gray-50 disabled:opacity-50"
+								>
+									{t('security.confirmPasskey')}
+								</button>
 							);
-						}
-						return (
-							<button
-								key={method}
-								type="button"
-								disabled={busy}
-								onClick={() => reenter('passkey', pending.run, pending.activate)}
-								className="rounded-lg border border-gray-300 bg-white px-3 py-1.5 text-sm font-medium text-gray-800 hover:bg-gray-50 disabled:opacity-50"
-							>
-								{t('security.confirmPasskey')}
-							</button>
-						);
-					})}
-					<button type="button" onClick={() => setPending(null)} className="text-sm text-gray-600 underline">
-						{t('common.cancel')}
-					</button>
-				</section>
-			)}
+						})}
+						<button type="button" onClick={() => setPending(null)} className="text-sm text-gray-600 underline">
+							{t('common.cancel')}
+						</button>
+					</section>
+				)}
+			</div>
 
 			<Section
 				title={t('auth.password')}
@@ -403,7 +417,7 @@ export function SecuritySettingsModal({ csrfToken, onRotated, onClose, onSignedO
 						{status.methods.totp.configured ? t('security.replaceAuthenticator') : t('security.setUpAuthenticator')}
 					</button>
 				) : (
-					<div className="space-y-2">
+					<div ref={totpRef} className="scroll-mt-2 space-y-2">
 						<p className="text-sm text-gray-700">{t('security.scanQr')}</p>
 						<QrCode value={totpSetup.otpauthUri} label={t('security.qrLabel')} />
 						<ManualKey otpauthUri={totpSetup.otpauthUri} />

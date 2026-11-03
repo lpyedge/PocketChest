@@ -7,16 +7,21 @@
 ## 🚀 すぐにデプロイ
 
 [![Deploy to Cloudflare](https://deploy.workers.cloudflare.com/button)](https://deploy.workers.cloudflare.com/?url=https://github.com/lpyedge/PocketChest)
+[![Deploy with TapDeploy](https://img.shields.io/badge/Deploy%20with-TapDeploy-f38020)](https://tapdeploy.27070.com/?config=https%3A%2F%2Fraw.githubusercontent.com%2Flpyedge%2FPocketChest%2Fmaster%2Fscripts%2Ftapdeploy.config.json)
 
 **ワンクリックデプロイ** · [デプロイガイド](DEPLOYMENT.ja.md) · [手動デプロイ](DEPLOYMENT.ja.md#2-手動デプロイ)
 
 ボタンは、このリポジトリを自分の GitHub アカウントにコピーし、Workers Builds でビルドして R2 バケットを作成します。選ぶ・入力するものはありません。署名用のシークレットは自動で作られ、**オーナーのパスワード** は初回セットアップ時にサイトが作成して、R2 バケットに非公開で保存します。そこで一度だけ読み取り、その後変更してください。アップグレードでは何も入力しません。ガイドでは、ボタン、`npm run deploy`、手動の GitHub Actions デプロイ、デプロイ後の確認項目を説明しています。**実際の Cloudflare アカウントではまだ検証していません。**ワンクリックの流れ（ボタンが `npm run deploy` を埋めること、シークレットのフォーム、Workers Builds）は、Cloudflare の応答を模擬したローカルテストだけです。ボタンでデプロイできたことは、本番環境の検証が済んだことを意味しません。
 
+**TapDeploy でのインストール**
+
+事前ビルド済みのリリースをワンクリックで自分の Cloudflare アカウントにデプロイします（Worker + R2、お手元でのビルドは不要）。初回のオーナーパスワードは自分で入力しても、空欄のままにして R2 から生成済みのものを読んで変更しても構いません。アップグレードでは共有・オーナー・Bucket をそのまま引き継ぎます。最初の `v*` リリースの公開後に利用できます（ボタンはリリースの ZIP を読み取ります）。
+
 ## ✨ 主な機能
 
 - パスワード、認証アプリ（TOTP）、パスキーは独立した 3 つのサインイン方法で、どれか 1 つで十分です（認証アプリのコードは、パスワードの後の第二段階では**ありません**）。少なくとも 1 つはオンのままにします。認証アプリとパスキーは任意で、サインイン後に設定し、最初の 1 つは確認できた時点ですぐ使えます。
 - アップロードできるのはオーナーだけです。受け取る人は取り出しコード、または `#CODE` 付きの直接リンクで、サインインなしで受け取れます。**共有の記録**で有効な共有を一覧し、オーナーが延長や取り消しをできます。
-- テキストと大きなファイル（マルチパート）、有効期間は 1／3／7／14 日または無期限、毎時の自動クリーンアップ。
+- テキストと大きなファイル（マルチパート）、有効期間は 1／3／7／14／30 日、3 か月（90 日）または無期限、毎時の自動クリーンアップ。
 - 繁体字中国語・日本語・英語。言語ごとの静的ホームページ付き。
 - Worker、Workers Static Assets、R2 だけで動きます。D1 も KV も別のウェブサービスも使いません。
 
@@ -31,10 +36,10 @@
 
 | | |
 |:--:|:--:|
-| <img src="assets/screenshots/home-ja.png" alt="ホーム" width="420"><br>ホーム | <img src="assets/screenshots/login-ja.png" alt="オーナーのサインイン" width="420"><br>オーナーのサインイン |
-| <img src="assets/screenshots/upload-ja.png" alt="アップロード" width="420"><br>アップロード | <img src="assets/screenshots/share-result-ja.png" alt="共有結果" width="420"><br>共有結果 |
-| <img src="assets/screenshots/retrieve-ja.png" alt="受け取り" width="420"><br>受け取り | <img src="assets/screenshots/share-records-ja.png" alt="共有の記録" width="420"><br>共有の記録 |
-| <img src="assets/screenshots/security-settings-ja.png" alt="セキュリティ設定" width="420"><br>セキュリティ設定 | <img src="assets/screenshots/upload-ja-mobile.png" alt="アップロード (mobile)" width="200"> <img src="assets/screenshots/retrieve-ja-mobile.png" alt="受け取り (mobile)" width="200"> |
+| <img src="docs/screenshots/home-ja.png" alt="ホーム" width="420"><br>ホーム | <img src="docs/screenshots/login-ja.png" alt="オーナーのサインイン" width="420"><br>オーナーのサインイン |
+| <img src="docs/screenshots/upload-ja.png" alt="アップロード" width="420"><br>アップロード | <img src="docs/screenshots/share-result-ja.png" alt="共有結果" width="420"><br>共有結果 |
+| <img src="docs/screenshots/retrieve-ja.png" alt="受け取り" width="420"><br>受け取り | <img src="docs/screenshots/share-records-ja.png" alt="共有の記録" width="420"><br>共有の記録 |
+| <img src="docs/screenshots/security-settings-ja.png" alt="セキュリティ設定" width="420"><br>セキュリティ設定 | <img src="docs/screenshots/upload-ja-mobile.png" alt="アップロード (mobile)" width="200"> <img src="docs/screenshots/share-result-ja-mobile.png" alt="共有結果 (mobile)" width="200"> <img src="docs/screenshots/share-records-ja-mobile.png" alt="共有の記録 (mobile)" width="200"> <img src="docs/screenshots/retrieve-ja-mobile.png" alt="受け取り (mobile)" width="200"> |
 
 
 `npm run screenshots` が現在のビルドから撮影したものです（[docs/SCREENSHOTS.md](docs/SCREENSHOTS.md) 参照）。表示されているコードは使い捨てのテスト用データです。

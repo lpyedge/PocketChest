@@ -16,6 +16,7 @@
 import { toBase64Url } from './encoding';
 import { buildFirstOwner, loadOwner, OWNER_KEY, storeFirstOwner } from './owner';
 import { verifyPassword } from './password';
+import { passwordProblem } from './password-policy';
 
 export const BOOTSTRAP_MARKER_KEY = 'auth/bootstrap-marker';
 export const INITIAL_PASSWORD_KEY = 'auth/initial-owner-password.txt';
@@ -26,6 +27,9 @@ export interface BootstrapEnv {
 	BOOTSTRAP_ENABLED?: string;
 	// Set by the deployer only after the bucket was proven private: the exact value "yes" arms generated setup
 	SETUP_ARMED?: string;
+	// Optional owner password supplied by the deployment (e.g. a TapDeploy secret input).
+	// Used only on first setup instead of generating one; never written to R2.
+	OWNER_SETUP_PASSWORD?: string;
 	// Root secret the password hash is keyed with
 	JWT_SECRET: string;
 }
@@ -92,8 +96,20 @@ export async function ensureOwner(env: BootstrapEnv, now: number = Math.floor(Da
 	}
 	if (!setupArmed(env)) return 'password-missing';
 
+	// A deployer-supplied password wins over the generated one: the owner typed it at install,
+	// so there is nothing to reveal and no private object is written for it. A value that fails
+	// the password policy is refused loudly and a password is generated instead: silently
+	// accepting a weak chosen password would be worse than ignoring the choice.
+	const supplied = typeof env.OWNER_SETUP_PASSWORD === 'string' && env.OWNER_SETUP_PASSWORD.length > 0 ? env.OWNER_SETUP_PASSWORD : null;
+	let setupPassword = supplied;
+	if (setupPassword !== null && passwordProblem(setupPassword) !== null) {
+		console.error('Ignoring OWNER_SETUP_PASSWORD: it does not meet the password policy; generating one instead.');
+		setupPassword = null;
+	}
+
 	try {
-		const owner = await buildFirstOwner(await initialPassword(env.R2_STORAGE), env.JWT_SECRET);
+		const password = setupPassword ?? (await initialPassword(env.R2_STORAGE));
+		const owner = await buildFirstOwner(password, env.JWT_SECRET);
 		const claimed = await env.R2_STORAGE.put(BOOTSTRAP_MARKER_KEY, new Date(now * 1000).toISOString(), {
 			onlyIf: new Headers({ 'If-None-Match': '*' }),
 		});

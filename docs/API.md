@@ -90,7 +90,7 @@
 | # | Method | Path | Permission | Status | Notes |
 |---|---|---|---|---|---|
 | 37 | GET | `/api/admin/shares?limit=&cursor=` | Cookie | [implemented] | Current active shares; `limit` 1–50 (default 20). Returns `{shares:[{sessionId, retrievalCode, createdAt, expiresAt, fileCount, totalSize}], cursor}`. `cursor` is `null` only on the last page. Unfinished, expired, damaged or inconsistent records are not listed (this endpoint repairs nothing). A page may hold fewer than `limit` items, so keep following `cursor`. `Cache-Control: no-store`. |
-| 39 | PATCH | `/api/admin/shares/{sessionId}` | Cookie + CSRF | [implemented] | `{validityDays: 1\|3\|7\|14\|-1}`. Extends an unexpired share from now, or makes it permanent (`-1`). Returns `{expiresAt}`. Never shortens (`409 EXPIRY_NOT_LATER`); already expired `409 SHARE_EXPIRED`; revoked, removed or unfinished `404 SHARE_NOT_FOUND`. Order: write the new index → CAS-update the session → update the manifest → delete the old index. If it fails midway the share is briefly refused; repeating the same request (same expiry time: 200) or the cron after the old index expires repairs it. |
+| 39 | PATCH | `/api/admin/shares/{sessionId}` | Cookie + CSRF | [implemented] | `{validityDays: 1\|3\|7\|14\|30\|90\|-1}`. Extends an unexpired share from now, or makes it permanent (`-1`). Returns `{expiresAt}`. Never shortens (`409 EXPIRY_NOT_LATER`); already expired `409 SHARE_EXPIRED`; revoked, removed or unfinished `404 SHARE_NOT_FOUND`. Order: write the new index → CAS-update the session → update the manifest → delete the old index. If it fails midway the share is briefly refused; repeating the same request (same expiry time: 200) or the cron after the old index expires repairs it. |
 | 38 | DELETE | `/api/admin/shares/{sessionId}` | Cookie + CSRF | [implemented] | Revokes a share: session `COMPLETED → REVOKED` (CAS, final state). Then the retrieval code, download authorizations and downloads are refused at once (including retrieval tokens issued earlier). Then the code, the index and the files are removed. If removal fails it still answers `200 {revoked:true, contentRemoved:false}`, and a `revoked/{sessionId}` marker makes the cron retry. No such share, or unfinished or removed, answers `404 SHARE_NOT_FOUND`. A download already in progress is not guaranteed to stop. |
 
 ### Upload
@@ -119,7 +119,7 @@
 
 ### POST /api/upload-sessions/{id}/complete
 
-Request: `{"fileIds":["…"],"validityDays":7}`. `validityDays` accepts only `1`, `3`, `7`, `14` (two weeks) or `-1` (permanent); any other value answers `400 INVALID_REQUEST`. A permanent share has `expiryDate` `null`.
+Request: `{"fileIds":["…"],"validityDays":7}`. `validityDays` accepts only `1`, `3`, `7`, `14` (two weeks), `30` (one month), `90` (three months) or `-1` (permanent); any other value answers `400 INVALID_REQUEST`. A permanent share has `expiryDate` `null`.
 
 ```http
 200 OK

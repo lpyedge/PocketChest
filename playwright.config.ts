@@ -13,6 +13,7 @@ export default defineConfig({
 	workers: 1,
 	forbidOnly: !!process.env.CI,
 	reporter: [['list']],
+	outputDir: '.temp/test-results',
 	use: {
 		baseURL: 'http://localhost:8788',
 		trace: 'retain-on-failure',
@@ -34,10 +35,12 @@ export default defineConfig({
 		},
 	],
 	webServer: {
-		// Serve the real Worker and its static assets, exactly as deployed
-		// A test credential is seeded before the first status check, so the owner gets this password and the suite can sign in
+		// Serve the real Worker and its static assets, exactly as deployed.
+		// A test credential is seeded before the first status check, so the owner gets this password and the suite can sign in.
+		// Local R2 state lives in .temp/e2e-state, isolated from the developer's own `wrangler dev` on :8787:
+		// changing the owner password in one never breaks sign-in for the other.
 		command:
-			'npm run build && mkdir -p .wrangler && printf %s e2e-bootstrap-password-0123456789 > .wrangler/e2e-owner.txt && npx wrangler r2 object put pocket-chest/auth/initial-owner-password.txt --local --file .wrangler/e2e-owner.txt && npx wrangler dev --port 8788 --var BOOTSTRAP_ENABLED:true --var SETUP_ARMED:yes --var JWT_SECRET:e2e-jwt-secret-for-playwright-only',
+			'npm run build && mkdir -p .wrangler .temp/e2e-state && printf %s e2e-bootstrap-password-0123456789 > .wrangler/e2e-owner.txt && npx wrangler r2 object put pocket-chest/auth/initial-owner-password.txt --local --persist-to .temp/e2e-state --file .wrangler/e2e-owner.txt && npx wrangler dev --port 8788 --persist-to .temp/e2e-state --var BOOTSTRAP_ENABLED:true --var SETUP_ARMED:yes --var JWT_SECRET:e2e-jwt-secret-for-playwright-only',
 		url: 'http://localhost:8788/',
 		reuseExistingServer: !process.env.CI,
 		timeout: 120_000,

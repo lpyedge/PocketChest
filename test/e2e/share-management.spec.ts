@@ -70,14 +70,14 @@ test('create, list, extend, revoke: the recipient is refused afterwards', async 
 	await expect(row).toContainText('Expires');
 
 	// Extend to permanent
-	await row.getByLabel('Extend until').selectOption('-1');
-	await row.getByRole('button', { name: 'Extend', exact: true }).click();
+	await row.getByLabel('Set expiry to').selectOption('-1');
+	await row.getByRole('button', { name: 'Update', exact: true }).click();
 	await expect(dialog.getByText('Expiry updated.')).toBeVisible();
 	await expect(row).toContainText('never');
 
 	// Shortening is refused with a message, not silently ignored
-	await row.getByLabel('Extend until').selectOption('3');
-	await row.getByRole('button', { name: 'Extend', exact: true }).click();
+	await row.getByLabel('Set expiry to').selectOption('3');
+	await row.getByRole('button', { name: 'Update', exact: true }).click();
 	await expect(dialog.getByRole('alert')).toBeVisible();
 
 	// The recipient can still retrieve before revoking. A client address of its own, like every other client here, so

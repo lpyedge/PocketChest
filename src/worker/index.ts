@@ -613,7 +613,7 @@ async function handleExtendShare(request: Request, env: Env, sessionId: string):
 	if (!isValidUUID(sessionId)) throw new ApiError(404, 'SHARE_NOT_FOUND', 'Share not found');
 	const { validityDays } = await readJson<{ validityDays?: unknown }>(request);
 	if (!isValidValidityDays(validityDays)) {
-		throw new ApiError(400, 'INVALID_REQUEST', 'validityDays must be one of 1, 3, 7, 14 or -1 (permanent)');
+		throw new ApiError(400, 'INVALID_REQUEST', 'validityDays must be one of 1, 3, 7, 14, 30, 90 or -1 (permanent)');
 	}
 	try {
 		const expiresAt = await extendShare(env.R2_STORAGE, sessionId, validityDays, getCurrentTimestamp());

@@ -4,7 +4,7 @@
 //
 //   npm run build && npm run screenshots
 //
-// Output: assets/screenshots/{home,login,upload,share-result,share-records,retrieve,security-settings}-<lang>.png (desktop)
+// Output: docs/screenshots/{home,login,upload,share-result,share-records,retrieve,security-settings}-<lang>.png (desktop)
 //         and {upload,retrieve}-<lang>-mobile.png (375px). Review every image before committing it.
 import { execFileSync, spawn } from 'node:child_process';
 import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
@@ -15,7 +15,7 @@ import { chromium, request as playwrightRequest } from '@playwright/test';
 
 const PORT = Number(process.env.SCREENSHOT_PORT ?? 8791);
 const BASE = `http://localhost:${PORT}`;
-const OUT = 'assets/screenshots';
+const OUT = 'docs/screenshots';
 const PASSWORD = randomBytes(18).toString('base64url'); // the owner password for this run only
 const STATE = mkdtempSync(join(tmpdir(), 'pocketchest-shots-'));
 
@@ -150,6 +150,8 @@ try {
 		});
 		await page.getByRole('switch', { name: L.addText }).click();
 		await page.locator('textarea').first().fill(SAMPLE_TEXT[L.lang]);
+		// Let the switch's on-transition settle before the capture: a screenshot can freeze it mid-flight
+		await page.waitForTimeout(400);
 		await shot(page, `upload-${L.lang}`, 900);
 
 		await page.getByRole('button', { name: L.security }).click();
@@ -174,6 +176,7 @@ try {
 		await createDemoShare(api, ownerHeaders, L.lang);
 		await page.getByRole('button', { name: L.shares }).click();
 		await page.getByTestId('share-row').nth(2).waitFor();
+		await page.mouse.move(12, 12);
 		await shot(page, `share-records-${L.lang}`, 560);
 		await desktop.context.close();
 
@@ -194,6 +197,20 @@ try {
 		await phone.page.getByRole('button', { name: L.signIn }).click();
 		await phone.page.getByRole('switch', { name: L.addText }).waitFor();
 		await shot(phone.page, `upload-${L.lang}-mobile`);
+		await phone.page.setInputFiles('input[type=file]', {
+			name: 'quarterly-report.pdf',
+			mimeType: 'application/pdf',
+			buffer: Buffer.from('%PDF-1.4 demo'),
+		});
+		await phone.page.getByRole('switch', { name: L.addText }).click();
+		await phone.page.locator('textarea').first().fill(SAMPLE_TEXT[L.lang]);
+		await phone.page.getByRole('button', { name: L.submit }).click();
+		await phone.page.locator('textarea[readonly]').first().waitFor();
+		await shot(phone.page, `share-result-${L.lang}-mobile`, 700);
+		await phone.page.getByRole('button', { name: L.shares }).click();
+		await phone.page.getByTestId('share-row').first().waitFor();
+		await phone.page.mouse.move(12, 12);
+		await shot(phone.page, `share-records-${L.lang}-mobile`, 800);
 		await phone.context.close();
 		console.log(`captured ${L.lang}`);
 	}

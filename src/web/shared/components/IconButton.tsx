@@ -12,8 +12,10 @@ type IconButtonProps = Common &
 	({ href: string; onClick?: never; disabled?: never } | { href?: never; onClick: () => void; disabled?: boolean });
 
 // An icon-only control. The label is its accessible name and also its tooltip (shown on hover and on keyboard focus).
+// Size defaults to 36px; pass `[--iconbtn-size:1.75rem]` (28px) etc. to shrink it. Plain h-*/w-* classes must
+// not be used for this: they tie with the default in specificity and lose by stylesheet order.
 export function IconButton({ label, children, className = '', align = 'center', href, onClick, disabled }: IconButtonProps) {
-	const classes = `inline-flex h-9 w-9 items-center justify-center rounded-lg text-gray-600 transition-colors hover:bg-gray-100 hover:text-gray-900 focus-visible:outline-2 focus-visible:outline-blue-500 disabled:opacity-40 disabled:hover:bg-transparent ${className}`;
+	const classes = `inline-flex h-[var(--iconbtn-size,2.25rem)] w-[var(--iconbtn-size,2.25rem)] items-center justify-center rounded-lg text-gray-600 transition-colors hover:bg-gray-100 hover:text-gray-900 focus-visible:outline-2 focus-visible:outline-blue-500 disabled:opacity-40 disabled:hover:bg-transparent ${className}`;
 	return (
 		<span className="group relative inline-flex">
 			{href !== undefined ? (

@@ -55,8 +55,8 @@ describe('R04 the two-week option is fourteen days', () => {
 		expect(((await response.json()) as any).code).toBe('INVALID_REQUEST');
 	});
 
-	it('still accepts 1, 3, 7 and permanent', async () => {
-		for (const days of [1, 3, 7, -1]) {
+	it('still accepts 1, 3, 7, 30, 90 and permanent', async () => {
+		for (const days of [1, 3, 7, 30, 90, -1]) {
 			const { sessionId, uploadToken } = await createTestSession();
 			const fileId = await uploadText(sessionId, uploadToken);
 			const response = await complete(sessionId, uploadToken, [fileId], days);

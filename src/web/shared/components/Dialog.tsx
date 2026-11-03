@@ -52,30 +52,27 @@ export function Dialog({ title, icon, children, onClose, actions, wide = false }
 	}, [onClose]);
 
 	return (
-		<div
-			className="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto bg-black/40 p-4"
-			role="dialog"
-			aria-modal="true"
-			aria-label={title}
-		>
-			<div
-				ref={dialogRef}
-				tabIndex={-1}
-				className={`mt-6 w-full rounded-2xl bg-white shadow-xl outline-none sm:mt-10 ${wide ? 'max-w-2xl' : 'max-w-lg'}`}
-			>
-				<div className="flex items-center justify-between gap-3 border-b border-gray-100 px-4 py-3 sm:px-5">
-					<h2 className="flex items-center gap-2 text-base font-semibold text-gray-900">
-						{icon && <span className="text-gray-500">{icon}</span>}
-						{title}
-					</h2>
-					<div className="flex items-center gap-1">
-						{actions}
-						<IconButton label={t('common.close')} onClick={onClose} align="right">
-							<CloseIcon />
-						</IconButton>
+		<div className="fixed inset-0 z-50 overflow-y-auto bg-black/40 p-4" role="dialog" aria-modal="true" aria-label={title}>
+			<div className="flex min-h-full items-center justify-center">
+				<div
+					ref={dialogRef}
+					tabIndex={-1}
+					className={`flex max-h-[calc(100dvh-2rem)] w-full flex-col overflow-hidden rounded-2xl bg-white shadow-xl outline-none sm:max-h-[calc(100dvh-4rem)] ${wide ? 'max-w-2xl' : 'max-w-lg'}`}
+				>
+					<div className="flex shrink-0 items-center justify-between gap-3 border-b border-gray-100 px-4 py-3 sm:px-5">
+						<h2 className="flex items-center gap-2 text-base font-semibold text-gray-900">
+							{icon && <span className="text-gray-500">{icon}</span>}
+							{title}
+						</h2>
+						<div className="flex items-center gap-1">
+							{actions}
+							<IconButton label={t('common.close')} onClick={onClose} align="right">
+								<CloseIcon />
+							</IconButton>
+						</div>
 					</div>
+					<div className="modal-body overflow-y-auto overscroll-contain px-4 py-4 sm:px-5 sm:py-5">{children}</div>
 				</div>
-				<div className="px-4 py-4 sm:px-5 sm:py-5">{children}</div>
 			</div>
 		</div>
 	);

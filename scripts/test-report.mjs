@@ -3,7 +3,7 @@
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { dirname } from 'node:path';
 
-const OUT = 'test-results/report.json';
+const OUT = '.temp/test-results/report.json';
 const SKIP_REASONS = new Map(); // case title -> reason, kept here so a skip can never be silent
 
 function read(path) {
@@ -52,7 +52,7 @@ function fromPlaywright(report) {
 	return cases;
 }
 
-const cases = [...fromVitest(read('test-results/vitest.json')), ...fromPlaywright(read('test-results/playwright.json'))];
+const cases = [...fromVitest(read('.temp/test-results/vitest.json')), ...fromPlaywright(read('.temp/test-results/playwright.json'))];
 const counts = { PASS: 0, FAIL: 0, SKIP: 0 };
 for (const item of cases) counts[item.status]++;
 const report = { generatedAt: new Date().toISOString(), totals: counts, cases };

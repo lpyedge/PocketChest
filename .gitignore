@@ -178,5 +178,4 @@ wrangler.toml.backup
 .dev.vars*
 !.dev.vars.example 
 # Playwright
-test-results/
 playwright-report/

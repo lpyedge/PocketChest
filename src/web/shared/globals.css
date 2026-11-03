@@ -16,4 +16,63 @@
 			'Hiragino Sans',
 			sans-serif;
 	}
+
+	::selection {
+		background: rgb(191 219 254);
+	}
+
+	/* The scrollable inside of a modal: a slim thumb in the page palette */
+	.modal-body {
+		scrollbar-width: thin;
+		scrollbar-color: rgb(203 213 225) transparent;
+	}
+	.modal-body::-webkit-scrollbar {
+		width: 8px;
+	}
+	.modal-body::-webkit-scrollbar-thumb {
+		background: rgb(203 213 225);
+		border-radius: 9999px;
+	}
+	.modal-body::-webkit-scrollbar-track {
+		background: transparent;
+	}
+
+	/* The expiry slider is fully drawn with plain elements (track, fill, knob, stop dots share one
+	   coordinate space); the native range input stays invisible over the whole area for pointer,
+	   keyboard and assistive-tech interaction. */
+	.expiry-range {
+		-webkit-appearance: none;
+		appearance: none;
+		width: 100%;
+		height: 100%;
+		margin: 0;
+		background: transparent;
+		cursor: pointer;
+	}
+	.expiry-range:focus {
+		outline: none;
+	}
+	.expiry-range::-webkit-slider-runnable-track {
+		background: transparent;
+	}
+	.expiry-range::-webkit-slider-thumb {
+		-webkit-appearance: none;
+		appearance: none;
+		width: 20px;
+		height: 20px;
+		background: transparent;
+		border: none;
+	}
+	.expiry-range::-moz-range-track {
+		background: transparent;
+	}
+	.expiry-range::-moz-range-progress {
+		background: transparent;
+	}
+	.expiry-range::-moz-range-thumb {
+		width: 20px;
+		height: 20px;
+		background: transparent;
+		border: none;
+	}
 }

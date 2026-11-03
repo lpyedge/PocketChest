@@ -1,0 +1,23 @@
+name: Release the TapDeploy bundle
+# Tagging v* builds dist/releases/pocketchest-tapdeploy.zip and attaches it to the
+# GitHub release. scripts/tapdeploy.config.json points at the latest attached ZIP,
+# so pushing a tag is what makes the one-click install serve the new code.
+on:
+  push:
+    tags: ['v*']
+permissions:
+  contents: write
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version-file: '.nvmrc'
+          cache: 'npm'
+      - run: npm ci
+      - run: node scripts/build-tapdeploy-zip.mjs
+      - run: gh release create "$GITHUB_REF_NAME" dist/releases/pocketchest-tapdeploy.zip --generate-notes --title "$GITHUB_REF_NAME"
+        env:
+          GH_TOKEN: ${{ github.token }}

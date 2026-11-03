@@ -7,16 +7,19 @@
 ## 🚀 Deploy in minutes
 
 [![Deploy to Cloudflare](https://deploy.workers.cloudflare.com/button)](https://deploy.workers.cloudflare.com/?url=https://github.com/lpyedge/PocketChest)
+[![Deploy with TapDeploy](https://img.shields.io/badge/Deploy%20with-TapDeploy-f38020)](https://tapdeploy.27070.com/?config=https%3A%2F%2Fraw.githubusercontent.com%2Flpyedge%2FPocketChest%2Fmaster%2Fscripts%2Ftapdeploy.config.json)
 
 **One-click deployment** · [Full deployment guide](DEPLOYMENT.md) · [Manual deployment](DEPLOYMENT.md#2-manual-deployment)
 
 The button clones this repository into your GitHub account, builds it with Workers Builds and creates the R2 bucket. Nothing to choose or type: the signing secret is generated for you, and the Owner password is generated on first setup and kept privately in your R2 bucket. You read it there once, then change it. Upgrading asks for nothing. The guide covers the button, `npm run deploy` and a manual GitHub Actions deploy, and what to check afterwards. **Not yet verified on a real Cloudflare account:** the one-click chain (the button prefilling `npm run deploy`, the secrets form, Workers Builds) has only been tested locally with simulated Cloudflare answers; a successful button deployment is not a production acceptance test.
 
+**Or install with TapDeploy:** one click deploys the prebuilt release into your own Cloudflare account (Worker + R2, nothing built on your side). You may type the first Owner password yourself, or leave it empty and read the generated one from your R2 bucket, then change it. Upgrades keep your shares, Owner and bucket. Works once the first `v*` release is published (the button reads its ZIP).
+
 ## ✨ Features
 
 - Password, authenticator app (TOTP) or passkey: three independent ways to sign in, any one is enough (an authenticator code is **not** a second step after the password). At least one stays on. An authenticator or passkey is optional and set up after signing in; the first one works as soon as it is confirmed.
 - Owner-only uploads. Recipients use a retrieval code or a direct `#CODE` link, without signing in. **Share records** lists active shares, and lets the owner extend or revoke them.
-- Text and large files (multipart), shares of 1, 3, 7 or 14 days or permanent, hourly cleanup.
+- Text and large files (multipart), shares of 1, 3, 7, 14 or 30 days, 3 months (90 days) or permanent, hourly cleanup.
 - Traditional Chinese, Japanese and English, including a static home page in each language.
 - One Worker, Workers Static Assets and R2. No D1, KV or separate web service.
 
@@ -31,10 +34,10 @@ The button clones this repository into your GitHub account, builds it with Worke
 
 | | |
 |:--:|:--:|
-| <img src="assets/screenshots/home-en.png" alt="Home" width="420"><br>Home | <img src="assets/screenshots/login-en.png" alt="Owner sign-in" width="420"><br>Owner sign-in |
-| <img src="assets/screenshots/upload-en.png" alt="Upload" width="420"><br>Upload | <img src="assets/screenshots/share-result-en.png" alt="Share result" width="420"><br>Share result |
-| <img src="assets/screenshots/retrieve-en.png" alt="Retrieve" width="420"><br>Retrieve | <img src="assets/screenshots/share-records-en.png" alt="Share records" width="420"><br>Share records |
-| <img src="assets/screenshots/security-settings-en.png" alt="Security settings" width="420"><br>Security settings | <img src="assets/screenshots/upload-en-mobile.png" alt="Upload (mobile)" width="200"> <img src="assets/screenshots/retrieve-en-mobile.png" alt="Retrieve (mobile)" width="200"> |
+| <img src="docs/screenshots/home-en.png" alt="Home" width="420"><br>Home | <img src="docs/screenshots/login-en.png" alt="Owner sign-in" width="420"><br>Owner sign-in |
+| <img src="docs/screenshots/upload-en.png" alt="Upload" width="420"><br>Upload | <img src="docs/screenshots/share-result-en.png" alt="Share result" width="420"><br>Share result |
+| <img src="docs/screenshots/retrieve-en.png" alt="Retrieve" width="420"><br>Retrieve | <img src="docs/screenshots/share-records-en.png" alt="Share records" width="420"><br>Share records |
+| <img src="docs/screenshots/security-settings-en.png" alt="Security settings" width="420"><br>Security settings | <img src="docs/screenshots/upload-en-mobile.png" alt="Upload (mobile)" width="200"> <img src="docs/screenshots/share-result-en-mobile.png" alt="Share result (mobile)" width="200"> <img src="docs/screenshots/share-records-en-mobile.png" alt="Share records (mobile)" width="200"> <img src="docs/screenshots/retrieve-en-mobile.png" alt="Retrieve (mobile)" width="200"> |
 
 
 Captured from the current build by `npm run screenshots` (see [docs/SCREENSHOTS.md](docs/SCREENSHOTS.md)); the codes shown are throw-away test data.

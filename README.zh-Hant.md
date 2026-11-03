@@ -7,16 +7,19 @@
 ## 🚀 快速部署
 
 [![Deploy to Cloudflare](https://deploy.workers.cloudflare.com/button)](https://deploy.workers.cloudflare.com/?url=https://github.com/lpyedge/PocketChest)
+[![Deploy with TapDeploy](https://img.shields.io/badge/Deploy%20with-TapDeploy-f38020)](https://tapdeploy.27070.com/?config=https%3A%2F%2Fraw.githubusercontent.com%2Flpyedge%2FPocketChest%2Fmaster%2Fscripts%2Ftapdeploy.config.json)
 
 **一鍵部署** · [完整部署指南](DEPLOYMENT.zh-Hant.md) · [手動部署](DEPLOYMENT.zh-Hant.md#2-手動部署)
 
 按鈕會把本倉庫複製到你的 GitHub 帳號，用 Workers Builds 建置並建立 R2 Bucket。你不需要選擇或輸入任何東西：簽章用的 Secret 會自動產生，**Owner 密碼**由網站在首次設定時產生，並只私下保存在你的 R2 Bucket 中。你在那裡讀取一次，之後再更改。升級不需要輸入任何東西。指南涵蓋按鈕、`npm run deploy` 與手動的 GitHub Actions 部署，以及部署後該檢查的項目。**尚未在真實 Cloudflare 帳號上驗證：**一鍵流程（按鈕預填 `npm run deploy`、Secret 表單、Workers Builds）目前只用模擬的 Cloudflare 回應在本機測過；按鈕部署成功並不等於已通過正式環境驗收。
 
+**或用 TapDeploy 安裝**：一鍵把預先建置好的版本部署到你自己的 Cloudflare 帳號（Worker + R2，不需要在你這邊建置）。首次的 Owner 密碼可以自己輸入，也可以留空，留空就照原本方式去 R2 讀取產生好的密碼再更改。升級會保留你的分享、Owner 與 Bucket。第一個 `v*` release 發佈後即可使用（按鈕讀的是 release 上的 ZIP）。
+
 ## ✨ 主要功能
 
 - 密碼、驗證器 App（TOTP）、Passkey 是三種獨立的登入方式，任何一種就足夠（驗證器代碼**不是**密碼之後的第二步）；至少保持一種啟用。驗證器與 Passkey 都是選用的，登入後才設定，第一個確認後立即可用。
 - 只有 Owner 可以上傳；取件者憑取件碼或 `#CODE` 直接連結取件，無須登入。**分享記錄**可列出有效的分享，並讓 Owner 延長或撤銷。
-- 文字與 Multipart 大檔；分享期限可選 1／3／7／14 天或永久；每小時自動清理。
+- 文字與 Multipart 大檔；分享期限可選 1／3／7／14／30 天、3 個月（90 天）或永久；每小時自動清理。
 - 繁體中文、日文、英文，並有各語言的靜態首頁。
 - 單一 Worker + Workers Static Assets + R2；不使用 D1、KV 或獨立前端服務。
 
@@ -31,10 +34,10 @@
 
 | | |
 |:--:|:--:|
-| <img src="assets/screenshots/home-zh-Hant.png" alt="首頁" width="420"><br>首頁 | <img src="assets/screenshots/login-zh-Hant.png" alt="Owner 登入" width="420"><br>Owner 登入 |
-| <img src="assets/screenshots/upload-zh-Hant.png" alt="上傳" width="420"><br>上傳 | <img src="assets/screenshots/share-result-zh-Hant.png" alt="分享結果" width="420"><br>分享結果 |
-| <img src="assets/screenshots/retrieve-zh-Hant.png" alt="取件" width="420"><br>取件 | <img src="assets/screenshots/share-records-zh-Hant.png" alt="分享記錄" width="420"><br>分享記錄 |
-| <img src="assets/screenshots/security-settings-zh-Hant.png" alt="安全設定" width="420"><br>安全設定 | <img src="assets/screenshots/upload-zh-Hant-mobile.png" alt="上傳 (mobile)" width="200"> <img src="assets/screenshots/retrieve-zh-Hant-mobile.png" alt="取件 (mobile)" width="200"> |
+| <img src="docs/screenshots/home-zh-Hant.png" alt="首頁" width="420"><br>首頁 | <img src="docs/screenshots/login-zh-Hant.png" alt="Owner 登入" width="420"><br>Owner 登入 |
+| <img src="docs/screenshots/upload-zh-Hant.png" alt="上傳" width="420"><br>上傳 | <img src="docs/screenshots/share-result-zh-Hant.png" alt="分享結果" width="420"><br>分享結果 |
+| <img src="docs/screenshots/retrieve-zh-Hant.png" alt="取件" width="420"><br>取件 | <img src="docs/screenshots/share-records-zh-Hant.png" alt="分享記錄" width="420"><br>分享記錄 |
+| <img src="docs/screenshots/security-settings-zh-Hant.png" alt="安全設定" width="420"><br>安全設定 | <img src="docs/screenshots/upload-zh-Hant-mobile.png" alt="上傳 (mobile)" width="200"> <img src="docs/screenshots/share-result-zh-Hant-mobile.png" alt="分享結果 (mobile)" width="200"> <img src="docs/screenshots/share-records-zh-Hant-mobile.png" alt="分享記錄 (mobile)" width="200"> <img src="docs/screenshots/retrieve-zh-Hant-mobile.png" alt="取件 (mobile)" width="200"> |
 
 
 截圖由 `npm run screenshots` 從目前的建置擷取（見 [docs/SCREENSHOTS.md](docs/SCREENSHOTS.md)）；畫面中的取件碼只是用完即丟的測試資料。

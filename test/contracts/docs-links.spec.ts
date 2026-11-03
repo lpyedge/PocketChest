@@ -7,7 +7,7 @@ const markdown = import.meta.glob(['../../*.md', '../../docs/*.md'], { query: '?
 	string,
 	string
 >;
-const images = Object.keys(import.meta.glob('../../assets/screenshots/*.png', { query: '?url', eager: false }));
+const images = Object.keys(import.meta.glob('../../docs/screenshots/*.png', { query: '?url', eager: false }));
 
 const files = new Map(Object.entries(markdown).map(([path, text]) => [path.replace('../../', ''), text]));
 
@@ -77,8 +77,8 @@ describe('docs: every relative link, anchor and image resolves', () => {
 		});
 
 		it(`${name}: images exist`, () => {
-			for (const match of text.matchAll(/(?:src="|!\[[^\]]*\]\()(assets\/[^")\s]+)/g)) {
-				const exists = images.some((path) => path.endsWith(match[1].replace('assets/', '/assets/')));
+			for (const match of text.matchAll(/(?:src="|!\[[^\]]*\]\()(docs\/screenshots\/[^")\s]+)/g)) {
+				const exists = images.some((path) => path.endsWith(`/${match[1]}`));
 				expect(exists, `${name}: ${match[1]}`).toBe(true);
 			}
 		});
@@ -90,7 +90,7 @@ describe('docs: every relative link, anchor and image resolves', () => {
 			['README.zh-Hant.md', 'zh-Hant'],
 			['README.ja.md', 'ja'],
 		] as const) {
-			const shown = [...files.get(name)!.matchAll(/assets\/screenshots\/([^"]+)\.png/g)].map((match) => match[1]);
+			const shown = [...files.get(name)!.matchAll(/docs\/screenshots\/([^"]+)\.png/g)].map((match) => match[1]);
 			expect(shown.length, name).toBeGreaterThanOrEqual(6);
 			for (const shot of shown) expect(shot.endsWith(`-${lang}`) || shot.endsWith(`-${lang}-mobile`), `${name}: ${shot}`).toBe(true);
 		}

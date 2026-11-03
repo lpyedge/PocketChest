@@ -63,7 +63,7 @@ export interface CompleteMultipartUploadResponse {
 
 export interface CompleteUploadRequest {
 	fileIds: string[];
-	validityDays: number; // 1, 3, 7, 15, or -1 for permanent
+	validityDays: number; // 1, 3, 7, 14, 30, 90, or -1 for permanent
 }
 
 export interface CompleteUploadResponse {

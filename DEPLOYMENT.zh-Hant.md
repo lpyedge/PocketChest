@@ -4,7 +4,9 @@
 
 > 私人、自架的檔案與文字分享。一個 Cloudflare Worker、一個 R2 儲存桶，沒有資料庫。
 
-## 1. 一鍵部署（建議）
+只想直接使用 PocketChest 的話，TapDeploy 比較簡單：它在瀏覽器裡安裝預先建置的版本（見 [README](README.zh-Hant.md)）。本指南說明從原始碼部署的方式。
+
+## 1. 一鍵部署
 
 [![Deploy to Cloudflare](https://deploy.workers.cloudflare.com/button)](https://deploy.workers.cloudflare.com/?url=https://github.com/lpyedge/PocketChest)
 

@@ -4,14 +4,16 @@
 
 > 個人用・セルフホストのファイルとテキストの共有。Cloudflare Worker 1 つと R2 バケット 1 つで動き、データベースは不要です。
 
-## 1. ワンクリックデプロイ（推奨）
+PocketChest をそのまま使うだけなら、TapDeploy の方が簡単です。ブラウザからビルド済みのリリースをインストールします（[README](README.ja.md) を参照）。このガイドでは、ソースコードからデプロイする方法を説明します。
+
+## 1. ワンクリックデプロイ
 
 [![Deploy to Cloudflare](https://deploy.workers.cloudflare.com/button)](https://deploy.workers.cloudflare.com/?url=https://github.com/lpyedge/PocketChest)
 
 1. ボタンをクリックし、Cloudflare にサインインして GitHub との接続を許可します。このリポジトリがあなたのアカウントにコピーされ、`wrangler.jsonc` に従って Worker、R2 バケット（`R2_STORAGE`）、レート制限のバインディング、毎時の Cron が作成されます。
 2. フォームでは**何も入力しません**。Owner パスワードを選んだり入力したりする必要はなく、生成すべき署名用シークレットもありません。
 3. **Build** が `npm run build`、**Deploy** が `npm run deploy:installer` になっていることを確認してデプロイします。ビルドは 1 回だけ実行されます。インストーラーが署名用シークレット（`JWT_SECRET`）を自分で生成し、R2 バケットがなければ作成し、バケットが非公開であることを確認して初回セットアップを有効にします。ここでは素の `npx wrangler deploy` ではなく `npm run deploy:installer` を使ってください。素のデプロイでは、サイトが `SERVER_MISCONFIGURED` を返します。
-4. デプロイログの最後に、URL、バケット、オブジェクトキー、以下の手順が表示されます。`https://<あなたの-worker>.<あなたのサブドメイン>.workers.dev/upload/` を開きます。サイトは初回利用時に **Owner パスワード**を作成します。**このパスワードは Web サイト上には表示されません。**バケットから取得してください。
+4. デプロイログの最後に、URL、バケット、オブジェクトキー、以下の手順が表示されます。`https://<あなたの-worker>.<あなたのサブドメイン>.workers.dev/upload/` を開きます。サイトは初回利用時に **Owner パスワード**を作成します。**このパスワードは Web サイト上には表示されません**。バケットから取得してください。
    1. Cloudflare ダッシュボード → **R2** → ログに表示されたバケットを開きます。
    2. **Objects** → `auth/initial-owner-password.txt` を開く → **Download**。
    3. そのパスワードでサイトにサインインします。

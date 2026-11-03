@@ -6,14 +6,24 @@
 
 ## 🚀 Deploy in minutes
 
+[![Deploy with TapDeploy](https://raw.githubusercontent.com/lpyedge/TapDeploy/master/src/web/public/button.svg)](https://tapdeploy.27070.com/?config=https%3A%2F%2Fraw.githubusercontent.com%2Flpyedge%2FPocketChest%2Fmaster%2Fscripts%2Ftapdeploy.config.json)
 [![Deploy to Cloudflare](https://deploy.workers.cloudflare.com/button)](https://deploy.workers.cloudflare.com/?url=https://github.com/lpyedge/PocketChest)
-[![Deploy with TapDeploy](https://img.shields.io/badge/Deploy%20with-TapDeploy-f38020)](https://tapdeploy.27070.com/?config=https%3A%2F%2Fraw.githubusercontent.com%2Flpyedge%2FPocketChest%2Fmaster%2Fscripts%2Ftapdeploy.config.json)
 
-**One-click deployment** · [Full deployment guide](DEPLOYMENT.md) · [Manual deployment](DEPLOYMENT.md#2-manual-deployment)
+**Recommended: TapDeploy.** It installs the latest prebuilt release into your own Cloudflare account from the browser. Nothing is built on your side, and upgrading is the same button again. Choose **Deploy to Cloudflare** if you want your own copy of the code to change.
 
-The button clones this repository into your GitHub account, builds it with Workers Builds and creates the R2 bucket. Nothing to choose or type: the signing secret is generated for you, and the Owner password is generated on first setup and kept privately in your R2 bucket. You read it there once, then change it. Upgrading asks for nothing. The guide covers the button, `npm run deploy` and a manual GitHub Actions deploy, and what to check afterwards. **Not yet verified on a real Cloudflare account:** the one-click chain (the button prefilling `npm run deploy`, the secrets form, Workers Builds) has only been tested locally with simulated Cloudflare answers; a successful button deployment is not a production acceptance test.
+| | TapDeploy (recommended) | Deploy to Cloudflare |
+| --- | --- | --- |
+| You need | A Cloudflare account | A Cloudflare account and a GitHub account |
+| What happens | The latest release is installed as one Worker with its R2 bucket. You see every change before anything is written. | This repository is copied into your GitHub account, built by Workers Builds, and the R2 bucket is created. |
+| Owner password | Type your own (at least 8 characters, with letters and digits), or leave it empty and read the generated one from your R2 bucket, then change it. | Generated on first setup and kept privately in your R2 bucket: read it there once, then change it. |
+| Upgrade | Press the button again and choose **Upgrade existing**. Nothing to type; your password, shares, Owner and bucket are kept. | Merge the [Update from upstream](docs/OPERATIONS.md#update-from-upstream) pull request into your copy; the same build deploys it and asks for nothing. |
+| Best for | Running PocketChest | Changing the code |
 
-**Or install with TapDeploy:** one click deploys the prebuilt release into your own Cloudflare account (Worker + R2, nothing built on your side). You may type the first Owner password yourself (at least 8 characters, with letters and digits), or leave it empty and read the generated one from your R2 bucket, then change it. An upgrade does not ask for it and keeps your current password; upgrades keep your shares, Owner and bucket. Works once the first release is published; every push to `master` that passes CI publishes one automatically (the button reads the latest release's ZIP).
+Already deployed with **Deploy to Cloudflare**? TapDeploy can upgrade that Worker. First disconnect its Git repository (Worker → **Settings** → **Build**), or its next build replaces the release again; then tick **Take over** on the review.
+
+[Full deployment guide](DEPLOYMENT.md) · [Manual deployment](DEPLOYMENT.md#2-manual-deployment)
+
+The TapDeploy button reads the ZIP of the latest release; every push to `master` that passes CI publishes a new one. **Not yet verified on a real Cloudflare account**: the Deploy to Cloudflare chain (the button prefilling `npm run deploy`, the secrets form, Workers Builds) has only been tested locally with simulated Cloudflare answers; a successful button deployment is not a production acceptance test.
 
 ## ✨ Features
 

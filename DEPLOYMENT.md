@@ -4,7 +4,9 @@
 
 > Private, self-hosted sharing for files and text. One Cloudflare Worker, one R2 bucket, no database.
 
-## 1. One-click deployment (recommended)
+To just run PocketChest, TapDeploy is simpler: it installs the prebuilt release from your browser (see the [README](README.md)). This guide covers deploying from the source code.
+
+## 1. One-click deployment
 
 [![Deploy to Cloudflare](https://deploy.workers.cloudflare.com/button)](https://deploy.workers.cloudflare.com/?url=https://github.com/lpyedge/PocketChest)
 

@@ -6,16 +6,24 @@
 
 ## 🚀 すぐにデプロイ
 
+[![Deploy with TapDeploy](https://raw.githubusercontent.com/lpyedge/TapDeploy/master/src/web/public/button.svg)](https://tapdeploy.27070.com/?config=https%3A%2F%2Fraw.githubusercontent.com%2Flpyedge%2FPocketChest%2Fmaster%2Fscripts%2Ftapdeploy.config.json)
 [![Deploy to Cloudflare](https://deploy.workers.cloudflare.com/button)](https://deploy.workers.cloudflare.com/?url=https://github.com/lpyedge/PocketChest)
-[![Deploy with TapDeploy](https://img.shields.io/badge/Deploy%20with-TapDeploy-f38020)](https://tapdeploy.27070.com/?config=https%3A%2F%2Fraw.githubusercontent.com%2Flpyedge%2FPocketChest%2Fmaster%2Fscripts%2Ftapdeploy.config.json)
 
-**ワンクリックデプロイ** · [デプロイガイド](DEPLOYMENT.ja.md) · [手動デプロイ](DEPLOYMENT.ja.md#2-手動デプロイ)
+**おすすめは TapDeploy です**。ブラウザから、ビルド済みの最新リリースを自分の Cloudflare アカウントにインストールします。お手元でのビルドは不要で、アップグレードも同じボタンをもう一度押すだけです。コードを自分で変更したい場合は **Deploy to Cloudflare** を選んでください。
 
-ボタンは、このリポジトリを自分の GitHub アカウントにコピーし、Workers Builds でビルドして R2 バケットを作成します。選ぶ・入力するものはありません。署名用のシークレットは自動で作られ、**オーナーのパスワード** は初回セットアップ時にサイトが作成して、R2 バケットに非公開で保存します。そこで一度だけ読み取り、その後変更してください。アップグレードでは何も入力しません。ガイドでは、ボタン、`npm run deploy`、手動の GitHub Actions デプロイ、デプロイ後の確認項目を説明しています。**実際の Cloudflare アカウントではまだ検証していません。**ワンクリックの流れ（ボタンが `npm run deploy` を埋めること、シークレットのフォーム、Workers Builds）は、Cloudflare の応答を模擬したローカルテストだけです。ボタンでデプロイできたことは、本番環境の検証が済んだことを意味しません。
+| | TapDeploy（おすすめ） | Deploy to Cloudflare |
+| --- | --- | --- |
+| 必要なもの | Cloudflare アカウント | Cloudflare アカウントと GitHub アカウント |
+| 行われること | 最新リリースを Worker 1 つと R2 バケットとしてインストールします。何かを書き込む前に、すべての変更を確認できます。 | このリポジトリを自分の GitHub アカウントにコピーし、Workers Builds でビルドして R2 バケットを作成します。 |
+| オーナーのパスワード | 自分で入力するか（8 文字以上、英字と数字の両方を含む）、空欄のままにして R2 バケットから生成済みのものを読み取り、その後変更します。 | 初回セットアップ時に作成され、R2 バケットに非公開で保存されます。そこで一度だけ読み取り、その後変更してください。 |
+| アップグレード | もう一度ボタンを押して **Upgrade existing** を選びます。入力は不要で、パスワード・共有・オーナー・バケットはそのまま引き継がれます。 | [Update from upstream](docs/OPERATIONS.md#update-from-upstream) が作るプルリクエストを自分のコピーにマージすると、同じビルドがデプロイします。入力は不要です。 |
+| 向いている用途 | PocketChest をそのまま使う | コードを変更する |
 
-**TapDeploy でのインストール**
+すでに **Deploy to Cloudflare** でデプロイ済みですか？ TapDeploy でその Worker をアップグレードできます。まず接続されている Git リポジトリを切断し（Worker → **Settings** → **Build**。切断しないと次のビルドでリリースが置き換えられます）、確認画面で **Take over** にチェックを入れてください。
 
-事前ビルド済みのリリースをワンクリックで自分の Cloudflare アカウントにデプロイします（Worker + R2、お手元でのビルドは不要）。初回のオーナーパスワードは自分で入力しても（8 文字以上、英字と数字の両方を含む）、空欄のままにして R2 から生成済みのものを読んで変更しても構いません。アップグレード時はこの欄は表示されず現在のパスワードが維持され、共有・オーナー・Bucket をそのまま引き継ぎます。最初のリリースの公開後に利用できます。CI を通過した `master` への push ごとに自動で公開されます（ボタンは最新リリースの ZIP を読み取ります）。
+[デプロイガイド](DEPLOYMENT.ja.md) · [手動デプロイ](DEPLOYMENT.ja.md#2-手動デプロイ)
+
+TapDeploy ボタンは最新リリースの ZIP を読み取ります。CI を通過した `master` への push ごとに、新しいリリースが自動で公開されます。**実際の Cloudflare アカウントではまだ検証していません**。Deploy to Cloudflare のワンクリックの流れ（ボタンが `npm run deploy` を埋めること、シークレットのフォーム、Workers Builds）は、Cloudflare の応答を模擬したローカルテストだけです。ボタンでデプロイできたことは、本番環境の検証が済んだことを意味しません。
 
 ## ✨ 主な機能
 

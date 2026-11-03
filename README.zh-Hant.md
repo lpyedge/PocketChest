@@ -6,14 +6,24 @@
 
 ## 🚀 快速部署
 
+[![Deploy with TapDeploy](https://raw.githubusercontent.com/lpyedge/TapDeploy/master/src/web/public/button.svg)](https://tapdeploy.27070.com/?config=https%3A%2F%2Fraw.githubusercontent.com%2Flpyedge%2FPocketChest%2Fmaster%2Fscripts%2Ftapdeploy.config.json)
 [![Deploy to Cloudflare](https://deploy.workers.cloudflare.com/button)](https://deploy.workers.cloudflare.com/?url=https://github.com/lpyedge/PocketChest)
-[![Deploy with TapDeploy](https://img.shields.io/badge/Deploy%20with-TapDeploy-f38020)](https://tapdeploy.27070.com/?config=https%3A%2F%2Fraw.githubusercontent.com%2Flpyedge%2FPocketChest%2Fmaster%2Fscripts%2Ftapdeploy.config.json)
 
-**一鍵部署** · [完整部署指南](DEPLOYMENT.zh-Hant.md) · [手動部署](DEPLOYMENT.zh-Hant.md#2-手動部署)
+**推薦使用 TapDeploy**。它直接在瀏覽器裡把最新的預先建置版本安裝到你自己的 Cloudflare 帳號，你這邊不需要建置，升級也只要再按一次同一個按鈕。如果你想要一份自己的程式碼來修改，再選 **Deploy to Cloudflare**。
 
-按鈕會把本倉庫複製到你的 GitHub 帳號，用 Workers Builds 建置並建立 R2 Bucket。你不需要選擇或輸入任何東西：簽章用的 Secret 會自動產生，**Owner 密碼**由網站在首次設定時產生，並只私下保存在你的 R2 Bucket 中。你在那裡讀取一次，之後再更改。升級不需要輸入任何東西。指南涵蓋按鈕、`npm run deploy` 與手動的 GitHub Actions 部署，以及部署後該檢查的項目。**尚未在真實 Cloudflare 帳號上驗證：**一鍵流程（按鈕預填 `npm run deploy`、Secret 表單、Workers Builds）目前只用模擬的 Cloudflare 回應在本機測過；按鈕部署成功並不等於已通過正式環境驗收。
+| | TapDeploy（推薦） | Deploy to Cloudflare |
+| --- | --- | --- |
+| 需要 | Cloudflare 帳號 | Cloudflare 帳號與 GitHub 帳號 |
+| 會做什麼 | 把最新 release 安裝成一個 Worker 和它的 R2 Bucket。寫入任何東西之前，你會先看到所有變更。 | 把本倉庫複製到你的 GitHub 帳號，用 Workers Builds 建置，並建立 R2 Bucket。 |
+| Owner 密碼 | 可以自己輸入（至少 8 個字元，須同時包含字母與數字），也可以留空，之後到 R2 Bucket 讀取產生好的密碼再更改。 | 首次設定時產生，只私下保存在你的 R2 Bucket：在那裡讀取一次，之後再更改。 |
+| 升級 | 再按一次按鈕，選 **Upgrade existing**。不需要輸入任何東西，密碼、分享、Owner 與 Bucket 都會保留。 | 把 [Update from upstream](docs/OPERATIONS.md#update-from-upstream) 開出的 pull request 合併到你的副本，同一套建置會部署它，不需要輸入任何東西。 |
+| 適合 | 直接使用 PocketChest | 修改程式碼 |
 
-**或用 TapDeploy 安裝**：一鍵把預先建置好的版本部署到你自己的 Cloudflare 帳號（Worker + R2，不需要在你這邊建置）。首次的 Owner 密碼可以自己輸入（至少 8 個字元，須同時包含字母與數字），也可以留空，留空就照原本方式去 R2 讀取產生好的密碼再更改。升級時不會再詢問此欄位，沿用目前的密碼；升級會保留你的分享、Owner 與 Bucket。第一個 release 發佈後即可使用；每次推送到 `master` 且通過 CI，就會自動發佈一個（按鈕讀的是最新 release 上的 ZIP）。
+已經用 **Deploy to Cloudflare** 部署過了？TapDeploy 也能升級那個 Worker。先斷開它連接的 Git 倉庫（Worker → **Settings** → **Build**），否則下一次建置又會把版本換回去；然後在審查頁勾選 **Take over**。
+
+[完整部署指南](DEPLOYMENT.zh-Hant.md) · [手動部署](DEPLOYMENT.zh-Hant.md#2-手動部署)
+
+TapDeploy 按鈕讀取的是最新 release 上的 ZIP；每次推送到 `master` 且通過 CI，就會自動發佈新的 release。**尚未在真實 Cloudflare 帳號上驗證**：Deploy to Cloudflare 的一鍵流程（按鈕預填 `npm run deploy`、Secret 表單、Workers Builds）目前只用模擬的 Cloudflare 回應在本機測過；按鈕部署成功並不等於已通過正式環境驗收。
 
 ## ✨ 主要功能
 

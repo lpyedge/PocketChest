@@ -143,9 +143,9 @@ describe('write leases and the completion barrier', () => {
 				complete(sessionId, uploadToken, [doneId]),
 			]);
 
-			expect([200, 409]).toContain(late.status);
-			// Either the late upload finished first (completion waits and refuses with 409), or completion
-			// won and the late upload is refused. Both are fine; a late file must never leak into the chest.
+			// Either the late upload finished first (200, and completion waits and refuses with 409), or completion
+			// won and the late upload finds the session gone (404). Both are fine; a late file must never leak into the chest.
+			expect([200, 404, 409]).toContain(late.status);
 			expect([200, 409]).toContain(completion.status);
 			if (completion.status === 200) {
 				const { retrievalCode } = (await completion.json()) as any;

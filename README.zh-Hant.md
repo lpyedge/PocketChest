@@ -13,7 +13,7 @@
 
 按鈕會把本倉庫複製到你的 GitHub 帳號，用 Workers Builds 建置並建立 R2 Bucket。你不需要選擇或輸入任何東西：簽章用的 Secret 會自動產生，**Owner 密碼**由網站在首次設定時產生，並只私下保存在你的 R2 Bucket 中。你在那裡讀取一次，之後再更改。升級不需要輸入任何東西。指南涵蓋按鈕、`npm run deploy` 與手動的 GitHub Actions 部署，以及部署後該檢查的項目。**尚未在真實 Cloudflare 帳號上驗證：**一鍵流程（按鈕預填 `npm run deploy`、Secret 表單、Workers Builds）目前只用模擬的 Cloudflare 回應在本機測過；按鈕部署成功並不等於已通過正式環境驗收。
 
-**或用 TapDeploy 安裝**：一鍵把預先建置好的版本部署到你自己的 Cloudflare 帳號（Worker + R2，不需要在你這邊建置）。首次的 Owner 密碼可以自己輸入（至少 8 個字元，須同時包含字母與數字），也可以留空，留空就照原本方式去 R2 讀取產生好的密碼再更改。升級時此欄位留空即沿用目前的密碼；升級會保留你的分享、Owner 與 Bucket。第一個 release 發佈後即可使用；每次推送到 `master` 且通過 CI，就會自動發佈一個（按鈕讀的是最新 release 上的 ZIP）。
+**或用 TapDeploy 安裝**：一鍵把預先建置好的版本部署到你自己的 Cloudflare 帳號（Worker + R2，不需要在你這邊建置）。首次的 Owner 密碼可以自己輸入（至少 8 個字元，須同時包含字母與數字），也可以留空，留空就照原本方式去 R2 讀取產生好的密碼再更改。升級時不會再詢問此欄位，沿用目前的密碼；升級會保留你的分享、Owner 與 Bucket。第一個 release 發佈後即可使用；每次推送到 `master` 且通過 CI，就會自動發佈一個（按鈕讀的是最新 release 上的 ZIP）。
 
 ## ✨ 主要功能
 

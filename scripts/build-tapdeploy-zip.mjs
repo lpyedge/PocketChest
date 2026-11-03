@@ -172,6 +172,8 @@ export default {
 		name: repo.name,
 		main: 'worker.mjs',
 		compatibility_date: repo.compatibility_date,
+		// TapDeploy reports the address only when the unit declares workers.dev, so a new install needs it to be reachable
+		...(repo.workers_dev ? { workers_dev: true } : {}),
 		r2_buckets: [{ binding: 'R2_STORAGE', bucket_name: r2.bucket_name }],
 		...(repo.ratelimits ? { ratelimits: repo.ratelimits } : {}),
 		...(repo.triggers ? { triggers: repo.triggers } : {}),

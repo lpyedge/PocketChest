@@ -4,11 +4,11 @@
  */
 import { ApiError } from '../errors';
 import { ensureOwner, retireInitialPassword, SetupState } from './bootstrap';
-import { isConfigured, isUsable, loadOwner, mutateOwner, Method, OwnerConflictError, OwnerRecord } from './owner';
+import { isUsable, loadOwner, mutateOwner, Method, OwnerConflictError, OwnerRecord } from './owner';
 import { verifyPassword } from './password';
 import { matchTotpStep, openSeed } from './totp';
 import { clearFailures, recordFailure, releaseAttempt, reserveAttempt, ThrottledMethod } from './throttle';
-import { issueOwnerSession, LoadedSession, markActivationProof, markReauthenticated } from './sessions';
+import { issueOwnerSession, LoadedSession, markReauthenticated } from './sessions';
 
 export interface AuthEnv {
 	R2_STORAGE: R2Bucket;
@@ -46,20 +46,14 @@ export async function authMethods(env: AuthEnv): Promise<MethodsStatus> {
 	return { setup, methods };
 }
 
-// 'login' and 'reauth' both need the method switched on: a method that is off cannot sign in or re-enter a session.
-// 'activate' is the one exception, and only to prove the owner still holds a method so it can be switched back on.
-type Mode = 'login' | 'reauth' | 'activate';
-const usable = (owner: OwnerRecord, method: Method, mode: Mode) =>
-	mode === 'activate' ? isConfigured(owner, method) : isUsable(owner, method);
-
 // Returns the owner the password was checked against, so callers use that same state
-async function checkPassword(env: AuthEnv, password: string, mode: Mode): Promise<OwnerRecord> {
+async function checkPassword(env: AuthEnv, password: string): Promise<OwnerRecord> {
 	const loaded = await loadOwner(env.R2_STORAGE);
 	if (!loaded) {
 		throw new ApiError(401, 'AUTH_INVALID_CREDENTIALS', 'Invalid credentials');
 	}
 	const { owner } = loaded;
-	if (!usable(owner, 'password', mode) || owner.methods.password.hash === null) {
+	if (!isUsable(owner, 'password') || owner.methods.password.hash === null) {
 		throw new ApiError(403, 'AUTH_METHOD_DISABLED', 'Password sign-in is not enabled');
 	}
 	if (!(await verifyPassword(password, owner.methods.password.hash, env.JWT_SECRET))) {
@@ -98,7 +92,7 @@ export async function loginWithPassword(
 	now: number,
 ): Promise<{ sid: string; csrfToken: string; cookie: string }> {
 	return guarded(env, 'password', now, async () => {
-		const owner = await checkPassword(env, password, 'login');
+		const owner = await checkPassword(env, password);
 		return issueOwnerSession(env.R2_STORAGE, env.JWT_SECRET, owner.authVersion, now);
 	});
 }
@@ -106,16 +100,8 @@ export async function loginWithPassword(
 // Re-confirms the owner's password inside an existing session, opening the reauth window
 export async function reauthWithPassword(env: AuthEnv, session: LoadedSession, password: string, now: number): Promise<void> {
 	await guarded(env, 'password', now, async () => {
-		await checkPassword(env, password, 'reauth');
+		await checkPassword(env, password);
 		await markReauthenticated(env.R2_STORAGE, session.sid, now, 'password');
-	});
-}
-
-// Proves the owner holds the password so it can be switched on again. Opens no re-entry window.
-export async function activateWithPassword(env: AuthEnv, session: LoadedSession, password: string, now: number): Promise<void> {
-	await guarded(env, 'password', now, async () => {
-		await checkPassword(env, password, 'activate');
-		await markActivationProof(env.R2_STORAGE, session.sid, now, 'password');
 	});
 }
 
@@ -126,13 +112,13 @@ class TotpRejectedError extends Error {}
  * Checks a TOTP code and records its time step, so the same step is never accepted twice. The
  * step is recorded with an owner CAS, so two requests carrying the same code cannot both succeed.
  */
-async function consumeTotpCode(env: AuthEnv, code: string, now: number, mode: Mode): Promise<OwnerRecord> {
+async function consumeTotpCode(env: AuthEnv, code: string, now: number): Promise<OwnerRecord> {
 	const loaded = await loadOwner(env.R2_STORAGE);
 	if (!loaded) {
 		throw new ApiError(401, 'AUTH_INVALID_CREDENTIALS', 'Invalid credentials');
 	}
 	const sealed = loaded.owner.methods.totp.encryptedSecret;
-	if (!usable(loaded.owner, 'totp', mode) || sealed === null) {
+	if (!isUsable(loaded.owner, 'totp') || sealed === null) {
 		throw new ApiError(403, 'AUTH_METHOD_DISABLED', 'Authenticator sign-in is not enabled');
 	}
 	const seed = await openSeed(sealed, env.JWT_SECRET);
@@ -145,7 +131,7 @@ async function consumeTotpCode(env: AuthEnv, code: string, now: number, mode: Mo
 		return await mutateOwner(env.R2_STORAGE, (latest) => {
 			const totp = latest.methods.totp;
 			// The seed or the method may have changed since it was read; the code is then not accepted
-			if (!usable(latest, 'totp', mode) || totp.encryptedSecret?.ct !== sealed.ct) {
+			if (!isUsable(latest, 'totp') || totp.encryptedSecret?.ct !== sealed.ct) {
 				throw new TotpRejectedError();
 			}
 			if (totp.lastAcceptedStep !== null && step <= totp.lastAcceptedStep) {
@@ -167,7 +153,7 @@ async function consumeTotpCode(env: AuthEnv, code: string, now: number, mode: Mo
 // Signs the owner in with an authenticator code alone; the password is not needed
 export async function loginWithTotp(env: AuthEnv, code: string, now: number): Promise<{ sid: string; csrfToken: string; cookie: string }> {
 	return guarded(env, 'totp', now, async () => {
-		const owner = await consumeTotpCode(env, code, now, 'login');
+		const owner = await consumeTotpCode(env, code, now);
 		return issueOwnerSession(env.R2_STORAGE, env.JWT_SECRET, owner.authVersion, now);
 	});
 }
@@ -175,15 +161,7 @@ export async function loginWithTotp(env: AuthEnv, code: string, now: number): Pr
 // Re-confirms the owner with an authenticator code inside an existing session
 export async function reauthWithTotp(env: AuthEnv, session: LoadedSession, code: string, now: number): Promise<void> {
 	await guarded(env, 'totp', now, async () => {
-		await consumeTotpCode(env, code, now, 'reauth');
+		await consumeTotpCode(env, code, now);
 		await markReauthenticated(env.R2_STORAGE, session.sid, now, 'totp');
-	});
-}
-
-// Proves the owner holds the authenticator so it can be switched on again. Opens no re-entry window.
-export async function activateWithTotp(env: AuthEnv, session: LoadedSession, code: string, now: number): Promise<void> {
-	await guarded(env, 'totp', now, async () => {
-		await consumeTotpCode(env, code, now, 'activate');
-		await markActivationProof(env.R2_STORAGE, session.sid, now, 'totp');
 	});
 }

@@ -67,23 +67,19 @@
 | 10 | POST | `/api/auth/reauth/password` | Cookie + CSRF | [已實作] | 更新 `reauthenticatedAt`。 |
 | 11 | POST | `/api/auth/reauth/totp` | Cookie + CSRF | [已實作] | 同上。 |
 | 12 | POST | `/api/auth/reauth/passkey/options` `…/verify` | Cookie + CSRF | [已實作] | 同上。已停用的方式一律回 `403 AUTH_METHOD_DISABLED`（登入與再驗證相同）。 |
-| 33 | POST | `/api/auth/activate/password` | Cookie + CSRF | [已實作] | 證明仍持有已停用的密碼，只為了重新啟用；不開啟 reauth 視窗。 |
-| 34 | POST | `/api/auth/activate/totp` | Cookie + CSRF | [已實作] | 同上，驗證碼。 |
-| 35 | POST | `/api/auth/activate/passkey/options` | Cookie + CSRF | [已實作] | 同上，Passkey Challenge。 |
-| 36 | POST | `/api/auth/activate/passkey/verify` | Cookie + CSRF | [已實作] | 同上，Passkey 驗證；成功後 5 分鐘內可啟用該方式。 |
 
 ### Owner 安全設定
 
 | # | Method | Path | 權限 | 狀態 | 說明 |
 |---|---|---|---|---|---|
 | 13 | GET | `/api/admin/security` | Cookie | [已實作] | 只回摘要，不回 Hash／Seed／公鑰。 |
-| 14 | PATCH | `/api/admin/security/methods` | Cookie + CSRF + 近期 reauth | [已實作] | `{method, enabled}`，單一方式。啟用時另需該方式的 activate 證明，否則 `403 ACTIVATION_PROOF_REQUIRED`。 |
+| 14 | PATCH | `/api/admin/security/methods` | Cookie + CSRF + 近期 reauth | [已實作] | `{method, enabled}`，單一方式。啟用只需近期 reauth。停用時，該次 reauth 還必須是用「停用後仍保持開啟」的方式完成，否則 `403 REAUTH_OTHER_METHOD_REQUIRED`；停用最後一個可用方式則為 `409 LAST_AUTH_METHOD`。 |
 | 15 | POST | `/api/admin/security/password` | Cookie + CSRF + 近期 reauth | [已實作] | 修改密碼，輪替 Session。新密碼至少 8 個字元，且須同時包含字母與數字（`PASSWORD_TOO_SHORT`、`PASSWORD_NEEDS_LETTER_AND_DIGIT`、`PASSWORD_TOO_WEAK`）。 |
 | 16 | POST | `/api/admin/security/totp/prepare` | Cookie + CSRF + 近期 reauth | [已實作] | 產生新 Seed 與 Challenge。 |
 | 17 | POST | `/api/admin/security/totp/confirm` | Cookie + CSRF + 近期 reauth | [已實作] | 驗證新 OTP 後切換。 |
 | 18 | POST | `/api/admin/passkeys/register/options` | Cookie + CSRF + 近期 reauth | [已實作] | 註冊 Challenge。 |
 | 19 | POST | `/api/admin/passkeys/register/verify` | Cookie + CSRF + 近期 reauth | [已實作] | 新增 Credential。 |
-| 20 | DELETE | `/api/admin/passkeys/{id}` | Cookie + CSRF + 近期 reauth | [已實作] | 不得刪最後一個有效方式。 |
+| 20 | DELETE | `/api/admin/passkeys/{id}` | Cookie + CSRF + 近期 reauth | [已實作] | 不得刪最後一個有效方式。刪除最後一個 Passkey 會一併停用 Passkey 方式，因此該次 reauth 必須用其他方式完成（`403 REAUTH_OTHER_METHOD_REQUIRED`）。 |
 
 ### Owner 分享記錄
 

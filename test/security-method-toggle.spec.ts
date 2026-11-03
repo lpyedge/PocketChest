@@ -1,8 +1,7 @@
 import { env } from 'cloudflare:test';
 import { describe, it, expect, beforeAll, beforeEach } from 'vitest';
 import { ownerSignIn, resetStorage, setupTestEnvironment, testFetch, TEST_ORIGIN, TEST_OWNER_PASSWORD } from './utils/test-setup';
-import { totpCodeAt } from '../src/worker/auth/totp';
-import { configureTotp, reauthPassword, call, adoptRotated, setEnabled, SignedIn } from './utils/security-helpers';
+import { configureTotp, reauthPassword, reauthTotp, call, adoptRotated, setEnabled, SignedIn } from './utils/security-helpers';
 import { ownerRecord } from './utils/test-setup';
 
 const SEED = new Uint8Array(20).map((_, index) => 90 + index);
@@ -66,13 +65,14 @@ describe('switching methods on and off', () => {
 		expect(((await response.json()) as any).code).toBe('AUTH_METHOD_NOT_CONFIGURED');
 	});
 
-	it('refuses to switch on a configured method without a proof of that same method', async () => {
+	it('switches a configured method on with a re-entry by another method, without proving the one being switched on', async () => {
 		const owner = await signIn();
 		await configureTotp(SEED, false);
 		await reauthPassword(owner);
 		const response = await toggle(owner, 'totp', true);
-		expect(response.status).toBe(403);
-		expect(((await response.json()) as any).code).toBe('ACTIVATION_PROOF_REQUIRED');
+		expect(response.status).toBe(200);
+		await response.text();
+		expect((await ownerRecord()).methods.totp.enabled).toBe(true);
 	});
 
 	it('refuses to change anything without a recent re-entry', async () => {
@@ -94,7 +94,7 @@ describe('switching methods on and off', () => {
 		const first = await signIn();
 		const second = await signIn();
 		await configureTotp(SEED, true);
-		await reauthPassword(first);
+		await reauthTotp(first, SEED);
 
 		const response = await toggle(first, 'password', false);
 		expect(response.status).toBe(200);
@@ -112,23 +112,17 @@ describe('switching methods on and off', () => {
 		await old.text();
 	});
 
-	it('switching a method back on uses the same stored setup, after a proof of it', async () => {
+	it('switching a method back on uses the same stored setup and needs no proof of it', async () => {
 		const owner = await signIn();
 		await configureTotp(SEED, true);
-		await reauthPassword(owner);
+		await reauthTotp(owner, SEED);
 		const off = await toggle(owner, 'password', false);
 		const { session } = await adoptRotated(owner, off);
 
-		// A password that is off cannot re-enter the session; the authenticator does, and the password is proved on its own
+		// A password that is off cannot re-enter the session; the authenticator's re-entry is what switches it on again
 		const reentry = await call(session, 'POST', '/api/auth/reauth/password', { password: TEST_OWNER_PASSWORD });
 		expect(reentry.status).toBe(403);
 		await reentry.text();
-		const proof = await call(session, 'POST', '/api/auth/activate/password', { password: TEST_OWNER_PASSWORD });
-		expect(proof.status).toBe(200);
-		await proof.text();
-		const code = await call(session, 'POST', '/api/auth/reauth/totp', { code: await totpCodeAt(SEED, Math.floor(Date.now() / 1000)) });
-		expect(code.status).toBe(200);
-		await code.text();
 		const on = await toggle(session, 'password', true);
 		expect(on.status).toBe(200);
 		await on.text();
@@ -142,11 +136,41 @@ describe('switching methods on and off', () => {
 		await login.text();
 	});
 
+	it('switching a method off needs a re-entry by a method that stays on', async () => {
+		const owner = await signIn();
+		await configureTotp(SEED, true);
+		await reauthPassword(owner);
+
+		// The password just confirmed the owner, so it cannot be the one switched off
+		const refused = await toggle(owner, 'password', false);
+		expect(refused.status).toBe(403);
+		expect(((await refused.json()) as any).code).toBe('REAUTH_OTHER_METHOD_REQUIRED');
+		expect((await ownerRecord()).methods.password.enabled).toBe(true);
+
+		// The authenticator stays on, so its re-entry is enough
+		await reauthTotp(owner, SEED);
+		const allowed = await toggle(owner, 'password', false);
+		expect(allowed.status).toBe(200);
+		await allowed.text();
+		expect((await ownerRecord()).methods.password.enabled).toBe(false);
+	});
+
+	it('switching off a method other than the one that confirmed the owner needs nothing more', async () => {
+		const owner = await signIn();
+		await configureTotp(SEED, true);
+		await reauthPassword(owner);
+		const response = await toggle(owner, 'totp', false);
+		expect(response.status).toBe(200);
+		await response.text();
+		expect((await ownerRecord()).methods.totp.enabled).toBe(false);
+	});
+
 	it('lets exactly one of two concurrent switch-offs succeed when only two methods are on', async () => {
 		const first = await signIn();
 		const second = await signIn();
 		await configureTotp(SEED, true);
-		await reauthPassword(first);
+		// Each one is confirmed by the method the other switches off
+		await reauthTotp(first, SEED);
 		await reauthPassword(second);
 
 		const [a, b] = await Promise.all([toggle(first, 'password', false), toggle(second, 'totp', false)]);

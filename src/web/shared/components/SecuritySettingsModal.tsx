@@ -19,12 +19,11 @@ interface SecuritySettingsModalProps {
 	onSignedOut: () => void;
 }
 
-// An action waiting for a re-entry. `required` is set when the action only makes sense with that method.
+// An action waiting for a re-entry. `exclude` is the method the action switches off: it cannot confirm itself, because the
+// confirmation also shows that a method which stays on still works.
 interface PendingAction {
 	run: () => Promise<void>;
-	required: Method | null;
-	// A proof of holding a method that is off, to switch it on; not a re-entry
-	activate?: boolean;
+	exclude: Method | null;
 }
 
 function statusLabel(
@@ -105,7 +104,7 @@ export function SecuritySettingsModal({ csrfToken, onRotated, onClose, onSignedO
 	}, []);
 
 	// Runs an action; a missing or old re-entry opens the re-entry panel, and the action then runs again
-	const attempt = async (run: (token: string) => Promise<Rotation | void>, required: Method | null = null, success?: () => string) => {
+	const attempt = async (run: (token: string) => Promise<Rotation | void>, exclude: Method | null = null, success?: () => string) => {
 		setBusy(true);
 		setMessage(null);
 		setNotice(null);
@@ -118,11 +117,12 @@ export function SecuritySettingsModal({ csrfToken, onRotated, onClose, onSignedO
 			await refresh();
 			if (success) setNotice(success());
 		} catch (error) {
-			if (error instanceof AuthRequestError && error.code === 'ACTIVATION_PROOF_REQUIRED' && required) {
-				setPending({ run: () => attempt(run, required, success), required, activate: true });
-			} else if (error instanceof AuthRequestError && (error.code === 'REAUTH_REQUIRED' || error.code === 'REAUTH_METHOD_REQUIRED')) {
-				// Any method that is on can re-enter; the method being switched on (if any) is proved separately afterwards
-				setPending({ run: () => attempt(run, required, success), required: null });
+			if (
+				error instanceof AuthRequestError &&
+				(error.code === 'REAUTH_REQUIRED' || error.code === 'REAUTH_METHOD_REQUIRED' || error.code === 'REAUTH_OTHER_METHOD_REQUIRED')
+			) {
+				// Any method that is on can re-enter, except one the action itself switches off
+				setPending({ run: () => attempt(run, exclude, success), exclude });
 			} else if (error instanceof AuthRequestError && error.status === 409) {
 				setMessage(t('security.conflict'));
 				await refresh();
@@ -134,23 +134,21 @@ export function SecuritySettingsModal({ csrfToken, onRotated, onClose, onSignedO
 		}
 	};
 
-	// Re-entry with a method the owner has set up; with `required`, only that method is offered
-	const reenter = async (method: Method, action: () => Promise<void>, activate = false) => {
+	// Re-entry with a method that is switched on
+	const reenter = async (method: Method, action: () => Promise<void>) => {
 		setBusy(true);
 		setMessage(null);
 		try {
 			if (method === 'password') {
-				await (activate ? authApi.activatePassword(csrf, reauthPassword) : authApi.reauthPassword(csrf, reauthPassword));
+				await authApi.reauthPassword(csrf, reauthPassword);
 				setReauthPassword('');
 			} else if (method === 'totp') {
-				await (activate ? authApi.activateTotp(csrf, reauthCode) : authApi.reauthTotp(csrf, reauthCode));
+				await authApi.reauthTotp(csrf, reauthCode);
 				setReauthCode('');
 			} else {
-				const options = await (activate ? authApi.activatePasskeyOptions(csrf) : authApi.reauthPasskeyOptions(csrf));
+				const options = await authApi.reauthPasskeyOptions(csrf);
 				const response = await startAuthentication({ optionsJSON: options });
-				await (activate
-					? authApi.activatePasskeyVerify(csrf, options.challenge, response)
-					: authApi.reauthPasskeyVerify(csrf, options.challenge, response));
+				await authApi.reauthPasskeyVerify(csrf, options.challenge, response);
 			}
 			setPending(null);
 			await action();
@@ -161,18 +159,15 @@ export function SecuritySettingsModal({ csrfToken, onRotated, onClose, onSignedO
 		}
 	};
 
-	// A re-entry can only use a method that is switched on; a proof for switching one on again uses that method itself
-	const offeredMethods = (required: Method | null, activate = false): Method[] => {
+	// A re-entry can only use a method that is switched on, and not one the action switches off
+	const offeredMethods = (exclude: Method | null): Method[] => {
 		if (!status) return [];
 		const all: Method[] = ['password', 'totp', 'passkey'];
-		return all.filter((method) => {
-			const item = status.methods[method];
-			return (required === null || required === method) && item.configured && (activate || item.enabled);
-		});
+		return all.filter((method) => method !== exclude && status.methods[method].enabled);
 	};
 
 	const toggle = (method: Method, enabled: boolean) =>
-		attempt((token) => authApi.setMethod(token, method, enabled), enabled ? method : null);
+		attempt((token) => authApi.setMethod(token, method, enabled), enabled ? null : method);
 
 	const registerPasskey = () => {
 		// Whether this is the first passkey (and so switches the method on) is known from what is on screen now
@@ -192,7 +187,9 @@ export function SecuritySettingsModal({ csrfToken, onRotated, onClose, onSignedO
 
 	const removePasskey = (id: string, label: string) => {
 		if (!window.confirm(t('security.removeConfirm', { label }))) return;
-		attempt((token) => authApi.passkeyRemove(token, id));
+		// Removing the last passkey switches the method off, so a passkey cannot be what confirms it
+		const last = (status?.methods.passkey.credentials.length ?? 0) <= 1;
+		attempt((token) => authApi.passkeyRemove(token, id), last ? 'passkey' : null);
 	};
 
 	const submitTotpCode = () => {
@@ -268,9 +265,9 @@ export function SecuritySettingsModal({ csrfToken, onRotated, onClose, onSignedO
 				{pending && (
 					<section className="mb-4 space-y-3 rounded-xl border border-amber-300 bg-amber-50 p-4">
 						<p className="text-sm text-gray-800">
-							{pending.required ? t('security.confirmTitleWith', { method: t(`method.${pending.required}`) }) : t('security.confirmTitle')}
+							{pending.exclude ? t('security.confirmTitleOther', { method: t(`method.${pending.exclude}`) }) : t('security.confirmTitle')}
 						</p>
-						{offeredMethods(pending.required, pending.activate).map((method) => {
+						{offeredMethods(pending.exclude).map((method) => {
 							if (method === 'password') {
 								return (
 									<form
@@ -278,7 +275,7 @@ export function SecuritySettingsModal({ csrfToken, onRotated, onClose, onSignedO
 										className="flex gap-2"
 										onSubmit={(event) => {
 											event.preventDefault();
-											reenter('password', pending.run, pending.activate);
+											reenter('password', pending.run);
 										}}
 									>
 										<input
@@ -305,7 +302,7 @@ export function SecuritySettingsModal({ csrfToken, onRotated, onClose, onSignedO
 											className="flex gap-2"
 											onSubmit={(event) => {
 												event.preventDefault();
-												reenter('totp', pending.run, pending.activate);
+												reenter('totp', pending.run);
 											}}
 										>
 											<input
@@ -333,7 +330,7 @@ export function SecuritySettingsModal({ csrfToken, onRotated, onClose, onSignedO
 									key={method}
 									type="button"
 									disabled={busy}
-									onClick={() => reenter('passkey', pending.run, pending.activate)}
+									onClick={() => reenter('passkey', pending.run)}
 									className="rounded-lg border border-gray-300 bg-white px-3 py-1.5 text-sm font-medium text-gray-800 hover:bg-gray-50 disabled:opacity-50"
 								>
 									{t('security.confirmPasskey')}

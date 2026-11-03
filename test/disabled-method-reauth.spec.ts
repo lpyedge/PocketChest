@@ -119,7 +119,8 @@ describe('N2-03 a method that is switched off cannot re-enter the session', () =
 	it('T09: once a method has been switched off, its re-entry fails for the old and the new session alike', async () => {
 		const first = await ownerSignIn();
 		await configureTotp(SEED, true);
-		await reauthPassword(first);
+		// The authenticator confirms the owner, so the password may be the one switched off
+		expect((await post(first, '/api/auth/reauth/totp', { code: await code() })).status).toBe(200);
 
 		const toggled = await call(first, 'PATCH', '/api/admin/security/methods', { method: 'password', enabled: false });
 		expect(toggled.status).toBe(200);
@@ -136,132 +137,67 @@ describe('N2-03 a method that is switched off cannot re-enter the session', () =
 	it('T09: a password re-entry racing a switch-off never opens the window afterwards', async () => {
 		const owner = await ownerSignIn();
 		await configureTotp(SEED, true);
-		await reauthPassword(owner);
+		expect((await post(owner, '/api/auth/reauth/totp', { code: await code() })).status).toBe(200);
 
 		const [toggle, reentry] = await Promise.all([
 			call(owner, 'PATCH', '/api/admin/security/methods', { method: 'password', enabled: false }),
 			post(owner, '/api/auth/reauth/password', { password: TEST_OWNER_PASSWORD }),
 		]);
+		const toggleStatus = toggle.status;
 		await toggle.text();
 		await reentry.text();
 
-		// Whatever the order, the owner now has the password off, and nobody can re-enter with it
-		expect((await ownerRecord()).methods.password.enabled).toBe(false);
-		const record = await sessionRecord(owner).catch(() => null);
-		expect(record === null || record.reauthMethod !== 'password' || record.reauthenticatedAt !== null).toBe(true);
-		const after = await post(owner, '/api/auth/reauth/password', { password: TEST_OWNER_PASSWORD });
-		expect([401, 403]).toContain(after.status);
-		await after.text();
+		// Either the switch-off won, or the password re-entry replaced the confirming method first and the change was refused
+		expect([200, 403]).toContain(toggleStatus);
+		if (toggleStatus === 200) {
+			// Whatever the order, the password is off, and nobody can re-enter with it
+			expect((await ownerRecord()).methods.password.enabled).toBe(false);
+			const after = await post(owner, '/api/auth/reauth/password', { password: TEST_OWNER_PASSWORD });
+			expect([401, 403]).toContain(after.status);
+			await after.text();
+		} else {
+			expect((await ownerRecord()).methods.password.enabled).toBe(true);
+		}
 	});
 });
 
-describe('N2-03 switching a method back on needs its own proof, which opens nothing else', () => {
+describe('N2-03 switching a method back on', () => {
 	beforeEach(async () => {
 		await resetStorage();
 		await setupTestEnvironment();
 	});
 
-	it('refuses to switch a method on without a proof of it', async () => {
+	it('needs only a re-entry with a method that is on, not a proof of the method being switched on', async () => {
 		const owner = await ownerSignIn();
 		await configureTotp(SEED, false);
 		await reauthPassword(owner);
 
-		const response = await call(owner, 'PATCH', '/api/admin/security/methods', { method: 'totp', enabled: true });
-
-		expect(response.status).toBe(403);
-		expect(await codeOf(response)).toBe('ACTIVATION_PROOF_REQUIRED');
-	});
-
-	it('proof with the method itself, then switch it on; the proof is not a re-entry', async () => {
-		const owner = await ownerSignIn();
-		await configureTotp(SEED, false);
-
-		const proof = await post(owner, '/api/auth/activate/totp', { code: await code() });
-		expect(proof.status).toBe(200);
-		await proof.text();
-
-		// The proof alone does not open the re-entry window for anything else
-		const record = await sessionRecord(owner);
-		expect(record.reauthenticatedAt).toBeNull();
-		const password = await call(owner, 'POST', '/api/admin/security/password', {
-			newPassword: 'another-long-password-1',
-			confirmPassword: 'another-long-password-1',
-		});
-		expect(password.status).toBe(403);
-		expect(await codeOf(password)).toBe('REAUTH_REQUIRED');
-
-		// A usable method's re-entry plus the proof switches it on
-		await reauthPassword(owner);
 		const toggled = await call(owner, 'PATCH', '/api/admin/security/methods', { method: 'totp', enabled: true });
+
 		expect(toggled.status).toBe(200);
 		await toggled.text();
 		expect((await ownerRecord()).methods.totp.enabled).toBe(true);
 	});
 
-	it('a proof for one method does not switch on another', async () => {
-		const owner = await ownerSignIn();
-		await configureTotp(SEED, false);
-		await post(owner, '/api/auth/activate/totp', { code: await code() }).then((r) => r.text());
-		await reauthPassword(owner);
-
-		const response = await call(owner, 'PATCH', '/api/admin/security/methods', { method: 'passkey', enabled: true });
-
-		expect([403, 409]).toContain(response.status);
-		await response.text();
-	});
-
-	it('a wrong proof is refused and counts against the same guess budget', async () => {
+	it('is still refused without a recent re-entry', async () => {
 		const owner = await ownerSignIn();
 		await configureTotp(SEED, false);
 
-		const wrong = await post(owner, '/api/auth/activate/totp', { code: '000000' });
-		expect(wrong.status).toBe(401);
-		await wrong.text();
-		expect((await sessionRecord(owner)).activationProof).toBeUndefined();
-		const throttle = JSON.parse(await (await bucket().get('auth/throttle/totp.json'))!.text());
-		expect(throttle.failureCount).toBe(1);
-	});
+		const response = await call(owner, 'PATCH', '/api/admin/security/methods', { method: 'totp', enabled: true });
 
-	it('refuses a proof for a method that was never set up', async () => {
-		const owner = await ownerSignIn();
-		const response = await post(owner, '/api/auth/activate/totp', { code: '123456' });
 		expect(response.status).toBe(403);
+		expect(await codeOf(response)).toBe('REAUTH_REQUIRED');
+	});
+
+	it('has no separate proof step any more', async () => {
+		const owner = await ownerSignIn();
+		await configureTotp(SEED, false);
+		const response = await post(owner, '/api/auth/activate/totp', { code: await code() });
+		expect(response.status).toBe(404);
 		await response.text();
 	});
 
-	it('the proof runs out after five minutes', async () => {
-		const owner = await ownerSignIn();
-		await configureTotp(SEED, false);
-		await post(owner, '/api/auth/activate/totp', { code: await code() }).then((r) => r.text());
-		await reauthPassword(owner);
-		const { assertActivationProof } = await import('../src/worker/auth/sessions');
-		const record = await sessionRecord(owner);
-		const session = { key: '', sid: 'x', record };
-
-		expect(() => assertActivationProof(session, record.activationProof.at + 299, 'totp')).not.toThrow();
-		expect(() => assertActivationProof(session, record.activationProof.at + 300, 'totp')).toThrow();
-	});
-
-	it('a passkey proof works through its own options and verify', async () => {
-		const authenticator = new VirtualAuthenticator(RP_ID, TEST_ORIGIN);
-		const owner = await ownerSignIn();
-		const credentialId = await enrollPasskey(owner, authenticator);
-
-		const options = (await (await post(owner, '/api/auth/activate/passkey/options')).json()) as any;
-		const verified = await post(owner, '/api/auth/activate/passkey/verify', {
-			challenge: options.challenge,
-			response: await authenticator.assert(options, credentialId),
-		});
-		expect(verified.status).toBe(200);
-		await verified.text();
-		expect((await sessionRecord(owner)).activationProof).toMatchObject({ method: 'passkey' });
-
-		const toggled = await call(owner, 'PATCH', '/api/admin/security/methods', { method: 'passkey', enabled: true });
-		expect(toggled.status).toBe(200);
-		await toggled.text();
-	});
-
-	it('the same flow through the existing sign-in endpoints stays closed to a disabled method', async () => {
+	it('the sign-in endpoints stay closed to a method that is off', async () => {
 		await ownerSignIn();
 		await configureTotp(SEED, false);
 		const login = await testFetch(`${TEST_ORIGIN}/api/auth/login/totp`, {

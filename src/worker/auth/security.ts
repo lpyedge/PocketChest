@@ -18,15 +18,7 @@ import { hashPassword, verifyPassword } from './password';
 import { MIN_PASSWORD_LENGTH, passwordProblem } from './password-policy';
 import { isConfigured, isUsable, loadOwner, mutateOwner, Method, OwnerConflictError, OwnerInvariantError, OwnerRecord } from './owner';
 import { openSeed, sealSeed, generateSeed, base32Encode, matchTotpStep } from './totp';
-import {
-	assertActivationProof,
-	assertRecentReauth,
-	issueOwnerSession,
-	LoadedSession,
-	markReauthenticated,
-	revokeOwnerSession,
-	sha256Hex,
-} from './sessions';
+import { assertRecentReauth, issueOwnerSession, LoadedSession, markReauthenticated, revokeOwnerSession, sha256Hex } from './sessions';
 
 export const MAX_PASSWORD_LENGTH = 1024;
 const ENROLL_SECONDS = 5 * 60;
@@ -143,7 +135,24 @@ function conflict(error: unknown): unknown {
 	return error;
 }
 
-/** Switches one method on or off. Switching on needs a fresh re-entry with that same method. */
+const METHODS: Method[] = ['password', 'totp', 'passkey'];
+
+/**
+ * A change that switches sign-in off must have been confirmed by a method that stays on, so the owner has just shown that
+ * one of the remaining ways in works. When nothing would remain, the owner invariant refuses the change instead.
+ */
+function assertConfirmedByRemaining(next: OwnerRecord, session: LoadedSession): void {
+	const remaining = METHODS.filter((method) => isUsable(next, method));
+	const confirmed = session.record.reauthMethod;
+	if (remaining.length > 0 && (confirmed === null || !remaining.includes(confirmed))) {
+		throw new ApiError(403, 'REAUTH_OTHER_METHOD_REQUIRED', 'Confirm with a sign-in method that stays on');
+	}
+}
+
+/**
+ * Switches one method on or off. Both need a recent re-entry. Switching off also needs that re-entry to have used a
+ * method that stays on (see assertConfirmedByRemaining); switching on only adds a way in, so nothing more is asked.
+ */
 export async function setMethodEnabled(
 	env: { R2_STORAGE: R2Bucket; JWT_SECRET: string },
 	session: LoadedSession,
@@ -161,11 +170,6 @@ export async function setMethodEnabled(
 		if (!isConfigured(loaded.owner, method)) {
 			throw new ApiError(409, 'AUTH_METHOD_NOT_CONFIGURED', 'This method has not been set up yet');
 		}
-		// Proof that the owner still holds this method. A method that is off cannot re-enter a session, so the proof
-		// is its own step (see /api/auth/activate/*) and opens nothing else.
-		if (!isUsable(loaded.owner, method)) {
-			assertActivationProof(session, now, method);
-		}
 	}
 	let written: OwnerRecord;
 	try {
@@ -173,7 +177,9 @@ export async function setMethodEnabled(
 			if (enabled && !isConfigured(owner, method)) {
 				throw new ApiError(409, 'AUTH_METHOD_NOT_CONFIGURED', 'This method has not been set up yet');
 			}
-			return { ...withEnabled(owner, method, enabled), authVersion: owner.authVersion + 1 };
+			const next = withEnabled(owner, method, enabled);
+			if (!enabled) assertConfirmedByRemaining(next, session);
+			return { ...next, authVersion: owner.authVersion + 1 };
 		});
 	} catch (error) {
 		throw conflict(error);
@@ -196,7 +202,7 @@ export async function removePasskey(
 			if (remaining.length === owner.methods.passkey.credentials.length) {
 				throw new ApiError(404, 'PASSKEY_NOT_FOUND', 'No such passkey');
 			}
-			return {
+			const next: OwnerRecord = {
 				...owner,
 				authVersion: owner.authVersion + 1,
 				methods: {
@@ -204,6 +210,9 @@ export async function removePasskey(
 					passkey: { enabled: remaining.length > 0 && owner.methods.passkey.enabled, credentials: remaining },
 				},
 			};
+			// Removing the last passkey switches the method off, which the same rule covers
+			assertConfirmedByRemaining(next, session);
+			return next;
 		});
 	} catch (error) {
 		throw conflict(error);

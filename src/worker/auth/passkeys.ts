@@ -13,9 +13,9 @@ import type { AuthenticationResponseJSON, AuthenticatorTransport, RegistrationRe
 import { ApiError } from '../errors';
 import { fromBase64Url, toBase64Url } from './encoding';
 import { CHALLENGE_SECONDS, consumeChallenge, storeChallenge } from './challenges';
-import { isConfigured, isUsable, loadOwner, mutateOwner, OwnerConflictError, OwnerRecord, PasskeyCredential } from './owner';
+import { isUsable, loadOwner, mutateOwner, OwnerConflictError, OwnerRecord, PasskeyCredential } from './owner';
 import { rotate, Rotated } from './security';
-import { assertRecentReauth, LoadedSession, markActivationProof, markReauthenticated, sha256Hex } from './sessions';
+import { assertRecentReauth, LoadedSession, markReauthenticated, sha256Hex } from './sessions';
 
 export const RP_NAME = 'PocketChest';
 const OWNER_USER_NAME = 'owner';
@@ -157,11 +157,10 @@ export async function registrationVerify(
 
 // --- Sign-in and re-entry with an existing passkey ---
 
-type AssertionPurpose = 'login' | 'reauth' | 'activate';
+type AssertionPurpose = 'login' | 'reauth';
 
-// Sign-in and re-entry need the passkey switched on; only the proof for switching it on again accepts one that is off
-const allowed = (owner: OwnerRecord, purpose: AssertionPurpose) =>
-	purpose === 'activate' ? isConfigured(owner, 'passkey') : isUsable(owner, 'passkey');
+// Sign-in and re-entry need the passkey switched on
+const allowed = (owner: OwnerRecord) => isUsable(owner, 'passkey');
 
 export async function assertionOptions(
 	bucket: R2Bucket,
@@ -172,7 +171,7 @@ export async function assertionOptions(
 	pinnedRpId?: string,
 ) {
 	const owner = await loadOwnerOrThrow(bucket, invalidSignIn);
-	if (!allowed(owner, purpose)) {
+	if (!allowed(owner)) {
 		throw new ApiError(403, 'AUTH_METHOD_DISABLED', 'Passkey sign-in is not enabled');
 	}
 	const { rpID } = relyingParty(request, pinnedRpId);
@@ -203,7 +202,7 @@ async function verifyAssertion(
 
 	const owner = await loadOwnerOrThrow(bucket, invalidSignIn);
 	const stored = owner.methods.passkey.credentials.find((credential) => credential.id === body.response?.id);
-	if (!stored || !allowed(owner, purpose)) {
+	if (!stored || !allowed(owner)) {
 		throw invalidSignIn();
 	}
 
@@ -230,7 +229,7 @@ async function verifyAssertion(
 	try {
 		return await mutateOwner(bucket, (latest) => {
 			const current = latest.methods.passkey.credentials.find((credential) => credential.id === credentialId);
-			if (!current || !allowed(latest, purpose)) {
+			if (!current || !allowed(latest)) {
 				throw new CredentialGoneError();
 			}
 			// The signature was checked against `stored`. If the key was replaced, or another sign-in moved the
@@ -276,17 +275,4 @@ export async function reauthVerify(
 ): Promise<void> {
 	await verifyAssertion(bucket, request, 'reauth', session, body, now, pinnedRpId);
 	await markReauthenticated(bucket, session.sid, now, 'passkey');
-}
-
-// Proves the owner holds a passkey so the method can be switched on again. Opens no re-entry window.
-export async function activateVerify(
-	bucket: R2Bucket,
-	request: Request,
-	session: LoadedSession,
-	body: { challenge: string; response: AuthenticationResponseJSON },
-	now: number,
-	pinnedRpId?: string,
-): Promise<void> {
-	await verifyAssertion(bucket, request, 'activate', session, body, now, pinnedRpId);
-	await markActivationProof(bucket, session.sid, now, 'passkey');
 }

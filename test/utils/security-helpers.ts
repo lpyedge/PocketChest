@@ -2,7 +2,7 @@ import { env } from 'cloudflare:test';
 import { expect } from 'vitest';
 import { testFetch, TEST_ORIGIN, TEST_OWNER_PASSWORD, TEST_JWT_SECRET } from './test-setup';
 import { mutateOwner } from '../../src/worker/auth/owner';
-import { sealSeed } from '../../src/worker/auth/totp';
+import { sealSeed, totpCodeAt } from '../../src/worker/auth/totp';
 
 export interface SignedIn {
 	cookie: string;
@@ -19,6 +19,17 @@ export async function reauthPassword(session: SignedIn): Promise<void> {
 		method: 'POST',
 		headers: headersFor(session),
 		body: JSON.stringify({ password: TEST_OWNER_PASSWORD }),
+	});
+	expect(response.status).toBe(200);
+	await response.text();
+}
+
+// Re-enters an authenticator code made from `seed`, which opens the five-minute window with the authenticator
+export async function reauthTotp(session: SignedIn, seed: Uint8Array): Promise<void> {
+	const response = await testFetch(`${TEST_ORIGIN}/api/auth/reauth/totp`, {
+		method: 'POST',
+		headers: headersFor(session),
+		body: JSON.stringify({ code: await totpCodeAt(seed, Math.floor(Date.now() / 1000)) }),
 	});
 	expect(response.status).toBe(200);
 	await response.text();

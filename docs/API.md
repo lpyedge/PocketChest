@@ -67,23 +67,19 @@
 | 10 | POST | `/api/auth/reauth/password` | Cookie + CSRF | [implemented] | Updates `reauthenticatedAt`. |
 | 11 | POST | `/api/auth/reauth/totp` | Cookie + CSRF | [implemented] | As above. |
 | 12 | POST | `/api/auth/reauth/passkey/options` `…/verify` | Cookie + CSRF | [implemented] | As above. A method that is switched off always answers `403 AUTH_METHOD_DISABLED` (sign-in and re-entry alike). |
-| 33 | POST | `/api/auth/activate/password` | Cookie + CSRF | [implemented] | Proves the owner still holds a switched-off password, only in order to switch it back on; does not open the re-entry window. |
-| 34 | POST | `/api/auth/activate/totp` | Cookie + CSRF | [implemented] | As above, with a one-time code. |
-| 35 | POST | `/api/auth/activate/passkey/options` | Cookie + CSRF | [implemented] | As above, passkey challenge. |
-| 36 | POST | `/api/auth/activate/passkey/verify` | Cookie + CSRF | [implemented] | As above, passkey verification; after success the method can be switched on for 5 minutes. |
 
 ### Owner security settings
 
 | # | Method | Path | Permission | Status | Notes |
 |---|---|---|---|---|---|
 | 13 | GET | `/api/admin/security` | Cookie | [implemented] | Returns a summary only, never hashes, seeds or public keys. |
-| 14 | PATCH | `/api/admin/security/methods` | Cookie + CSRF + recent re-entry | [implemented] | `{method, enabled}`, one method at a time. Switching a method on also needs that method's activation proof, otherwise `403 ACTIVATION_PROOF_REQUIRED`. |
+| 14 | PATCH | `/api/admin/security/methods` | Cookie + CSRF + recent re-entry | [implemented] | `{method, enabled}`, one method at a time. Switching a method on needs only the recent re-entry. Switching one off also needs that re-entry to have used a method that stays on, otherwise `403 REAUTH_OTHER_METHOD_REQUIRED`; switching off the last usable method is `409 LAST_AUTH_METHOD`. |
 | 15 | POST | `/api/admin/security/password` | Cookie + CSRF + recent re-entry | [implemented] | Changes the password and rotates the session. Later passwords must be at least 8 characters and contain both a letter and a digit (`PASSWORD_TOO_SHORT`, `PASSWORD_NEEDS_LETTER_AND_DIGIT`, `PASSWORD_TOO_WEAK`). |
 | 16 | POST | `/api/admin/security/totp/prepare` | Cookie + CSRF + recent re-entry | [implemented] | Makes a new seed and challenge. |
 | 17 | POST | `/api/admin/security/totp/confirm` | Cookie + CSRF + recent re-entry | [implemented] | Switches over after a new one-time code is verified. |
 | 18 | POST | `/api/admin/passkeys/register/options` | Cookie + CSRF + recent re-entry | [implemented] | Registration challenge. |
 | 19 | POST | `/api/admin/passkeys/register/verify` | Cookie + CSRF + recent re-entry | [implemented] | Adds a credential. |
-| 20 | DELETE | `/api/admin/passkeys/{id}` | Cookie + CSRF + recent re-entry | [implemented] | Cannot delete the last usable method. |
+| 20 | DELETE | `/api/admin/passkeys/{id}` | Cookie + CSRF + recent re-entry | [implemented] | Cannot delete the last usable method. Removing the last passkey switches the passkey method off, so the re-entry must have used another method (`403 REAUTH_OTHER_METHOD_REQUIRED`). |
 
 ### Owner share records
 

@@ -1,23 +1,70 @@
 name: Release the TapDeploy bundle
-# Tagging v* builds dist/releases/pocketchest-tapdeploy.zip and attaches it to the
-# GitHub release. scripts/tapdeploy.config.json points at the latest attached ZIP,
-# so pushing a tag is what makes the one-click install serve the new code.
+
+# Builds dist/releases/pocketchest-tapdeploy.zip and attaches it to a GitHub release.
+# scripts/tapdeploy.config.json points at releases/latest/download/pocketchest-tapdeploy.zip,
+# so the newest release here is what the one-click install serves.
+#
+#   - Every push to master that passes CI publishes a release tagged v<package version>-build.<run number>,
+#     built from the exact commit CI tested. No manual step.
+#   - Pushing a v* tag by hand publishes a release under that tag instead (a deliberate version).
+#   - "Run workflow" publishes a release from the branch you pick, for a rebuild.
 on:
+  workflow_run:
+    workflows: [CI]
+    types: [completed]
+    branches: [master]
   push:
     tags: ['v*']
+  workflow_dispatch:
+
 permissions:
   contents: write
+
+concurrency:
+  group: release
+  cancel-in-progress: false
+
 jobs:
   release:
+    name: Build and publish
     runs-on: ubuntu-latest
+    # A CI run for a pull request or a failed/cancelled run publishes nothing
+    if: github.event_name != 'workflow_run' || (github.event.workflow_run.conclusion == 'success' && github.event.workflow_run.event == 'push')
     steps:
       - uses: actions/checkout@v5
+        with:
+          # The commit CI tested, not whatever master has moved to since
+          ref: ${{ github.event.workflow_run.head_sha || github.sha }}
+
       - uses: actions/setup-node@v5
         with:
           node-version-file: '.nvmrc'
           cache: 'npm'
+
       - run: npm ci
-      - run: node scripts/build-tapdeploy-zip.mjs
-      - run: gh release create "$GITHUB_REF_NAME" dist/releases/pocketchest-tapdeploy.zip --generate-notes --title "$GITHUB_REF_NAME"
+
+      # Builds the frontend itself, then embeds it into the single-Worker bundle
+      - name: Build the TapDeploy bundle
+        run: node scripts/build-tapdeploy-zip.mjs
+
+      - name: Publish the release
         env:
           GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          ZIP=dist/releases/pocketchest-tapdeploy.zip
+          SHA="$(git rev-parse HEAD)"
+          if [ "$GITHUB_REF_TYPE" = "tag" ]; then
+            TAG="$GITHUB_REF_NAME"
+          else
+            TAG="v$(node -p "require('./package.json').version")-build.${GITHUB_RUN_NUMBER}"
+          fi
+          NOTES="Commit ${SHA}
+          SHA-256 of the ZIP: $(sha256sum "$ZIP" | cut -d' ' -f1)"
+          # A re-run of the same job replaces the asset instead of failing on the existing release
+          if gh release view "$TAG" >/dev/null 2>&1; then
+            gh release upload "$TAG" "$ZIP" --clobber
+          else
+            gh release create "$TAG" "$ZIP" --target "$SHA" --latest --generate-notes --title "$TAG" --notes "$NOTES"
+          fi
+          echo "Published $TAG" >> "$GITHUB_STEP_SUMMARY"

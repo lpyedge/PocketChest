@@ -78,7 +78,7 @@
 |---|---|---|---|---|---|
 | 13 | GET | `/api/admin/security` | Cookie | [implemented] | Returns a summary only, never hashes, seeds or public keys. |
 | 14 | PATCH | `/api/admin/security/methods` | Cookie + CSRF + recent re-entry | [implemented] | `{method, enabled}`, one method at a time. Switching a method on also needs that method's activation proof, otherwise `403 ACTIVATION_PROOF_REQUIRED`. |
-| 15 | POST | `/api/admin/security/password` | Cookie + CSRF + recent re-entry | [implemented] | Changes the password and rotates the session. Later passwords must be at least 8 characters. |
+| 15 | POST | `/api/admin/security/password` | Cookie + CSRF + recent re-entry | [implemented] | Changes the password and rotates the session. Later passwords must be at least 8 characters and contain both a letter and a digit (`PASSWORD_TOO_SHORT`, `PASSWORD_NEEDS_LETTER_AND_DIGIT`, `PASSWORD_TOO_WEAK`). |
 | 16 | POST | `/api/admin/security/totp/prepare` | Cookie + CSRF + recent re-entry | [implemented] | Makes a new seed and challenge. |
 | 17 | POST | `/api/admin/security/totp/confirm` | Cookie + CSRF + recent re-entry | [implemented] | Switches over after a new one-time code is verified. |
 | 18 | POST | `/api/admin/passkeys/register/options` | Cookie + CSRF + recent re-entry | [implemented] | Registration challenge. |

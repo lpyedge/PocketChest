@@ -230,6 +230,9 @@ export async function changePassword(
 	if (problem === 'TOO_SHORT') {
 		throw new ApiError(400, 'PASSWORD_TOO_SHORT', `Use at least ${MIN_PASSWORD_LENGTH} characters`);
 	}
+	if (problem === 'NEEDS_LETTER_AND_DIGIT') {
+		throw new ApiError(400, 'PASSWORD_NEEDS_LETTER_AND_DIGIT', 'Use at least one letter and one digit');
+	}
 	if (newPassword.length > MAX_PASSWORD_LENGTH) {
 		throw new ApiError(400, 'PASSWORD_TOO_LONG', 'That password is too long');
 	}

@@ -10,7 +10,7 @@ One Cloudflare Worker serves everything from one domain. All data (files, chest 
 | `/assets/*` | Hashed JS/CSS from the Vite build |
 | `/api/*` | Worker API ([API.md](API.md)) |
 
-- **Frontend**: React 19 + Tailwind CSS, built by Vite into `dist/` and served as Workers Static Assets.
+- **Frontend**: React 19 + Tailwind CSS, built by Vite into `dist/app/` and served as Workers Static Assets.
 - **Backend**: a TypeScript Worker, R2, rate limiting bindings and an hourly cron cleanup.
 - **Languages**: Traditional Chinese, Japanese and English. Each language file is its own chunk; the static home pages have one HTML file per language.
 
@@ -30,7 +30,7 @@ PocketChest/
 │       ├── upload/            # Upload app
 │       ├── retrieve/          # Retrieve app
 │       └── shared/            # Components, hooks, API client, i18n catalogue, styles
-├── public/                    # Copied into dist/ as-is (_headers, 404.html, favicon)
+├── public/                    # Copied into dist/app/ as-is (_headers, 404.html, favicon)
 ├── test/                      # Vitest: web/ (unit), contracts/, the rest (Worker runtime); e2e/ (Playwright)
 ├── scripts/                   # check-legacy, test-report, setup-local, capture-screenshots, recovery tools
 ├── docs/                      # API, operations, recovery, screenshots, test and review records

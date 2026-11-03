@@ -15,7 +15,7 @@
    1. Cloudflare dashboard → **R2** → open the bucket named in the log.
    2. **Objects** → open `auth/initial-owner-password.txt` → **Download**.
    3. Sign in to the site with that password.
-5. Change the password at once in **Security settings** (at least 8 characters, not an obvious or repeated one). After a successful change the stored copy is removed automatically. If the change fails, the file stays.
+5. Change the password at once in **Security settings** (at least 8 characters with both letters and digits, not an obvious or repeated one). After a successful change the stored copy is removed automatically. If the change fails, the file stays.
 6. Optional, later: add an authenticator app or a passkey. Choose the final hostname and set `PASSKEY_RP_ID` **before** you register a passkey ([operations](docs/OPERATIONS.md#passkey-domain)).
 
 **Upgrading** asks for nothing: push the new code and let the same build run. `npm run deploy:installer` sees that the installation is complete and deploys the code only; your password, secrets, shares and settings are not touched. Do not press the Deploy button again to upgrade.
@@ -65,11 +65,11 @@ There is no authenticator key to configure: if you set up an authenticator app, 
 
 ## 4. Build and deploy settings
 
-With Workers Builds from GitHub, set **Build** to `npm run build` and **Deploy** to `npm run deploy:installer`. The build step builds `dist/`; the deploy step runs the installer, which deploys it. `npm run deploy` is the same two steps in one command for local use, and `npm run deploy:code` only pushes the code with Wrangler. The `dist/` folder is served as Workers Static Assets; the Worker itself handles `/api/*` only. A blank page or a 404 on `/upload/` means `dist/` was not built before deploying. Use one deployer per installation: either Workers Builds or your own `npm run deploy`, not both.
+With Workers Builds from GitHub, set **Build** to `npm run build` and **Deploy** to `npm run deploy:installer`. The build step builds `dist/app/`; the deploy step runs the installer, which deploys it. `npm run deploy` is the same two steps in one command for local use, and `npm run deploy:code` only pushes the code with Wrangler. The `dist/app/` folder is served as Workers Static Assets; the Worker itself handles `/api/*` only. A blank page or a 404 on `/upload/` means `dist/app/` was not built before deploying. Use one deployer per installation: either Workers Builds or your own `npm run deploy`, not both.
 
 ## 5. First use and daily use
 
-- Sign in with the Owner password. The first one is in the bucket object named in section 1; change it at once in **Security settings** (at least 8 characters).
+- Sign in with the Owner password. The first one is in the bucket object named in section 1; change it at once in **Security settings** (at least 8 characters, letters and digits).
 - Password, authenticator app and passkey are three **independent** ways to sign in: any one of them signs in on its own. An authenticator code is **not** a second factor on top of the password. Keep at least two set up, so one lost device does not lock you out. If every method is lost, see [recovery](docs/RECOVERY.md) (the password cannot be reset offline).
 - Upload sessions end 24 hours after they start. Shares last 1, 3, 7, 14 or 30 days, 3 months (90 days), or are permanent; an hourly cleanup removes the expired ones. **Share records** (next to Security settings) lists your active shares, and lets you extend or revoke them.
 
@@ -97,7 +97,7 @@ The full list is in [REMOTE_ACCEPTANCE.md](docs/REMOTE_ACCEPTANCE.md). Logs, the
 | The deploy says it is "not ready" | The log lists what is missing (sign-in not ready, Owner or first-password object not in the bucket). Fix it and run the deploy again. |
 | `npm run deploy` refuses | It says why and has changed nothing; the usual causes are in section 2. |
 | Authenticator setup or sign-in fails with `AUTH_NOT_CONFIGURED` | `JWT_SECRET` is missing, too short, or is not the value the authenticator was set up under. |
-| Blank page or 404 on `/upload/` | `dist/` was not built before deploying (see section 4). |
+| Blank page or 404 on `/upload/` | `dist/app/` was not built before deploying (see section 4). |
 | Storage errors | The R2 bucket does not exist, or `bucket_name` in `wrangler.jsonc` does not match it. |
 | Passkey refused with `PASSKEY_DOMAIN_MISMATCH` | The request came from a hostname other than `PASSKEY_RP_ID`. |
 

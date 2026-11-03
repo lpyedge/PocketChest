@@ -1,5 +1,5 @@
 /**
- * PocketChest — one Worker serving both the API (/api/*) and the static frontend (dist/).
+ * PocketChest — one Worker serving both the API (/api/*) and the static frontend (dist/app/).
  * All data lives in the R2 bucket; there is no database.
  */
 {
@@ -11,7 +11,7 @@
 		"enabled": true,
 	},
 	"assets": {
-		"directory": "./dist",
+		"directory": "./dist/app",
 		"binding": "ASSETS",
 		"html_handling": "auto-trailing-slash",
 		"not_found_handling": "404-page",

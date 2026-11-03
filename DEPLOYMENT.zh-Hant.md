@@ -15,7 +15,7 @@
    1. Cloudflare 儀表板 → **R2** → 開啟記錄中列出的儲存桶。
    2. **Objects** → 開啟 `auth/initial-owner-password.txt` → **Download**。
    3. 用這組密碼登入網站。
-5. 立即在 **安全設定** 中更改密碼（至少 8 個字元，不要使用容易猜到或重複的字元）。更改成功後，儲存的副本會自動刪除；若更改失敗，檔案會保留。
+5. 立即在 **安全設定** 中更改密碼（至少 8 個字元，須同時包含字母與數字，不要使用容易猜到或重複的字元）。更改成功後，儲存的副本會自動刪除；若更改失敗，檔案會保留。
 6. 之後可選擇加入驗證器應用程式或通行金鑰。在註冊通行金鑰**之前**，先確定最終的網域並設定 `PASSKEY_RP_ID`（[操作說明](docs/OPERATIONS.md#passkey-domain)）。
 
 **升級**不需要任何輸入：推送新程式碼並讓同一個建置執行即可。`npm run deploy:installer` 會判斷安裝已完成，只部署程式碼；你的密碼、密鑰、分享與設定都不會被變動。升級時不要再按一次 Deploy 按鈕。
@@ -65,11 +65,11 @@ npm run deploy
 
 ## 4. 建置與部署設定
 
-使用 GitHub 的 Workers Builds 時，把 **Build** 設為 `npm run build`，**Deploy** 設為 `npm run deploy:installer`。建置步驟會建置 `dist/`；部署步驟執行安裝程式，由它部署。`npm run deploy` 是本機用的一行版本，會依序執行這兩個步驟；`npm run deploy:code` 只用 Wrangler 推送程式碼。`dist/` 資料夾以 Workers Static Assets 提供；Worker 本身只處理 `/api/*`。若 `/upload/` 空白或 404，代表部署前沒有建置 `dist/`。每個安裝只能用一種部署方式：Workers Builds 或你自己的 `npm run deploy`。
+使用 GitHub 的 Workers Builds 時，把 **Build** 設為 `npm run build`，**Deploy** 設為 `npm run deploy:installer`。建置步驟會建置 `dist/app/`；部署步驟執行安裝程式，由它部署。`npm run deploy` 是本機用的一行版本，會依序執行這兩個步驟；`npm run deploy:code` 只用 Wrangler 推送程式碼。`dist/app/` 資料夾以 Workers Static Assets 提供；Worker 本身只處理 `/api/*`。若 `/upload/` 空白或 404，代表部署前沒有建置 `dist/app/`。每個安裝只能用一種部署方式：Workers Builds 或你自己的 `npm run deploy`。
 
 ## 5. 首次使用與日常使用
 
-- 以 Owner 密碼登入。第一組密碼在第 1 節所述的儲存桶物件中；請立即在 **安全設定** 中更改（至少 8 個字元）。
+- 以 Owner 密碼登入。第一組密碼在第 1 節所述的儲存桶物件中；請立即在 **安全設定** 中更改（至少 8 個字元，須含字母與數字）。
 - 密碼、驗證器應用程式與通行金鑰是三種**彼此獨立**的登入方式，任何一種都能單獨登入。驗證器代碼**不是**密碼之外的第二因素。請至少設定兩種，避免一台裝置遺失就無法登入。若所有方式都遺失，請見[復原說明](docs/RECOVERY.md)（密碼無法離線重設）。
 - 上傳工作階段於開始後 24 小時結束。分享可保留 1、3、7、14 或 30 天、3 個月（90 天），或永久；每小時的清理會移除過期的分享。**分享紀錄**（位於安全設定旁）列出你的有效分享，並可延長或撤銷。
 
@@ -97,7 +97,7 @@ npm run deploy
 | 部署表示「尚未就緒」 | 記錄會列出缺少的項目（登入未就緒、Owner 或第一組密碼物件不在儲存桶中）。修正後再部署。 |
 | `npm run deploy` 拒絕執行 | 它會說明原因且沒有改動任何東西；常見原因見第 2 節。 |
 | 驗證器設定或登入出現 `AUTH_NOT_CONFIGURED` | `JWT_SECRET` 缺少、太短，或不是設定驗證器時使用的值。 |
-| `/upload/` 空白或 404 | 部署前沒有建置 `dist/`（見第 4 節）。 |
+| `/upload/` 空白或 404 | 部署前沒有建置 `dist/app/`（見第 4 節）。 |
 | 儲存錯誤 | R2 儲存桶不存在，或 `wrangler.jsonc` 的 `bucket_name` 與它不符。 |
 | 通行金鑰以 `PASSKEY_DOMAIN_MISMATCH` 拒絕 | 請求來自與 `PASSKEY_RP_ID` 不同的主機名稱。 |
 

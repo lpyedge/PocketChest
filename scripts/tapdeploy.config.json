@@ -14,7 +14,7 @@
 	"inputs": [
 		{
 			"key": "OWNER_SETUP_PASSWORD",
-			"description": "The first owner password. Leave empty and the app generates one: read it from the private R2 object auth/initial-owner-password.txt after install, then change it in Security settings.",
+			"description": "Optional. At least 8 characters, with both letters and digits (otherwise it is ignored and one is generated). Leave empty on a first install and the app generates one: read it from the private R2 object auth/initial-owner-password.txt, then change it in Security settings. On an upgrade, leave empty to keep your current password; a value typed here does not replace an existing password.",
 			"label": "Owner password",
 			"required": false,
 			"type": "secret",

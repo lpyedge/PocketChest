@@ -103,7 +103,9 @@ export async function ensureOwner(env: BootstrapEnv, now: number = Math.floor(Da
 	const supplied = typeof env.OWNER_SETUP_PASSWORD === 'string' && env.OWNER_SETUP_PASSWORD.length > 0 ? env.OWNER_SETUP_PASSWORD : null;
 	let setupPassword = supplied;
 	if (setupPassword !== null && passwordProblem(setupPassword) !== null) {
-		console.error('Ignoring OWNER_SETUP_PASSWORD: it does not meet the password policy; generating one instead.');
+		console.error(
+			'Ignoring OWNER_SETUP_PASSWORD: it does not meet the password policy (8+ characters with letters and digits); generating one instead.',
+		);
 		setupPassword = null;
 	}
 

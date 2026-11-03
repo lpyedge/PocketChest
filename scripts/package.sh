@@ -3,17 +3,17 @@
 # Deterministic source snapshot, mirroring the CWI scheme (fixed mtimes, fixed
 # permissions, sorted entries):
 #
-#   1. wipe dist/ and npm run build -> dist/ (the static frontend the Worker serves)
+#   1. wipe dist/app/ and npm run build -> dist/app/ (the static frontend the Worker serves)
 #   2. stage wrangler.jsonc + package.json + package-lock.json + LICENSE +
 #      src/worker/** + dist/** (release artifacts excluded) with normalized
 #      mtimes/permissions, then zip sorted -> dist/releases/<name>-<version>.zip
 #
 # Unzip anywhere, then `npm ci && wrangler deploy`. The layout inside the zip
-# matches what wrangler.jsonc expects (entry src/worker/index.ts, assets dist/).
+# matches what wrangler.jsonc expects (entry src/worker/index.ts, assets dist/app/).
 #
-# Note: `vite build` empties dist/, so this script always builds first and writes
-# the zip afterwards; a later bare `npm run build` removes dist/releases/ again,
-# and while present the zip is served as an ordinary static asset.
+# `vite build` only empties dist/app/, so dist/releases/ survives rebuilds; a bare
+# `npm run build` never touches the zip. Root-level leftovers from older layouts
+# (dist/config.json, dist/*.zip) are removed.
 #
 # Usage: ./scripts/package.sh   (or: npm run package)
 set -euo pipefail
@@ -29,7 +29,11 @@ ARCHIVE="${NAME}-${VERSION}.zip"
 OUT="dist/releases/${ARCHIVE}"
 
 echo "Packaging ${NAME} ${VERSION} in $(pwd)"
-rm -rf dist
+# Fresh build output only; dist/releases/ (previous release zips) survives the wipe.
+if [ -d dist ]; then
+	find dist -mindepth 1 -maxdepth 1 ! -name releases -exec rm -rf {} +
+fi
+rm -f dist/config.json
 npm run build
 mkdir -p dist/releases
 

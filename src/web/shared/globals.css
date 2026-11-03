@@ -1,5 +1,5 @@
 @import 'tailwindcss' source(none);
-/* Scan only the web sources: dist/, .wrangler/ and node_modules/ are never included */
+/* Scan only the web sources: dist/app/, .wrangler/ and node_modules/ are never included */
 @source "../";
 
 @layer base {

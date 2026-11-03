@@ -11,7 +11,7 @@ import {
 } from './utils/test-setup';
 import { adoptRotated, call, configureTotp, reauthPassword, setEnabled, SignedIn } from './utils/security-helpers';
 
-const NEW_PASSWORD = 'a-new-passphrase-that-is-long-enough';
+const NEW_PASSWORD = 'a-new-passphrase-that-is-long-enough-2';
 
 function login(password: string) {
 	return testFetch(`${TEST_ORIGIN}/api/auth/login/password`, {
@@ -45,10 +45,12 @@ describe('POST /api/admin/security/password', () => {
 		['seven characters', 'short-1', 'short-1', 'PASSWORD_TOO_SHORT'],
 		['seven emoji (code points, not UTF-16 units)', '😀'.repeat(7), '😀'.repeat(7), 'PASSWORD_TOO_SHORT'],
 		['not confirmed', NEW_PASSWORD, `${NEW_PASSWORD}-x`, 'PASSWORD_MISMATCH'],
-		['a repeated character', 'a'.repeat(20), 'a'.repeat(20), 'PASSWORD_TOO_WEAK'],
-		['too few distinct characters', 'abababab', 'abababab', 'PASSWORD_TOO_WEAK'],
-		['a common password', 'Password', 'Password', 'PASSWORD_TOO_WEAK'],
-		['a placeholder value', 'REPLACE_WITH_A_PASSWORD', 'REPLACE_WITH_A_PASSWORD', 'PASSWORD_TOO_WEAK'],
+		['letters only', 'a'.repeat(20), 'a'.repeat(20), 'PASSWORD_NEEDS_LETTER_AND_DIGIT'],
+		['digits only', '12345678901', '12345678901', 'PASSWORD_NEEDS_LETTER_AND_DIGIT'],
+		['a repeated character with a digit', `${'a'.repeat(20)}1`, `${'a'.repeat(20)}1`, 'PASSWORD_TOO_WEAK'],
+		['too few distinct characters', 'abababa1', 'abababa1', 'PASSWORD_TOO_WEAK'],
+		['a common password', 'Password1', 'Password1', 'PASSWORD_TOO_WEAK'],
+		['a placeholder value', 'REPLACE_WITH_A_PASSWORD1', 'REPLACE_WITH_A_PASSWORD1', 'PASSWORD_TOO_WEAK'],
 		['the same as now', TEST_OWNER_PASSWORD, TEST_OWNER_PASSWORD, 'PASSWORD_UNCHANGED'],
 	])('refuses a password that is %s', async (_label, newPassword, confirm, code) => {
 		const owner = await ownerSignIn();

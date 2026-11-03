@@ -78,7 +78,7 @@
 |---|---|---|---|---|---|
 | 13 | GET | `/api/admin/security` | Cookie | [已實作] | 只回摘要，不回 Hash／Seed／公鑰。 |
 | 14 | PATCH | `/api/admin/security/methods` | Cookie + CSRF + 近期 reauth | [已實作] | `{method, enabled}`，單一方式。啟用時另需該方式的 activate 證明，否則 `403 ACTIVATION_PROOF_REQUIRED`。 |
-| 15 | POST | `/api/admin/security/password` | Cookie + CSRF + 近期 reauth | [已實作] | 修改密碼，輪替 Session。 |
+| 15 | POST | `/api/admin/security/password` | Cookie + CSRF + 近期 reauth | [已實作] | 修改密碼，輪替 Session。新密碼至少 8 個字元，且須同時包含字母與數字（`PASSWORD_TOO_SHORT`、`PASSWORD_NEEDS_LETTER_AND_DIGIT`、`PASSWORD_TOO_WEAK`）。 |
 | 16 | POST | `/api/admin/security/totp/prepare` | Cookie + CSRF + 近期 reauth | [已實作] | 產生新 Seed 與 Challenge。 |
 | 17 | POST | `/api/admin/security/totp/confirm` | Cookie + CSRF + 近期 reauth | [已實作] | 驗證新 OTP 後切換。 |
 | 18 | POST | `/api/admin/passkeys/register/options` | Cookie + CSRF + 近期 reauth | [已實作] | 註冊 Challenge。 |

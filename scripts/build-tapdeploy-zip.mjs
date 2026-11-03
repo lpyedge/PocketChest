@@ -22,7 +22,7 @@ import { parseJsonc } from './deploy-preflight-core.mjs';
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const STAGE = join(root, '.temp', 'tapdeploy');
 const RELEASE_DIR = join(STAGE, 'release');
-const DIST = join(root, 'dist');
+const DIST = join(root, 'dist', 'app');
 const OUT_ZIP = join(root, 'dist', 'releases', 'pocketchest-tapdeploy.zip');
 
 const TEXT_TYPES = new Map([
@@ -69,18 +69,34 @@ function main() {
 	const distFiles = walk(DIST)
 		.filter((path) => !path.endsWith('.zip') && !path.endsWith('config.json'))
 		.sort();
-	if (distFiles.length === 0) throw new Error('dist/ holds no frontend files to embed');
+	if (distFiles.length === 0) throw new Error('dist/app/ holds no frontend files to embed');
 	const entries = distFiles.flatMap((path) => {
+		// Web paths are relative to the served root (dist/app/); packaging leftovers never ship.
 		const webPath = `/${relative(DIST, path).split(sep).join('/')}`;
 		// _headers is consumed by Workers Static Assets, never served: the equivalent headers
 		// are baked into the entry wrapper below, so the file itself stays out of the bundle.
 		if (webPath === '/_headers') return [];
 		const ext = extname(path).toLowerCase();
 		if (TEXT_TYPES.has(ext)) {
-			return [[webPath, { type: TEXT_TYPES.get(ext), body: readFileSync(path, 'utf8'), binary: false, immutable: webPath.startsWith('/assets/') }]];
+			return [
+				[
+					webPath,
+					{ type: TEXT_TYPES.get(ext), body: readFileSync(path, 'utf8'), binary: false, immutable: webPath.startsWith('/assets/') },
+				],
+			];
 		}
 		if (BINARY_TYPES.has(ext)) {
-			return [[webPath, { type: BINARY_TYPES.get(ext), body: readFileSync(path).toString('base64'), binary: true, immutable: webPath.startsWith('/assets/') }]];
+			return [
+				[
+					webPath,
+					{
+						type: BINARY_TYPES.get(ext),
+						body: readFileSync(path).toString('base64'),
+						binary: true,
+						immutable: webPath.startsWith('/assets/'),
+					},
+				],
+			];
 		}
 		throw new Error(`no content type for dist file ${webPath}; extend TEXT_TYPES/BINARY_TYPES first`);
 	});
@@ -174,11 +190,7 @@ export default {
 	const tmpZip = join(STAGE, 'bundle.zip');
 	execFileSync('zip', ['-X', '-9', '-q', '-r', tmpZip, 'wrangler.jsonc', 'worker.mjs'], { cwd: RELEASE_DIR, stdio: 'pipe' });
 	const staged = new Set(walk(RELEASE_DIR).map((path) => relative(RELEASE_DIR, path).split(sep).join('/')));
-	const zipped = new Set(
-		execFileSync('zipinfo', ['-1', tmpZip], { encoding: 'utf8' })
-			.trim()
-			.split('\n'),
-	);
+	const zipped = new Set(execFileSync('zipinfo', ['-1', tmpZip], { encoding: 'utf8' }).trim().split('\n'));
 	if (staged.size !== zipped.size || [...staged].some((name) => !zipped.has(name))) {
 		throw new Error(`zip holds [${[...zipped]}] but staged [${[...staged]}]`);
 	}

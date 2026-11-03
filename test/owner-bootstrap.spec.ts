@@ -238,10 +238,10 @@ describe('automatic first setup', () => {
 	});
 
 	it('uses a deployer-supplied setup password instead of generating one, and writes no private object for it', async () => {
-		e.OWNER_SETUP_PASSWORD = 'a-setup-password-from-deploy';
+		e.OWNER_SETUP_PASSWORD = 'a-setup-password-2-from-deploy';
 		try {
 			expect(((await (await methods()).json()) as any).setup).toBe('ready');
-			expect((await login('a-setup-password-from-deploy')).status).toBe(200);
+			expect((await login('a-setup-password-2-from-deploy')).status).toBe(200);
 			expect((await login('not-the-setup-password')).status).toBe(401);
 			// Nothing to reveal: the owner typed it at install, so no private object is written
 			expect(await bucket().head(credentialKey)).toBeNull();
@@ -252,10 +252,10 @@ describe('automatic first setup', () => {
 	});
 
 	it('ignores a setup password that fails the policy and generates one instead', async () => {
-		e.OWNER_SETUP_PASSWORD = 'short';
+		e.OWNER_SETUP_PASSWORD = 'letters-only-password';
 		try {
 			expect(((await (await methods()).json()) as any).setup).toBe('ready');
-			expect((await login('short')).status).toBe(401);
+			expect((await login('letters-only-password')).status).toBe(401);
 			const ok = await login(await credential());
 			expect(ok.status).toBe(200);
 			await ok.text();
@@ -266,17 +266,17 @@ describe('automatic first setup', () => {
 
 	it('ignores the setup password when an owner already exists or setup is not armed', async () => {
 		await createOwnerOnce(bucket(), 'the-existing-owner-password', TEST_JWT_SECRET);
-		e.OWNER_SETUP_PASSWORD = 'a-setup-password-from-deploy';
+		e.OWNER_SETUP_PASSWORD = 'a-setup-password-2-from-deploy';
 		try {
 			expect(((await (await methods()).json()) as any).setup).toBe('ready');
 			expect((await login('the-existing-owner-password')).status).toBe(200);
-			expect((await login('a-setup-password-from-deploy')).status).toBe(401);
+			expect((await login('a-setup-password-2-from-deploy')).status).toBe(401);
 			expect(await bucket().head(credentialKey)).toBeNull();
 		} finally {
 			delete e.OWNER_SETUP_PASSWORD;
 		}
 		await resetStorage();
-		e.OWNER_SETUP_PASSWORD = 'a-setup-password-from-deploy';
+		e.OWNER_SETUP_PASSWORD = 'a-setup-password-2-from-deploy';
 		e.SETUP_ARMED = '';
 		try {
 			expect(((await (await methods()).json()) as any).setup).toBe('password-missing');
